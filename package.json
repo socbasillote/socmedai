@@ -1,0 +1,17 @@
+{
+  "name": "storm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-powered social media management application",
+  "workspaces": [
+    "apps/web",
+    "apps/api",
+    "packages/shared"
+  ],
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}
