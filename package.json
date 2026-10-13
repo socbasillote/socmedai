@@ -13,5 +13,8 @@
   },
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
   }
 }
