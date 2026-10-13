@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
 import {
   Activity,
   ArrowRight,
@@ -32,6 +33,16 @@ const navigation = [
   { label: "Media library", icon: Image },
   { label: "Publishing", icon: Send },
 ];
+
+const pagePaths: Record<string, string> = {
+  Overview: "/",
+  "Content calendar": "/calendar",
+  "Content studio": "/studio",
+  "Media library": "/media",
+  Publishing: "/publishing",
+  Analytics: "/analytics",
+  Settings: "/settings",
+};
 
 const initialPosts = [
   {
@@ -74,7 +85,6 @@ const weeklyActivity = [
 ];
 
 function App() {
-  const [activePage, setActivePage] = useState("Overview");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -82,6 +92,14 @@ function App() {
   const [draftCount, setDraftCount] = useState(12);
   const [posts, setPosts] = useState(initialPosts);
   const [notice, setNotice] = useState("");
+
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const activePage =
+    Object.entries(pagePaths).find(
+      ([, path]) => path === location.pathname,
+    )?.[0] ?? "Not found";
 
   const filteredPosts = posts.filter((post) =>
     `${post.title} ${post.platform} ${post.status}`
@@ -117,7 +135,7 @@ function App() {
   }
 
   function selectPage(label: string) {
-    setActivePage(label);
+    navigate(pagePaths[label] ?? "/");
     setMobileMenuOpen(false);
   }
 
@@ -137,8 +155,8 @@ function App() {
         }`}
       >
         <div className="flex h-20 items-center justify-between border-b border-white/10 px-6">
-          <a
-            href="#overview"
+          <Link
+            to="/"
             className="flex items-center gap-3"
             onClick={() => selectPage("Overview")}
           >
@@ -148,7 +166,7 @@ function App() {
             <span className="text-2xl font-bold tracking-tight text-white">
               storm<span className="text-violet-400">.</span>
             </span>
-          </a>
+          </Link>
 
           <button
             aria-label="Close menu"
@@ -242,7 +260,7 @@ function App() {
               Your ideas, ready for the next post.
             </p>
             <button
-              onClick={() => setActivePage("Content studio")}
+              onClick={() => selectPage("Content studio")}
               className="mt-3 flex items-center gap-2 text-xs font-semibold text-violet-300 hover:text-white"
             >
               Explore studio <ArrowRight size={14} />
@@ -333,254 +351,288 @@ function App() {
               </button>
             </div>
           )}
-
-          <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-            <div>
-              <p className="mb-2 text-sm font-medium text-violet-600">
-                Monday, October 12
-              </p>
-              <h2 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
-                Good evening, creator <span aria-hidden="true">✦</span>
-              </h2>
-              <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500 sm:text-base">
-                Here's what's happening with your content today. Let's make
-                something worth sharing.
-              </p>
-            </div>
-
-            <button
-              onClick={() => {
-                setNotice("");
-                setCreateOpen(true);
-              }}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-600/20 transition hover:bg-violet-700"
-            >
-              <Plus size={18} />
-              Create post
-            </button>
-          </div>
-
-          <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard
-              title="Total published"
-              value="128"
-              change="+12.8%"
-              detail="vs. last month"
-              icon={Send}
-              iconClass="bg-violet-50 text-violet-600"
-            />
-            <MetricCard
-              title="Scheduled posts"
-              value="08"
-              change="3 upcoming"
-              detail="Next 7 days"
-              icon={CalendarDays}
-              iconClass="bg-blue-50 text-blue-600"
-            />
-            <MetricCard
-              title="Drafts"
-              value={String(draftCount).padStart(2, "0")}
-              change="Keep creating"
-              detail="Ready when you are"
-              icon={FileText}
-              iconClass="bg-amber-50 text-amber-600"
-            />
-            <MetricCard
-              title="Engagement rate"
-              value="4.82%"
-              change="+0.6%"
-              detail="vs. last month"
-              icon={Heart}
-              iconClass="bg-rose-50 text-rose-600"
-            />
-          </div>
-
-          <div className="mb-8 grid gap-6 xl:grid-cols-[1.6fr_1fr]">
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-              <div className="mb-8 flex flex-wrap items-start justify-between gap-3">
+          {activePage === "Overview" ? (
+            <>
+              <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">
-                    Publishing activity
-                  </h3>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Your weekly content overview
+                  <p className="mb-2 text-sm font-medium text-violet-600">
+                    Monday, October 12
+                  </p>
+                  <h2 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
+                    Good evening, creator <span aria-hidden="true">✦</span>
+                  </h2>
+                  <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500 sm:text-base">
+                    Here's what's happening with your content today. Let's make
+                    something worth sharing.
                   </p>
                 </div>
-                <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                  This week <ChevronDown size={14} />
+
+                <button
+                  onClick={() => {
+                    setNotice("");
+                    setCreateOpen(true);
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-600/20 transition hover:bg-violet-700"
+                >
+                  <Plus size={18} />
+                  Create post
                 </button>
               </div>
 
-              <div className="mb-5 flex flex-wrap items-end gap-3">
-                <span className="text-4xl font-bold tracking-tight text-slate-950">
-                  24
-                </span>
-                <span className="mb-1 flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
-                  <TrendingUp size={13} /> 18.4%
-                </span>
-                <span className="mb-1 text-xs text-slate-400">
-                  posts published this week
-                </span>
+              <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <MetricCard
+                  title="Total published"
+                  value="128"
+                  change="+12.8%"
+                  detail="vs. last month"
+                  icon={Send}
+                  iconClass="bg-violet-50 text-violet-600"
+                />
+                <MetricCard
+                  title="Scheduled posts"
+                  value="08"
+                  change="3 upcoming"
+                  detail="Next 7 days"
+                  icon={CalendarDays}
+                  iconClass="bg-blue-50 text-blue-600"
+                />
+                <MetricCard
+                  title="Drafts"
+                  value={String(draftCount).padStart(2, "0")}
+                  change="Keep creating"
+                  detail="Ready when you are"
+                  icon={FileText}
+                  iconClass="bg-amber-50 text-amber-600"
+                />
+                <MetricCard
+                  title="Engagement rate"
+                  value="4.82%"
+                  change="+0.6%"
+                  detail="vs. last month"
+                  icon={Heart}
+                  iconClass="bg-rose-50 text-rose-600"
+                />
               </div>
 
-              <div
-                className="flex h-48 items-end justify-between gap-3 border-b border-slate-100 pb-3"
-                aria-label="Sample publishing activity bar chart"
-              >
-                {weeklyActivity.map((item, index) => (
-                  <div
-                    key={item.day}
-                    className="flex h-full flex-1 flex-col items-center justify-end gap-3"
-                  >
-                    <div className="flex h-full w-full items-end justify-center">
-                      <div
-                        className={`w-full max-w-12 rounded-t-lg transition hover:opacity-75 ${
-                          index === 3 ? "bg-violet-600" : "bg-violet-100"
-                        }`}
-                        style={{ height: `${item.height}%` }}
-                        title={`${item.day}: sample activity`}
-                      />
+              <div className="mb-8 grid gap-6 xl:grid-cols-[1.6fr_1fr]">
+                <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                  <div className="mb-8 flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900">
+                        Publishing activity
+                      </h3>
+                      <p className="mt-1 text-sm text-slate-500">
+                        Your weekly content overview
+                      </p>
                     </div>
-                    <span
-                      className={`text-xs ${
-                        index === 3
-                          ? "font-bold text-violet-700"
-                          : "text-slate-400"
-                      }`}
-                    >
-                      {item.day}
+                    <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                      This week <ChevronDown size={14} />
+                    </button>
+                  </div>
+
+                  <div className="mb-5 flex flex-wrap items-end gap-3">
+                    <span className="text-4xl font-bold tracking-tight text-slate-950">
+                      24
+                    </span>
+                    <span className="mb-1 flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
+                      <TrendingUp size={13} /> 18.4%
+                    </span>
+                    <span className="mb-1 text-xs text-slate-400">
+                      posts published this week
                     </span>
                   </div>
-                ))}
+
+                  <div
+                    className="flex h-48 items-end justify-between gap-3 border-b border-slate-100 pb-3"
+                    aria-label="Sample publishing activity bar chart"
+                  >
+                    {weeklyActivity.map((item, index) => (
+                      <div
+                        key={item.day}
+                        className="flex h-full flex-1 flex-col items-center justify-end gap-3"
+                      >
+                        <div className="flex h-full w-full items-end justify-center">
+                          <div
+                            className={`w-full max-w-12 rounded-t-lg transition hover:opacity-75 ${
+                              index === 3 ? "bg-violet-600" : "bg-violet-100"
+                            }`}
+                            style={{ height: `${item.height}%` }}
+                            title={`${item.day}: sample activity`}
+                          />
+                        </div>
+                        <span
+                          className={`text-xs ${
+                            index === 3
+                              ? "font-bold text-violet-700"
+                              : "text-slate-400"
+                          }`}
+                        >
+                          {item.day}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-4 text-xs text-slate-400">
+                    Illustrative activity data. Analytics will be connected
+                    later.
+                  </p>
+                </section>
+
+                <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-violet-700 via-violet-600 to-indigo-600 p-6 text-white shadow-lg shadow-violet-600/10">
+                  <div className="absolute -right-10 -top-10 h-44 w-44 rounded-full border border-white/10" />
+                  <div className="absolute -right-4 -top-4 h-32 w-32 rounded-full border border-white/10" />
+
+                  <div className="relative">
+                    <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-medium">
+                      <Sparkles size={14} /> Your creative space
+                    </span>
+                    <h3 className="mt-6 max-w-xs text-2xl font-bold leading-tight">
+                      Great content starts with one idea.
+                    </h3>
+                    <p className="mt-3 max-w-sm text-sm leading-6 text-violet-100">
+                      Turn your ideas into on-brand visuals and content for your
+                      social channels.
+                    </p>
+
+                    <button
+                      onClick={() => selectPage("Content studio")}
+                      className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-violet-700 transition hover:bg-violet-50"
+                    >
+                      Open content studio <ArrowRight size={16} />
+                    </button>
+                  </div>
+
+                  <div className="relative mt-8 grid grid-cols-3 gap-2">
+                    <div className="flex h-20 items-center justify-center rounded-xl border border-white/10 bg-white/10">
+                      <Image size={27} />
+                    </div>
+                    <div className="flex h-20 items-center justify-center rounded-xl border border-white/10 bg-white/10">
+                      <Sparkles size={27} />
+                    </div>
+                    <div className="flex h-20 items-center justify-center rounded-xl border border-white/10 bg-white/10">
+                      <MessageCircle size={27} />
+                    </div>
+                  </div>
+                </section>
               </div>
-              <p className="mt-4 text-xs text-slate-400">
-                Illustrative activity data. Analytics will be connected later.
-              </p>
-            </section>
 
-            <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-violet-700 via-violet-600 to-indigo-600 p-6 text-white shadow-lg shadow-violet-600/10">
-              <div className="absolute -right-10 -top-10 h-44 w-44 rounded-full border border-white/10" />
-              <div className="absolute -right-4 -top-4 h-32 w-32 rounded-full border border-white/10" />
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5 sm:p-6">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">
+                      Recent posts
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Keep track of your latest content
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => selectPage("Publishing")}
+                    className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-violet-600 hover:bg-violet-50"
+                  >
+                    View publishing <ArrowUpRight size={16} />
+                  </button>
+                </div>
 
-              <div className="relative">
-                <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-medium">
-                  <Sparkles size={14} /> Your creative space
-                </span>
-                <h3 className="mt-6 max-w-xs text-2xl font-bold leading-tight">
-                  Great content starts with one idea.
-                </h3>
-                <p className="mt-3 max-w-sm text-sm leading-6 text-violet-100">
-                  Turn your ideas into on-brand visuals and content for your
-                  social channels.
+                <div className="divide-y divide-slate-100">
+                  {filteredPosts.length === 0 ? (
+                    <div className="p-10 text-center text-sm text-slate-500">
+                      No posts match your search.
+                    </div>
+                  ) : (
+                    filteredPosts.map((post) => (
+                      <div
+                        key={post.id}
+                        className="flex flex-wrap items-center gap-4 px-5 py-4 transition hover:bg-slate-50/70 sm:px-6"
+                      >
+                        <div
+                          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xs font-bold ${post.color}`}
+                        >
+                          {post.initials}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-slate-800">
+                            {post.title}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-400">
+                            {post.platform}
+                          </p>
+                        </div>
+
+                        <div className="hidden items-center gap-2 text-xs text-slate-500 md:flex">
+                          <Clock3 size={14} />
+                          {post.date}
+                        </div>
+
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            post.status === "Published"
+                              ? "bg-emerald-50 text-emerald-700"
+                              : post.status === "Scheduled"
+                                ? "bg-blue-50 text-blue-700"
+                                : "bg-amber-50 text-amber-700"
+                          }`}
+                        >
+                          {post.status}
+                        </span>
+
+                        <button
+                          aria-label={`More options for ${post.title}`}
+                          onClick={() =>
+                            setNotice(`Selected post: ${post.title}`)
+                          }
+                          className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        >
+                          <MoreHorizontal size={19} />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="border-t border-slate-100 px-5 py-4 sm:px-6">
+                  <p className="text-xs text-slate-400">
+                    Sample content for the initial dashboard. Post records are
+                    not persisted to the database yet.
+                  </p>
+                </div>
+              </section>
+
+              <footer className="flex flex-col justify-between gap-2 py-8 text-xs text-slate-400 sm:flex-row">
+                <p>© 2026 Storm. Create something remarkable.</p>
+                <p>Workspace preview · Sample data</p>
+              </footer>
+            </>
+          ) : (
+            <section className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm sm:p-12">
+              <div className="mx-auto max-w-xl text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-100 text-violet-700">
+                  <Sparkles size={26} />
+                </div>
+
+                <h2 className="mt-5 text-2xl font-bold tracking-tight text-slate-950">
+                  {activePage === "Not found"
+                    ? "Page not found"
+                    : `${activePage} is coming soon`}
+                </h2>
+
+                <p className="mt-3 text-sm leading-6 text-slate-500">
+                  {activePage === "Not found"
+                    ? "This address does not match a Storm page."
+                    : "This section is part of the Storm workspace. Its features will be implemented in a later step."}
                 </p>
 
                 <button
-                  onClick={() => selectPage("Content studio")}
-                  className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-violet-700 transition hover:bg-violet-50"
+                  onClick={() => selectPage("Overview")}
+                  className="mt-6 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-violet-700"
                 >
-                  Open content studio <ArrowRight size={16} />
+                  <LayoutDashboard size={17} />
+                  Return to overview
                 </button>
               </div>
-
-              <div className="relative mt-8 grid grid-cols-3 gap-2">
-                <div className="flex h-20 items-center justify-center rounded-xl border border-white/10 bg-white/10">
-                  <Image size={27} />
-                </div>
-                <div className="flex h-20 items-center justify-center rounded-xl border border-white/10 bg-white/10">
-                  <Sparkles size={27} />
-                </div>
-                <div className="flex h-20 items-center justify-center rounded-xl border border-white/10 bg-white/10">
-                  <MessageCircle size={27} />
-                </div>
-              </div>
             </section>
-          </div>
-
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5 sm:p-6">
-              <div>
-                <h3 className="text-base font-bold text-slate-900">
-                  Recent posts
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Keep track of your latest content
-                </p>
-              </div>
-              <button
-                onClick={() => selectPage("Publishing")}
-                className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-violet-600 hover:bg-violet-50"
-              >
-                View publishing <ArrowUpRight size={16} />
-              </button>
-            </div>
-
-            <div className="divide-y divide-slate-100">
-              {filteredPosts.length === 0 ? (
-                <div className="p-10 text-center text-sm text-slate-500">
-                  No posts match your search.
-                </div>
-              ) : (
-                filteredPosts.map((post) => (
-                  <div
-                    key={post.id}
-                    className="flex flex-wrap items-center gap-4 px-5 py-4 transition hover:bg-slate-50/70 sm:px-6"
-                  >
-                    <div
-                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xs font-bold ${post.color}`}
-                    >
-                      {post.initials}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-slate-800">
-                        {post.title}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-400">
-                        {post.platform}
-                      </p>
-                    </div>
-
-                    <div className="hidden items-center gap-2 text-xs text-slate-500 md:flex">
-                      <Clock3 size={14} />
-                      {post.date}
-                    </div>
-
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                        post.status === "Published"
-                          ? "bg-emerald-50 text-emerald-700"
-                          : post.status === "Scheduled"
-                            ? "bg-blue-50 text-blue-700"
-                            : "bg-amber-50 text-amber-700"
-                      }`}
-                    >
-                      {post.status}
-                    </span>
-
-                    <button
-                      aria-label={`More options for ${post.title}`}
-                      onClick={() => setNotice(`Selected post: ${post.title}`)}
-                      className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                    >
-                      <MoreHorizontal size={19} />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="border-t border-slate-100 px-5 py-4 sm:px-6">
-              <p className="text-xs text-slate-400">
-                Sample content for the initial dashboard. Post records are not
-                persisted to the database yet.
-              </p>
-            </div>
-          </section>
-
-          <footer className="flex flex-col justify-between gap-2 py-8 text-xs text-slate-400 sm:flex-row">
-            <p>© 2026 Storm. Create something remarkable.</p>
-            <p>Workspace preview · Sample data</p>
-          </footer>
+          )}
         </main>
       </div>
 
