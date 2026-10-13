@@ -25,6 +25,8 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 
 const navigation = [
   { label: "Overview", icon: LayoutDashboard },
@@ -381,6 +383,7 @@ function App() {
 
               <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <MetricCard
+                  useSharedCard
                   title="Total published"
                   value="128"
                   change="+12.8%"
@@ -692,18 +695,21 @@ function App() {
                 {caption.length} characters
               </span>
               <div className="flex gap-2">
-                <button
+                <Button
+                  type="button"
+                  variant="outline"
                   onClick={() => setCreateOpen(false)}
-                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  className="rounded-xl border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
+                  type="button"
                   onClick={saveDraft}
                   className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700"
                 >
                   Save draft
-                </button>
+                </Button>
               </div>
             </div>
           </section>
@@ -720,6 +726,7 @@ function MetricCard({
   detail,
   icon: Icon,
   iconClass,
+  useSharedCard = false,
 }: {
   title: string;
   value: string;
@@ -727,9 +734,10 @@ function MetricCard({
   detail: string;
   icon: typeof Activity;
   iconClass: string;
+  useSharedCard?: boolean;
 }) {
-  return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+  const content = (
+    <>
       <div className="flex items-start justify-between gap-3">
         <div
           className={`flex h-11 w-11 items-center justify-center rounded-xl ${iconClass}`}
@@ -760,8 +768,17 @@ function MetricCard({
       </div>
 
       <p className="mt-2 text-xs text-slate-400">{detail}</p>
-    </section>
+    </>
   );
+
+  const className =
+    "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ring-0 transition hover:-translate-y-0.5 hover:shadow-md";
+
+  if (useSharedCard) {
+    return <Card className={className}>{content}</Card>;
+  }
+
+  return <section className={className}>{content}</section>;
 }
 
 export default App;
