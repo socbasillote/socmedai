@@ -38,6 +38,12 @@ import {
   type Workspace,
 } from "@/lib/workspaces";
 
+import {
+  clearStoredWorkspaceId,
+  readStoredWorkspaceId,
+  storeWorkspaceId,
+} from "@/lib/workspaceSelection";
+
 const navigation = [
   { label: "Overview", icon: LayoutDashboard },
   { label: "Content calendar", icon: CalendarDays },
@@ -128,16 +134,23 @@ function DashboardApp() {
 
         if (active) {
           setWorkspaces(result);
-          setSelectedWorkspaceId((currentId) => {
-            if (
-              currentId &&
-              result.some((workspace) => workspace._id === currentId)
-            ) {
-              return currentId;
-            }
 
-            return result[0]?._id ?? "";
-          });
+          const storedId = readStoredWorkspaceId();
+
+          const validStoredWorkspace = storedId
+            ? result.find((workspace) => workspace._id === storedId)
+            : undefined;
+
+          const nextWorkspaceId =
+            validStoredWorkspace?._id ?? result[0]?._id ?? "";
+
+          setSelectedWorkspaceId(nextWorkspaceId);
+
+          if (nextWorkspaceId) {
+            storeWorkspaceId(nextWorkspaceId);
+          } else {
+            clearStoredWorkspaceId();
+          }
         }
       } catch (error) {
         if (active) {
@@ -234,6 +247,7 @@ function DashboardApp() {
 
       setWorkspaces((current) => [workspace, ...current]);
       setSelectedWorkspaceId(workspace._id);
+      storeWorkspaceId(workspace._id);
       setNewWorkspaceName("");
       setCreateWorkspaceOpen(false);
       setNotice(`Workspace "${workspace.name}" created successfully.`);
@@ -328,6 +342,7 @@ function DashboardApp() {
                     aria-selected={workspace._id === selectedWorkspaceId}
                     onClick={() => {
                       setSelectedWorkspaceId(workspace._id);
+                      storeWorkspaceId(workspace._id);
                       setWorkspaceMenuOpen(false);
                     }}
                     className={`w-full rounded-lg px-3 py-2 text-left text-sm transition ${
