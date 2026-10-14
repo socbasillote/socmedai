@@ -32,7 +32,11 @@ import { Card } from "@/components/ui/card";
 
 import AuthPage from "@/auth/AuthPage";
 import SignOutButton from "@/auth/SignOutButton";
-import { getWorkspaces, type Workspace } from "@/lib/workspaces";
+import {
+  createWorkspace,
+  getWorkspaces,
+  type Workspace,
+} from "@/lib/workspaces";
 
 const navigation = [
   { label: "Overview", icon: LayoutDashboard },
@@ -105,6 +109,12 @@ function DashboardApp() {
   const [workspacesLoading, setWorkspacesLoading] = useState(true);
   const [workspaceError, setWorkspaceError] = useState("");
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+  const [createWorkspaceError, setCreateWorkspaceError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -201,6 +211,41 @@ function DashboardApp() {
     setMobileMenuOpen(false);
   }
 
+  async function handleCreateWorkspace() {
+    const name = newWorkspaceName.trim();
+
+    if (!name) {
+      setCreateWorkspaceError("Workspace name is required.");
+      return;
+    }
+
+    if (name.length > 100) {
+      setCreateWorkspaceError(
+        "Workspace name must be 100 characters or fewer.",
+      );
+      return;
+    }
+
+    setCreatingWorkspace(true);
+    setCreateWorkspaceError("");
+
+    try {
+      const workspace = await createWorkspace(name);
+
+      setWorkspaces((current) => [workspace, ...current]);
+      setSelectedWorkspaceId(workspace._id);
+      setNewWorkspaceName("");
+      setCreateWorkspaceOpen(false);
+      setNotice(`Workspace "${workspace.name}" created successfully.`);
+    } catch (error) {
+      setCreateWorkspaceError(
+        error instanceof Error ? error.message : "Unable to create workspace.",
+      );
+    } finally {
+      setCreatingWorkspace(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       {mobileMenuOpen && (
@@ -240,28 +285,84 @@ function DashboardApp() {
         </div>
 
         <div className="border-b border-white/10 p-4">
-          <div className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3 text-left">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-200 font-bold text-amber-900">
-              {(selectedWorkspace?.name ?? "W").charAt(0).toUpperCase()}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-white">
-                {workspacesLoading
-                  ? "Loading workspaces..."
-                  : (selectedWorkspace?.name ?? "No workspace yet")}
-              </p>
-              <p className="mt-0.5 truncate text-xs text-slate-400">
-                {workspaceError
-                  ? "Unable to load workspaces"
-                  : workspaces.length > 0
-                    ? `${workspaces.length} workspace${workspaces.length === 1 ? "" : "s"}`
-                    : workspacesLoading
-                      ? "Please wait"
-                      : "Create your first workspace"}
-              </p>
-            </div>
-            <ChevronDown size={16} className="shrink-0" />
+          <div className="relative">
+            <button
+              type="button"
+              aria-expanded={workspaceMenuOpen}
+              aria-haspopup="listbox"
+              disabled={workspacesLoading || workspaces.length === 0}
+              onClick={() => setWorkspaceMenuOpen((open) => !open)}
+              className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3 text-left hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-200 font-bold text-amber-900">
+                {(selectedWorkspace?.name ?? "W").charAt(0).toUpperCase()}
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-white">
+                  {workspacesLoading
+                    ? "Loading workspaces..."
+                    : (selectedWorkspace?.name ?? "No workspace yet")}
+                </p>
+                <p className="mt-0.5 truncate text-xs text-slate-400">
+                  {workspaceError
+                    ? "Unable to load workspaces"
+                    : `${workspaces.length} workspace${workspaces.length === 1 ? "" : "s"}`}
+                </p>
+              </div>
+
+              <ChevronDown size={16} className="shrink-0" />
+            </button>
+
+            {workspaceMenuOpen && (
+              <div
+                role="listbox"
+                aria-label="Select workspace"
+                className="absolute left-0 right-0 top-full z-50 mt-2 rounded-xl border border-white/10 bg-slate-900 p-2 shadow-xl"
+              >
+                {workspaces.map((workspace) => (
+                  <button
+                    key={workspace._id}
+                    type="button"
+                    role="option"
+                    aria-selected={workspace._id === selectedWorkspaceId}
+                    onClick={() => {
+                      setSelectedWorkspaceId(workspace._id);
+                      setWorkspaceMenuOpen(false);
+                    }}
+                    className={`w-full rounded-lg px-3 py-2 text-left text-sm transition ${
+                      workspace._id === selectedWorkspaceId
+                        ? "bg-violet-500/20 text-violet-200"
+                        : "text-slate-300 hover:bg-white/5 hover:text-white"
+                    }`}
+                  >
+                    <span className="block truncate font-medium">
+                      {workspace.name}
+                    </span>
+                    <span className="mt-1 block text-xs text-slate-400">
+                      {workspace._id === selectedWorkspaceId
+                        ? "Currently selected"
+                        : "Switch workspace"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setCreateWorkspaceError("");
+                setNewWorkspaceName("");
+                setWorkspaceMenuOpen(false);
+                setCreateWorkspaceOpen(true);
+              }}
+              className="mt-2 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-violet-300 transition hover:bg-white/5 hover:text-white"
+            >
+              <Plus size={16} />
+              Create workspace
+            </button>
           </div>
+
           {workspaceError && (
             <p role="alert" className="mt-2 px-1 text-xs text-rose-300">
               {workspaceError}
@@ -718,6 +819,101 @@ function DashboardApp() {
           )}
         </main>
       </div>
+
+      {createWorkspaceOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !creatingWorkspace) {
+              setCreateWorkspaceOpen(false);
+            }
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-workspace-title"
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+          >
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2
+                  id="create-workspace-title"
+                  className="text-xl font-bold text-slate-950"
+                >
+                  Create a workspace
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Create a separate space for a brand, client, or team.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                aria-label="Close dialog"
+                disabled={creatingWorkspace}
+                onClick={() => setCreateWorkspaceOpen(false)}
+                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+              >
+                <X size={19} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleCreateWorkspace();
+              }}
+            >
+              <label
+                htmlFor="workspace-name"
+                className="mb-2 block text-sm font-semibold text-slate-700"
+              >
+                Workspace name
+              </label>
+
+              <input
+                id="workspace-name"
+                autoFocus
+                maxLength={100}
+                value={newWorkspaceName}
+                onChange={(event) => {
+                  setNewWorkspaceName(event.target.value);
+                  setCreateWorkspaceError("");
+                }}
+                placeholder="e.g. Acme Marketing"
+                disabled={creatingWorkspace}
+                className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-violet-400 focus:ring-4 focus:ring-violet-100 disabled:bg-slate-50"
+              />
+
+              {createWorkspaceError && (
+                <p role="alert" className="mt-2 text-sm text-rose-600">
+                  {createWorkspaceError}
+                </p>
+              )}
+
+              <div className="mt-5 flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={creatingWorkspace}
+                  onClick={() => setCreateWorkspaceOpen(false)}
+                >
+                  Cancel
+                </Button>
+
+                <Button
+                  type="submit"
+                  disabled={creatingWorkspace}
+                  className="bg-violet-600 text-white hover:bg-violet-700"
+                >
+                  {creatingWorkspace ? "Creating..." : "Create workspace"}
+                </Button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
 
       {createOpen && (
         <div
