@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate, Navigate } from "react-router";
+import { useAuth } from "@/auth/useAuth";
+
 import {
   Activity,
   ArrowRight,
@@ -29,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 import AuthPage from "@/auth/AuthPage";
+import SignOutButton from "@/auth/SignOutButton";
 
 const navigation = [
   { label: "Overview", icon: LayoutDashboard },
@@ -336,6 +339,8 @@ function DashboardApp() {
                 className="hidden text-slate-400 sm:block"
               />
             </button>
+
+            <SignOutButton />
           </div>
         </header>
 
@@ -785,8 +790,35 @@ function MetricCard({
 
 export default function App() {
   const location = useLocation();
+  const { user, loading } = useAuth();
 
-  if (location.pathname === "/login" || location.pathname === "/signup") {
+  const isAuthRoute =
+    location.pathname === "/login" || location.pathname === "/signup";
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div
+            className="mx-auto mb-4 size-8 animate-spin rounded-full border-4 border-slate-200 border-t-slate-900"
+            role="status"
+            aria-label="Loading"
+          />
+          <p className="text-sm text-slate-600">Restoring your session...</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!user && !isAuthRoute) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+
+  if (user && isAuthRoute) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (isAuthRoute) {
     return <AuthPage />;
   }
 
