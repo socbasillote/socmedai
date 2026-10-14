@@ -10,6 +10,7 @@ import helmet from "helmet";
 
 import { env } from "./config/env.js";
 import { timeStamp } from "console";
+import { requireAuth } from "./auth/requireAuth.js";
 
 export const app = express();
 
@@ -48,6 +49,13 @@ app.get("/api/health", (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+app.get("/api/me", requireAuth, (_req, res) => {
+  res.status(200).json({
+    user: res.locals.authUser,
+  });
+});
+
 // Handle unknown routes.
 app.use((_req: Request, res: Response) => {
   res.status(404).json({

@@ -25,12 +25,9 @@ const envSchema = z.object({
     .min(1)
     .default("mongodb://127.0.0.1:27017/storm"),
 
-  SUPABASE_URL: z.preprocess(
-    (value) => (value === "" ? undefined : value),
-    z.string().url().optional(),
-  ),
+  SUPABASE_URL: z.string().trim().url(),
 
-  SUPABASE_ANON_KEY: optionalString,
+  SUPABASE_ANON_KEY: z.string().trim().min(1),
   SUPABASE_SERVICE_ROLE_KEY: optionalString,
   OPENAI_API_KEY: optionalString,
 });
