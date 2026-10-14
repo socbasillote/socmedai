@@ -12,6 +12,8 @@ import { env } from "./config/env.js";
 import { timeStamp } from "console";
 import { requireAuth } from "./auth/requireAuth.js";
 
+import workspaceRoutes from "./routes/workspaceRoutes.js";
+
 export const app = express();
 
 // Security headers.
@@ -55,6 +57,8 @@ app.get("/api/me", requireAuth, (_req, res) => {
     user: res.locals.authUser,
   });
 });
+
+app.use("/api/workspaces", workspaceRoutes);
 
 // Handle unknown routes.
 app.use((_req: Request, res: Response) => {

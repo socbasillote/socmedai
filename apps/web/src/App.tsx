@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate, Navigate } from "react-router";
 import { useAuth } from "@/auth/useAuth";
 
@@ -32,6 +32,7 @@ import { Card } from "@/components/ui/card";
 
 import AuthPage from "@/auth/AuthPage";
 import SignOutButton from "@/auth/SignOutButton";
+import { getWorkspaces, type Workspace } from "@/lib/workspaces";
 
 const navigation = [
   { label: "Overview", icon: LayoutDashboard },
@@ -99,6 +100,45 @@ function DashboardApp() {
   const [draftCount, setDraftCount] = useState(12);
   const [posts, setPosts] = useState(initialPosts);
   const [notice, setNotice] = useState("");
+
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspacesLoading, setWorkspacesLoading] = useState(true);
+  const [workspaceError, setWorkspaceError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadWorkspaces() {
+      setWorkspacesLoading(true);
+      setWorkspaceError("");
+
+      try {
+        const result = await getWorkspaces();
+
+        if (active) {
+          setWorkspaces(result);
+        }
+      } catch (error) {
+        if (active) {
+          setWorkspaceError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load your workspaces.",
+          );
+        }
+      } finally {
+        if (active) {
+          setWorkspacesLoading(false);
+        }
+      }
+    }
+
+    void loadWorkspaces();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -185,18 +225,33 @@ function DashboardApp() {
         </div>
 
         <div className="border-b border-white/10 p-4">
-          <button className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3 text-left hover:bg-white/10">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-200 font-bold text-amber-900">
-              S
+          <div className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3 text-left">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-200 font-bold text-amber-900">
+              {(workspaces[0]?.name ?? "W").charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-white">
-                Studio North
+                {workspacesLoading
+                  ? "Loading workspaces..."
+                  : (workspaces[0]?.name ?? "No workspace yet")}
               </p>
-              <p className="mt-0.5 text-xs text-slate-400">Free workspace</p>
+              <p className="mt-0.5 truncate text-xs text-slate-400">
+                {workspaceError
+                  ? "Unable to load workspaces"
+                  : workspaces.length > 0
+                    ? `${workspaces.length} workspace${workspaces.length === 1 ? "" : "s"}`
+                    : workspacesLoading
+                      ? "Please wait"
+                      : "Create your first workspace"}
+              </p>
             </div>
-            <ChevronDown size={16} />
-          </button>
+            <ChevronDown size={16} className="shrink-0" />
+          </div>
+          {workspaceError && (
+            <p role="alert" className="mt-2 px-1 text-xs text-rose-300">
+              {workspaceError}
+            </p>
+          )}
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-6">
@@ -293,7 +348,10 @@ function DashboardApp() {
             </button>
             <div className="min-w-0">
               <p className="text-xs font-medium text-slate-500">
-                Studio North / Workspace
+                {workspacesLoading
+                  ? "Loading workspace..."
+                  : (workspaces[0]?.name ?? "No workspace")}
+                {" / Workspace"}
               </p>
               <h1 className="mt-1 truncate text-lg font-bold tracking-tight sm:text-xl">
                 {activePage}

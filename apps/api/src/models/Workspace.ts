@@ -1,4 +1,4 @@
-import { model, models, Schema } from "mongoose";
+import mongoose, { Schema } from "mongoose";
 
 const workspaceSchema = new Schema(
   {
@@ -28,6 +28,7 @@ const workspaceSchema = new Schema(
 
 workspaceSchema.index({ ownerUserId: 1, updatedAt: -1 });
 
-const Workspace = models.Workspace ?? model("Workspace", workspaceSchema);
+const Workspace =
+  mongoose.models.Workspace ?? mongoose.model("Workspace", workspaceSchema);
 
 export default Workspace;

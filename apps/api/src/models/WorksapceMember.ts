@@ -1,4 +1,4 @@
-import { model, models, Schema } from "mongoose";
+import mongoose, { Schema } from "mongoose";
 
 export const WORKSPACE_ROLES = ["admin", "editor", "viewer"] as const;
 
@@ -35,6 +35,7 @@ workspaceMemberSchema.index({ workspaceId: 1, userId: 1 }, { unique: true });
 workspaceMemberSchema.index({ userId: 1, workspaceId: 1 });
 
 const WorkspaceMember =
-  models.WorkspaceMember ?? model("WorkspaceMember", workspaceMemberSchema);
+  mongoose.models.WorkspaceMember ??
+  mongoose.model("WorkspaceMember", workspaceMemberSchema);
 
 export default WorkspaceMember;

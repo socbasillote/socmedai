@@ -1,4 +1,4 @@
-import { model, models, Schema } from "mongoose";
+import mongoose, { Schema } from "mongoose";
 
 const userProfileSchema = new Schema(
   {
@@ -30,6 +30,7 @@ const userProfileSchema = new Schema(
 );
 
 const UserProfile =
-  models.UserProfile ?? model("UserProfile", userProfileSchema);
+  mongoose.models.UserProfile ??
+  mongoose.model("UserProfile", userProfileSchema);
 
 export default UserProfile;
