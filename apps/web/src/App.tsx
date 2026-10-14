@@ -28,6 +28,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
+import AuthPage from "@/auth/AuthPage";
+
 const navigation = [
   { label: "Overview", icon: LayoutDashboard },
   { label: "Content calendar", icon: CalendarDays },
@@ -86,7 +88,7 @@ const weeklyActivity = [
   { day: "Sun", height: 48 },
 ];
 
-function App() {
+function DashboardApp() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -781,4 +783,12 @@ function MetricCard({
   return <section className={className}>{content}</section>;
 }
 
-export default App;
+export default function App() {
+  const location = useLocation();
+
+  if (location.pathname === "/login" || location.pathname === "/signup") {
+    return <AuthPage />;
+  }
+
+  return <DashboardApp />;
+}
