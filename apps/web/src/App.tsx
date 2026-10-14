@@ -104,6 +104,7 @@ function DashboardApp() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspacesLoading, setWorkspacesLoading] = useState(true);
   const [workspaceError, setWorkspaceError] = useState("");
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -117,6 +118,16 @@ function DashboardApp() {
 
         if (active) {
           setWorkspaces(result);
+          setSelectedWorkspaceId((currentId) => {
+            if (
+              currentId &&
+              result.some((workspace) => workspace._id === currentId)
+            ) {
+              return currentId;
+            }
+
+            return result[0]?._id ?? "";
+          });
         }
       } catch (error) {
         if (active) {
@@ -139,6 +150,10 @@ function DashboardApp() {
       active = false;
     };
   }, []);
+
+  const selectedWorkspace =
+    workspaces.find((workspace) => workspace._id === selectedWorkspaceId) ??
+    null;
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -227,13 +242,13 @@ function DashboardApp() {
         <div className="border-b border-white/10 p-4">
           <div className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3 text-left">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-200 font-bold text-amber-900">
-              {(workspaces[0]?.name ?? "W").charAt(0).toUpperCase()}
+              {(selectedWorkspace?.name ?? "W").charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-white">
                 {workspacesLoading
                   ? "Loading workspaces..."
-                  : (workspaces[0]?.name ?? "No workspace yet")}
+                  : (selectedWorkspace?.name ?? "No workspace yet")}
               </p>
               <p className="mt-0.5 truncate text-xs text-slate-400">
                 {workspaceError
@@ -350,7 +365,7 @@ function DashboardApp() {
               <p className="text-xs font-medium text-slate-500">
                 {workspacesLoading
                   ? "Loading workspace..."
-                  : (workspaces[0]?.name ?? "No workspace")}
+                  : (selectedWorkspace?.name ?? "No workspace")}
                 {" / Workspace"}
               </p>
               <h1 className="mt-1 truncate text-lg font-bold tracking-tight sm:text-xl">
