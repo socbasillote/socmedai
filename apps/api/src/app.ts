@@ -9,10 +9,10 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 
 import { env } from "./config/env.js";
-import { timeStamp } from "console";
 import { requireAuth } from "./auth/requireAuth.js";
 
 import workspaceRoutes from "./routes/workspaceRoutes.js";
+import postRoutes from "./routes/postRoutes.js";
 
 export const app = express();
 
@@ -59,6 +59,9 @@ app.get("/api/me", requireAuth, (_req, res) => {
 });
 
 app.use("/api/workspaces", workspaceRoutes);
+
+app.use("/api/workspaces", workspaceRoutes);
+app.use("/api/posts", postRoutes);
 
 // Handle unknown routes.
 app.use((_req: Request, res: Response) => {

@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 import { app } from "./app.js";
 import { supabaseAuthClient } from "./auth/supabase.js";
 import * as workspaceService from "./services/workspaceService.js";
+import * as postService from "./services/postService.js";
 
 describe("GET /api/health", () => {
   afterEach(() => {
@@ -262,5 +263,215 @@ describe("GET /api/workspaces/:workspaceId authorization", () => {
       error: "Workspace not found",
     });
     expect(getWorkspaceSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/posts", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("rejects requests without authentication", async () => {
+    const response = await request(app)
+      .post("/api/posts")
+      .send({
+        workspaceId: "507f1f77bcf86cd799439011",
+        caption: "Test campaign",
+        platforms: ["facebook"],
+      });
+
+    expect(response.status).toBe(401);
+    expect(response.body.error).toBe("Unauthorized");
+  });
+
+  it("rejects invalid post data without calling the service", async () => {
+    vi.spyOn(supabaseAuthClient.auth, "getUser").mockResolvedValue({
+      data: {
+        user: {
+          id: "test-supabase-user-id",
+          email: "test@example.com",
+        },
+      },
+      error: null,
+    } as Awaited<ReturnType<typeof supabaseAuthClient.auth.getUser>>);
+
+    const createPostSpy = vi.spyOn(postService, "createWorkspacePost");
+
+    const response = await request(app)
+      .post("/api/posts")
+      .set("Authorization", "Bearer valid-test-token")
+      .send({
+        workspaceId: "invalid-id",
+        caption: "Test campaign",
+        platforms: ["facebook"],
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("Validation failed");
+    expect(createPostSpy).not.toHaveBeenCalled();
+  });
+
+  it("creates a valid draft post", async () => {
+    vi.spyOn(supabaseAuthClient.auth, "getUser").mockResolvedValue({
+      data: {
+        user: {
+          id: "test-supabase-user-id",
+          email: "test@example.com",
+        },
+      },
+      error: null,
+    } as Awaited<ReturnType<typeof supabaseAuthClient.auth.getUser>>);
+
+    const createdPost = {
+      _id: "507f1f77bcf86cd799439013",
+      workspaceId: "507f1f77bcf86cd799439011",
+      createdByUserId: "507f1f77bcf86cd799439012",
+      caption: "Test campaign",
+      platforms: ["facebook"],
+      mediaIds: [],
+      status: "draft",
+    };
+
+    const createPostSpy = vi
+      .spyOn(postService, "createWorkspacePost")
+      .mockResolvedValue(createdPost as never);
+
+    const response = await request(app)
+      .post("/api/posts")
+      .set("Authorization", "Bearer valid-test-token")
+      .send({
+        workspaceId: "507f1f77bcf86cd799439011",
+        caption: "  Test campaign  ",
+        platforms: ["facebook"],
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.post).toMatchObject({
+      _id: createdPost._id,
+      caption: "Test campaign",
+      status: "draft",
+    });
+
+    expect(createPostSpy).toHaveBeenCalledWith(
+      {
+        id: "test-supabase-user-id",
+        email: "test@example.com",
+      },
+      {
+        workspaceId: "507f1f77bcf86cd799439011",
+        caption: "Test campaign",
+        platforms: ["facebook"],
+        mediaIds: [],
+      },
+    );
+  });
+
+  it("returns 404 when the workspace is inaccessible", async () => {
+    vi.spyOn(supabaseAuthClient.auth, "getUser").mockResolvedValue({
+      data: {
+        user: {
+          id: "test-supabase-user-id",
+          email: "test@example.com",
+        },
+      },
+      error: null,
+    } as Awaited<ReturnType<typeof supabaseAuthClient.auth.getUser>>);
+
+    vi.spyOn(postService, "createWorkspacePost").mockRejectedValue(
+      new postService.PostServiceError("Workspace not found.", 404),
+    );
+
+    const response = await request(app)
+      .post("/api/posts")
+      .set("Authorization", "Bearer valid-test-token")
+      .send({
+        workspaceId: "507f1f77bcf86cd799439011",
+        caption: "Test campaign",
+        platforms: ["facebook"],
+      });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("Workspace not found");
+  });
+});
+
+describe("GET /api/posts/workspaces/:workspaceId", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("rejects requests without authentication", async () => {
+    const response = await request(app).get(
+      "/api/posts/workspaces/507f1f77bcf86cd799439011",
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.body.error).toBe("Unauthorized");
+  });
+
+  it("lists posts for an authorized workspace", async () => {
+    vi.spyOn(supabaseAuthClient.auth, "getUser").mockResolvedValue({
+      data: {
+        user: {
+          id: "test-supabase-user-id",
+          email: "test@example.com",
+        },
+      },
+      error: null,
+    } as Awaited<ReturnType<typeof supabaseAuthClient.auth.getUser>>);
+
+    const workspaceId = "507f1f77bcf86cd799439011";
+    const expectedPosts = [
+      {
+        _id: "507f1f77bcf86cd799439013",
+        workspaceId,
+        caption: "Test campaign",
+        status: "draft",
+      },
+    ];
+
+    const listPostsSpy = vi
+      .spyOn(postService, "listWorkspacePosts")
+      .mockResolvedValue(expectedPosts as never);
+
+    const response = await request(app)
+      .get(`/api/posts/workspaces/${workspaceId}`)
+      .set("Authorization", "Bearer valid-test-token");
+
+    expect(response.status).toBe(200);
+    expect(response.body.posts).toEqual(expectedPosts);
+
+    expect(listPostsSpy).toHaveBeenCalledWith(
+      {
+        id: "test-supabase-user-id",
+        email: "test@example.com",
+      },
+      workspaceId,
+    );
+  });
+
+  it("returns 404 for an inaccessible workspace", async () => {
+    vi.spyOn(supabaseAuthClient.auth, "getUser").mockResolvedValue({
+      data: {
+        user: {
+          id: "test-supabase-user-id",
+          email: "test@example.com",
+        },
+      },
+      error: null,
+    } as Awaited<ReturnType<typeof supabaseAuthClient.auth.getUser>>);
+
+    vi.spyOn(postService, "listWorkspacePosts").mockRejectedValue(
+      new postService.PostServiceError("Workspace not found.", 404),
+    );
+
+    const response = await request(app)
+      .get("/api/posts/workspaces/507f1f77bcf86cd799439011")
+      .set("Authorization", "Bearer valid-test-token");
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({
+      error: "Workspace not found",
+    });
   });
 });
