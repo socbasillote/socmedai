@@ -6,23 +6,43 @@ export type AuthenticatedUser = {
 };
 
 export async function findOrCreateUserProfile(authUser: AuthenticatedUser) {
-  const profile = await UserProfile.findOneAndUpdate(
-    { supabaseUserId: authUser.id },
-    {
-      $set: {
-        email: authUser.email ?? undefined,
+  try {
+    return await UserProfile.findOneAndUpdate(
+      { supabaseUserId: authUser.id },
+      {
+        $set: {
+          email: authUser.email ?? undefined,
+        },
+        $setOnInsert: {
+          supabaseUserId: authUser.id,
+        },
       },
-      $setOnInsert: {
-        supabaseUserId: authUser.id,
+      {
+        new: true,
+        upsert: true,
+        runValidators: true,
+        setDefaultsOnInsert: true,
       },
-    },
-    {
-      new: true,
-      upsert: true,
-      runValidators: true,
-      setDefaultsOnInsert: true,
-    },
-  );
+    );
+  } catch (error) {
+    const isDuplicateKeyError =
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === 11000;
 
-  return profile;
+    if (!isDuplicateKeyError) {
+      throw error;
+    }
+
+    const existingProfile = await UserProfile.findOne({
+      supabaseUserId: authUser.id,
+    });
+
+    if (!existingProfile) {
+      throw error;
+    }
+
+    return existingProfile;
+  }
 }
