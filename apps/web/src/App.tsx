@@ -88,6 +88,8 @@ function DashboardApp() {
   const [savingPost, setSavingPost] = useState(false);
   const [postError, setPostError] = useState("");
   const [savedPosts, setSavedPosts] = useState<Post[]>([]);
+  const [postMode, setPostMode] = useState<"draft" | "scheduled">("draft");
+  const [scheduledAt, setScheduledAt] = useState("");
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspacesLoading, setWorkspacesLoading] = useState(true);
@@ -237,8 +239,29 @@ function DashboardApp() {
     }
 
     if (!text) {
-      setPostError("Enter a caption before saving your draft.");
+      setPostError("Enter a caption before saving your post.");
       return;
+    }
+
+    let scheduledTime: string | undefined;
+
+    if (postMode === "scheduled") {
+      if (!scheduledAt) {
+        setPostError("Choose a date and time for your scheduled post.");
+        return;
+      }
+
+      const parsedTime = new Date(scheduledAt);
+
+      if (
+        Number.isNaN(parsedTime.getTime()) ||
+        parsedTime.getTime() <= Date.now()
+      ) {
+        setPostError("Scheduled time must be in the future.");
+        return;
+      }
+
+      scheduledTime = parsedTime.toISOString();
     }
 
     setSavingPost(true);
@@ -249,16 +272,28 @@ function DashboardApp() {
         workspaceId: selectedWorkspaceId,
         caption: text,
         platforms: ["facebook"],
+        ...(scheduledTime ? { scheduledAt: scheduledTime } : {}),
       });
 
       setSavedPosts((current) => [post, ...current]);
-      setDraftCount((count) => count + 1);
+
+      if (postMode === "draft") {
+        setDraftCount((count) => count + 1);
+      }
+
       setCaption("");
+      setScheduledAt("");
+      setPostMode("draft");
       setCreateOpen(false);
-      setNotice("Draft saved to your workspace.");
+
+      setNotice(
+        postMode === "scheduled"
+          ? "Post scheduled in your workspace."
+          : "Draft saved to your workspace.",
+      );
     } catch (error) {
       setPostError(
-        error instanceof Error ? error.message : "Unable to save the draft.",
+        error instanceof Error ? error.message : "Unable to save the post.",
       );
     } finally {
       setSavingPost(false);
@@ -1012,8 +1047,79 @@ function DashboardApp() {
                   Create a post
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Start with a caption and save it as a draft.
+                  Create a draft or schedule it for later.
                 </p>
+                <div className="mb-5">
+                  <span className="mb-2 block text-sm font-semibold text-slate-700">
+                    When should this post be saved?
+                  </span>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      aria-pressed={postMode === "draft"}
+                      onClick={() => {
+                        setPostMode("draft");
+                        setPostError("");
+                      }}
+                      className={`rounded-xl border px-4 py-2.5 text-sm font-semibold ${
+                        postMode === "draft"
+                          ? "border-violet-300 bg-violet-50 text-violet-700"
+                          : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      Save as draft
+                    </button>
+
+                    <button
+                      type="button"
+                      aria-pressed={postMode === "scheduled"}
+                      onClick={() => {
+                        setPostMode("scheduled");
+                        setPostError("");
+                      }}
+                      className={`rounded-xl border px-4 py-2.5 text-sm font-semibold ${
+                        postMode === "scheduled"
+                          ? "border-violet-300 bg-violet-50 text-violet-700"
+                          : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      Schedule post
+                    </button>
+                  </div>
+                </div>
+
+                {postMode === "scheduled" && (
+                  <div className="mb-5">
+                    <label
+                      htmlFor="post-scheduled-at"
+                      className="mb-2 block text-sm font-semibold text-slate-700"
+                    >
+                      Publish date and time
+                    </label>
+
+                    <input
+                      id="post-scheduled-at"
+                      type="datetime-local"
+                      value={scheduledAt}
+                      min={new Date(
+                        Date.now() - new Date().getTimezoneOffset() * 60_000,
+                      )
+                        .toISOString()
+                        .slice(0, 16)}
+                      onChange={(event) => {
+                        setScheduledAt(event.target.value);
+                        setPostError("");
+                      }}
+                      className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
+                      required
+                    />
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      Choose a future time in your local timezone.
+                    </p>
+                  </div>
+                )}
               </div>
               <button
                 aria-label="Close dialog"
@@ -1067,7 +1173,11 @@ function DashboardApp() {
                   onClick={() => void saveDraft()}
                   className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
                 >
-                  {savingPost ? "Saving..." : "Save draft"}
+                  {savingPost
+                    ? "Saving..."
+                    : postMode === "scheduled"
+                      ? "Schedule post"
+                      : "Save draft"}
                 </Button>
               </div>
             </div>
