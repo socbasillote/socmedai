@@ -33,6 +33,12 @@ export type CreatePostInput = {
   scheduledAt?: string;
 };
 
+export type UpdateDraftPostInput = {
+  title?: string;
+  caption?: string;
+  platforms?: PostPlatform[];
+};
+
 type CreatePostResponse = {
   post: Post;
 };
@@ -56,4 +62,28 @@ export async function getWorkspacePosts(workspaceId: string): Promise<Post[]> {
   );
 
   return response.posts;
+}
+
+export async function deleteDraftPost(postId: string): Promise<void> {
+  await apiFetch<{ message: string; postId: string }>(
+    `/api/posts/${encodeURIComponent(postId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+}
+
+export async function updateDraftPost(
+  postId: string,
+  input: UpdateDraftPostInput,
+): Promise<Post> {
+  const response = await apiFetch<CreatePostResponse>(
+    `/api/posts/${encodeURIComponent(postId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
+
+  return response.post;
 }

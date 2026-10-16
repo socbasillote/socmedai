@@ -552,3 +552,113 @@ describe("DELETE /api/posts/:postId", () => {
     });
   });
 });
+
+describe("PATCH /api/posts/:postId", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("rejects requests without authentication", async () => {
+    const response = await request(app)
+      .patch("/api/posts/507f1f77bcf86cd799439013")
+      .send({ caption: "Updated caption" });
+
+    expect(response.status).toBe(401);
+    expect(response.body.error).toBe("Unauthorized");
+  });
+
+  it("updates an authorized draft", async () => {
+    vi.spyOn(supabaseAuthClient.auth, "getUser").mockResolvedValue({
+      data: {
+        user: {
+          id: "test-supabase-user-id",
+          email: "test@example.com",
+        },
+      },
+      error: null,
+    } as Awaited<ReturnType<typeof supabaseAuthClient.auth.getUser>>);
+
+    const postId = "507f1f77bcf86cd799439013";
+    const updateInput = {
+      title: "Updated campaign",
+      caption: "Updated campaign caption",
+      platforms: ["facebook", "linkedin"],
+    };
+
+    const updatedPost = {
+      _id: postId,
+      ...updateInput,
+      status: "draft",
+    };
+
+    const updateSpy = vi
+      .spyOn(postService, "updateWorkspaceDraft")
+      .mockResolvedValue(updatedPost as never);
+
+    const response = await request(app)
+      .patch(`/api/posts/${postId}`)
+      .set("Authorization", "Bearer valid-test-token")
+      .send(updateInput);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ post: updatedPost });
+
+    expect(updateSpy).toHaveBeenCalledWith(
+      {
+        id: "test-supabase-user-id",
+        email: "test@example.com",
+      },
+      postId,
+      updateInput,
+    );
+  });
+
+  it("rejects an empty update", async () => {
+    vi.spyOn(supabaseAuthClient.auth, "getUser").mockResolvedValue({
+      data: {
+        user: {
+          id: "test-supabase-user-id",
+          email: "test@example.com",
+        },
+      },
+      error: null,
+    } as Awaited<ReturnType<typeof supabaseAuthClient.auth.getUser>>);
+
+    const updateSpy = vi.spyOn(postService, "updateWorkspaceDraft");
+
+    const response = await request(app)
+      .patch("/api/posts/507f1f77bcf86cd799439013")
+      .set("Authorization", "Bearer valid-test-token")
+      .send({});
+
+    expect(response.status).toBe(400);
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 when the post is not a draft", async () => {
+    vi.spyOn(supabaseAuthClient.auth, "getUser").mockResolvedValue({
+      data: {
+        user: {
+          id: "test-supabase-user-id",
+          email: "test@example.com",
+        },
+      },
+      error: null,
+    } as Awaited<ReturnType<typeof supabaseAuthClient.auth.getUser>>);
+
+    vi.spyOn(postService, "updateWorkspaceDraft").mockRejectedValue(
+      new postService.PostServiceError("Only draft posts can be edited.", 409),
+    );
+
+    const response = await request(app)
+      .patch("/api/posts/507f1f77bcf86cd799439013")
+      .set("Authorization", "Bearer valid-test-token")
+      .send({ caption: "Updated caption" });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({
+      error: "Post update failed",
+      message: "Only draft posts can be edited.",
+    });
+  });
+});

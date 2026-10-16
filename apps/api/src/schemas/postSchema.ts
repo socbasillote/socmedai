@@ -47,4 +47,38 @@ export const createPostSchema = z
     }
   });
 
+export const updateDraftPostSchema = z
+  .object({
+    title: z
+      .string()
+      .trim()
+      .max(150, "Title must be 150 characters or fewer.")
+      .optional(),
+    caption: z
+      .string()
+      .trim()
+      .min(1, "Caption is required.")
+      .max(10000, "Caption must be 10,000 characters or fewer.")
+      .optional(),
+    platforms: z
+      .array(z.enum(POST_PLATFORMS))
+      .min(1, "Select at least one publishing platform.")
+      .refine((platforms) => new Set(platforms).size === platforms.length, {
+        message: "Publishing platforms must not contain duplicates.",
+      })
+      .optional(),
+  })
+  .strict()
+  .refine(
+    (data) =>
+      data.title !== undefined ||
+      data.caption !== undefined ||
+      data.platforms !== undefined,
+    {
+      message: "Provide at least one field to update.",
+    },
+  );
+
+export type UpdateDraftPostInput = z.infer<typeof updateDraftPostSchema>;
+
 export type CreatePostInput = z.infer<typeof createPostSchema>;

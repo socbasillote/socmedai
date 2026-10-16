@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { UpdateDraftPostInput } from "../schemas/postSchema.js";
 
 const mocks = vi.hoisted(() => ({
   profileFindOne: vi.fn(),
@@ -7,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   postFind: vi.fn(),
   postFindOne: vi.fn(),
   postDeleteOne: vi.fn(),
+  postFindOneAndUpdate: vi.fn(),
 }));
 
 vi.mock("../models/UserProfile.js", () => ({
@@ -27,6 +29,7 @@ vi.mock("../models/Post.js", () => ({
     find: mocks.postFind,
     findOne: mocks.postFindOne,
     deleteOne: mocks.postDeleteOne,
+    findOneAndUpdate: mocks.postFindOneAndUpdate,
   },
 }));
 
@@ -34,6 +37,7 @@ import {
   createWorkspacePost,
   listWorkspacePosts,
   deleteWorkspaceDraft,
+  updateWorkspaceDraft,
   PostServiceError,
 } from "./postService.js";
 
@@ -287,7 +291,7 @@ describe("postService", () => {
     it("returns 404 when the post does not exist", async () => {
       mocks.profileFindOne.mockReturnValue({
         select: vi.fn().mockResolvedValue({ _id: profileId }),
-      });
+      } as never);
 
       mocks.postFindOne.mockReturnValue({
         select: vi.fn().mockResolvedValue(null),
@@ -344,5 +348,155 @@ describe("postService", () => {
         deleteWorkspaceDraft(authUser, postId),
       ).rejects.toMatchObject({ statusCode: 409 });
     });
+  });
+});
+
+describe("updateWorkspaceDraft", () => {
+  const postId = "507f1f77bcf86cd799439012";
+  const workspaceId = "507f1f77bcf86cd799439011";
+  const userId = "supabase-user-123";
+
+  const existingDraft = {
+    _id: postId,
+    workspaceId,
+    createdByUserId: userId,
+    title: "Original title",
+    caption: "Original caption",
+    mediaIds: [],
+    platforms: ["facebook"],
+    status: "draft",
+    scheduledAt: null,
+    publishedAt: null,
+  };
+
+  const updatedDraft = {
+    ...existingDraft,
+    title: "Updated title",
+    caption: "Updated caption",
+    platforms: ["facebook", "linkedin"],
+  };
+
+  const authenticatedUser = {
+    id: userId,
+    email: "creator@example.com",
+  };
+
+  const updateInput: UpdateDraftPostInput = {
+    title: "Updated title",
+    caption: "Updated caption",
+    platforms: ["instagram", "linkedin"],
+  };
+
+  it("updates an existing draft", async () => {
+    mocks.profileFindOne.mockReturnValue({
+      select: vi.fn().mockResolvedValue({ _id: profileId }),
+    } as never);
+
+    mocks.postFindOne.mockReturnValue({
+      select: vi.fn().mockResolvedValue({
+        _id: postId,
+        workspaceId,
+        status: "draft",
+      }),
+    } as never);
+
+    mocks.workspaceFindOne.mockResolvedValue({
+      _id: workspaceId,
+      ownerUserId: userId,
+    } as never);
+
+    const query = {
+      select: vi.fn().mockReturnThis(),
+      lean: vi.fn().mockResolvedValue(updatedDraft),
+    };
+
+    mocks.postFindOneAndUpdate.mockReturnValue(query as never);
+
+    mocks.workspaceFindOne.mockReturnValue({
+      select: vi.fn().mockResolvedValue({ _id: workspaceId }),
+    } as never);
+
+    const result = await updateWorkspaceDraft(
+      authenticatedUser,
+      postId,
+      updateInput,
+    );
+
+    expect(result).toEqual(updatedDraft);
+    expect(mocks.postFindOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: postId,
+        workspaceId,
+        createdByUserId: profileId,
+        status: "draft",
+      }),
+      {
+        $set: updateInput,
+      },
+      expect.objectContaining({
+        new: true,
+        runValidators: true,
+      }),
+    );
+  });
+
+  it("rejects an invalid post ID", async () => {
+    await expect(
+      updateWorkspaceDraft(authenticatedUser, "invalid-id", updateInput),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("rejects a post that does not exist or belong to the user", async () => {
+    mocks.profileFindOne.mockReturnValue({
+      select: vi.fn().mockResolvedValue({ _id: profileId }),
+    } as never);
+
+    mocks.postFindOne.mockReturnValue({
+      select: vi.fn().mockResolvedValue(null),
+    } as never);
+
+    await expect(
+      updateWorkspaceDraft(authenticatedUser, postId, updateInput),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("rejects updates to a non-draft post", async () => {
+    mocks.profileFindOne.mockReturnValue({
+      select: vi.fn().mockResolvedValue({ _id: profileId }),
+    } as never);
+
+    mocks.postFindOne.mockReturnValue({
+      select: vi.fn().mockResolvedValue({
+        _id: postId,
+        workspaceId,
+        status: "scheduled",
+      }),
+    } as never);
+
+    await expect(
+      updateWorkspaceDraft(authenticatedUser, postId, updateInput),
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it("rejects a draft whose workspace the user does not own", async () => {
+    mocks.profileFindOne.mockReturnValue({
+      select: vi.fn().mockResolvedValue({ _id: profileId }),
+    } as never);
+
+    mocks.postFindOne.mockReturnValue({
+      select: vi.fn().mockResolvedValue({
+        _id: postId,
+        workspaceId,
+        status: "draft",
+      }),
+    } as never);
+
+    mocks.workspaceFindOne.mockReturnValue({
+      select: vi.fn().mockResolvedValue(null),
+    } as never);
+
+    await expect(
+      updateWorkspaceDraft(authenticatedUser, postId, updateInput),
+    ).rejects.toMatchObject({ statusCode: 404 });
   });
 });

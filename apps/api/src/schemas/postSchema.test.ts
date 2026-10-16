@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createPostSchema } from "./postSchema.js";
+import { createPostSchema, updateDraftPostSchema } from "./postSchema.js";
 
 const validPost = {
   workspaceId: "507f1f77bcf86cd799439011",
@@ -96,5 +96,81 @@ describe("createPostSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("updateDraftPostSchema", () => {
+  it("accepts a caption-only update", () => {
+    const result = updateDraftPostSchema.safeParse({
+      caption: "Updated campaign caption",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts valid title and platform updates", () => {
+    const result = updateDraftPostSchema.safeParse({
+      title: "  Summer Campaign  ",
+      platforms: ["facebook", "linkedin"],
+    });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.data.title).toBe("Summer Campaign");
+      expect(result.data.platforms).toEqual(["facebook", "linkedin"]);
+    }
+  });
+
+  it("rejects an empty update", () => {
+    const result = updateDraftPostSchema.safeParse({});
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a blank caption", () => {
+    const result = updateDraftPostSchema.safeParse({
+      caption: "   ",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an unsupported platform", () => {
+    const result = updateDraftPostSchema.safeParse({
+      platforms: ["tiktok"],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects duplicate platforms", () => {
+    const result = updateDraftPostSchema.safeParse({
+      platforms: ["facebook", "facebook"],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects attempts to update protected fields", () => {
+    const result = updateDraftPostSchema.safeParse({
+      caption: "Updated caption",
+      status: "published",
+      workspaceId: "507f1f77bcf86cd799439011",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("allows clearing an optional title", () => {
+    const result = updateDraftPostSchema.safeParse({
+      title: "",
+    });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.data.title).toBe("");
+    }
   });
 });

@@ -4,7 +4,10 @@ import Post from "../models/Post.js";
 import UserProfile from "../models/UserProfile.js";
 import Workspace from "../models/Workspace.js";
 import type { AuthenticatedUser } from "./userProfileService.js";
-import type { CreatePostInput } from "../schemas/postSchema.js";
+import type {
+  CreatePostInput,
+  UpdateDraftPostInput,
+} from "../schemas/postSchema.js";
 
 export class PostServiceError extends Error {
   statusCode: number;
@@ -148,4 +151,91 @@ export async function deleteWorkspaceDraft(
   }
 
   return { id: postId };
+}
+
+export async function updateWorkspaceDraft(
+  authUser: AuthenticatedUser,
+  postId: string,
+  input: UpdateDraftPostInput,
+) {
+  if (!mongoose.isValidObjectId(postId)) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  const profile = await UserProfile.findOne({
+    supabaseUserId: authUser.id,
+  }).select("_id");
+
+  if (!profile) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  const post = await Post.findOne({
+    _id: postId,
+    createdByUserId: profile._id,
+  }).select("_id workspaceId status");
+
+  if (!post) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  const workspace = await Workspace.findOne({
+    _id: post.workspaceId,
+    ownerUserId: profile._id,
+  }).select("_id");
+
+  if (!workspace) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  if (post.status !== "draft") {
+    throw new PostServiceError("Only draft posts can be edited.", 409);
+  }
+
+  const update: {
+    title?: string;
+    caption?: string;
+    platforms?: UpdateDraftPostInput["platforms"];
+  } = {};
+
+  if (input.title !== undefined) {
+    update.title = input.title;
+  }
+
+  if (input.caption !== undefined) {
+    update.caption = input.caption;
+  }
+
+  if (input.platforms !== undefined) {
+    update.platforms = input.platforms;
+  }
+
+  const updatedPost = await Post.findOneAndUpdate(
+    {
+      _id: post._id,
+      workspaceId: workspace._id,
+      createdByUserId: profile._id,
+      status: "draft",
+    },
+    {
+      $set: update,
+    },
+    {
+      new: true,
+      runValidators: true,
+    },
+  )
+    .select(
+      "_id workspaceId createdByUserId title caption mediaIds platforms status scheduledAt publishedAt createdAt updatedAt",
+    )
+    .lean();
+
+  if (!updatedPost) {
+    throw new PostServiceError(
+      "The draft could not be updated because its status changed or it no longer exists.",
+      409,
+    );
+  }
+
+  return updatedPost;
 }

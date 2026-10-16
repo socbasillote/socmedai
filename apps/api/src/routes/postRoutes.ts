@@ -5,6 +5,7 @@ import {
   createPost,
   listPostsByWorkspace,
   deleteDraftPost,
+  updateDraftPost,
 } from "../controllers/postController.js";
 
 const postRoutes = Router();
@@ -16,5 +17,7 @@ postRoutes.post("/", createPost);
 postRoutes.get("/workspaces/:workspaceId", listPostsByWorkspace);
 
 postRoutes.delete("/:postId", deleteDraftPost);
+
+postRoutes.patch("/:postId", updateDraftPost);
 
 export default postRoutes;

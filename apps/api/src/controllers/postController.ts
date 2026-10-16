@@ -1,11 +1,15 @@
 import type { RequestHandler } from "express";
 
-import { createPostSchema } from "../schemas/postSchema.js";
+import {
+  createPostSchema,
+  updateDraftPostSchema,
+} from "../schemas/postSchema.js";
 import type { AuthenticatedUser } from "../services/userProfileService.js";
 import {
   createWorkspacePost,
   listWorkspacePosts,
   deleteWorkspaceDraft,
+  updateWorkspaceDraft,
   PostServiceError,
 } from "../services/postService.js";
 
@@ -95,6 +99,43 @@ export const deleteDraftPost: RequestHandler = async (req, res, next) => {
       res.status(error.statusCode).json({
         error:
           error.statusCode === 404 ? "Post not found" : "Post deletion failed",
+        message: error.message,
+      });
+      return;
+    }
+
+    next(error);
+  }
+};
+
+export const updateDraftPost: RequestHandler = async (req, res, next) => {
+  try {
+    const postId = req.params.postId;
+
+    if (typeof postId !== "string") {
+      res.status(404).json({ error: "Post not found" });
+      return;
+    }
+
+    const parsed = updateDraftPostSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      res.status(400).json({
+        error: "Validation failed",
+        message: parsed.error.issues[0]?.message ?? "Invalid update data.",
+      });
+      return;
+    }
+
+    const authUser = getAuthenticatedUser(res);
+    const post = await updateWorkspaceDraft(authUser, postId, parsed.data);
+
+    res.status(200).json({ post });
+  } catch (error) {
+    if (error instanceof PostServiceError) {
+      res.status(error.statusCode).json({
+        error:
+          error.statusCode === 404 ? "Post not found" : "Post update failed",
         message: error.message,
       });
       return;
