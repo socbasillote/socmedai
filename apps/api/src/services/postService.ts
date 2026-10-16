@@ -133,12 +133,19 @@ export async function deleteWorkspaceDraft(
     throw new PostServiceError("Only draft posts can be deleted.", 409);
   }
 
-  await Post.deleteOne({
+  const deletion = await Post.deleteOne({
     _id: post._id,
     workspaceId: workspace._id,
     createdByUserId: profile._id,
     status: "draft",
   });
+
+  if (deletion.deletedCount !== 1) {
+    throw new PostServiceError(
+      "The draft could not be deleted because its status changed or it no longer exists.",
+      409,
+    );
+  }
 
   return { id: postId };
 }

@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   workspaceFindOne: vi.fn(),
   postCreate: vi.fn(),
   postFind: vi.fn(),
+  postFindOne: vi.fn(),
+  postDeleteOne: vi.fn(),
 }));
 
 vi.mock("../models/UserProfile.js", () => ({
@@ -23,12 +25,15 @@ vi.mock("../models/Post.js", () => ({
   default: {
     create: mocks.postCreate,
     find: mocks.postFind,
+    findOne: mocks.postFindOne,
+    deleteOne: mocks.postDeleteOne,
   },
 }));
 
 import {
   createWorkspacePost,
   listWorkspacePosts,
+  deleteWorkspaceDraft,
   PostServiceError,
 } from "./postService.js";
 
@@ -228,6 +233,116 @@ describe("postService", () => {
       ).rejects.toMatchObject({ statusCode: 404 });
 
       expect(mocks.postFind).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("deleteWorkspaceDraft", () => {
+    const postId = "507f1f77bcf86cd799439013";
+
+    function mockAuthorizedDraft() {
+      mocks.profileFindOne.mockReturnValue({
+        select: vi.fn().mockResolvedValue({ _id: profileId }),
+      });
+
+      mocks.postFindOne.mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          _id: postId,
+          workspaceId,
+          status: "draft",
+        }),
+      });
+
+      mocks.workspaceFindOne.mockReturnValue({
+        select: vi.fn().mockResolvedValue({ _id: workspaceId }),
+      });
+
+      mocks.postDeleteOne.mockResolvedValue({ deletedCount: 1 });
+    }
+
+    it("deletes an authorized draft", async () => {
+      mockAuthorizedDraft();
+
+      const result = await deleteWorkspaceDraft(authUser, postId);
+
+      expect(mocks.postDeleteOne).toHaveBeenCalledWith({
+        _id: postId,
+        workspaceId,
+        createdByUserId: profileId,
+        status: "draft",
+      });
+
+      expect(result).toEqual({ id: postId });
+    });
+
+    it("rejects malformed post IDs without querying models", async () => {
+      await expect(
+        deleteWorkspaceDraft(authUser, "invalid-id"),
+      ).rejects.toMatchObject({ statusCode: 404 });
+
+      expect(mocks.profileFindOne).not.toHaveBeenCalled();
+      expect(mocks.postFindOne).not.toHaveBeenCalled();
+      expect(mocks.postDeleteOne).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the post does not exist", async () => {
+      mocks.profileFindOne.mockReturnValue({
+        select: vi.fn().mockResolvedValue({ _id: profileId }),
+      });
+
+      mocks.postFindOne.mockReturnValue({
+        select: vi.fn().mockResolvedValue(null),
+      });
+
+      await expect(
+        deleteWorkspaceDraft(authUser, postId),
+      ).rejects.toMatchObject({ statusCode: 404 });
+
+      expect(mocks.postDeleteOne).not.toHaveBeenCalled();
+    });
+
+    it("rejects scheduled posts", async () => {
+      mockAuthorizedDraft();
+
+      mocks.postFindOne.mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          _id: postId,
+          workspaceId,
+          status: "scheduled",
+        }),
+      });
+
+      await expect(
+        deleteWorkspaceDraft(authUser, postId),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        message: "Only draft posts can be deleted.",
+      });
+
+      expect(mocks.postDeleteOne).not.toHaveBeenCalled();
+    });
+
+    it("rejects posts from a workspace the user does not own", async () => {
+      mockAuthorizedDraft();
+
+      mocks.workspaceFindOne.mockReturnValue({
+        select: vi.fn().mockResolvedValue(null),
+      });
+
+      await expect(
+        deleteWorkspaceDraft(authUser, postId),
+      ).rejects.toMatchObject({ statusCode: 404 });
+
+      expect(mocks.postDeleteOne).not.toHaveBeenCalled();
+    });
+
+    it("rejects deletion if the draft changed before deletion", async () => {
+      mockAuthorizedDraft();
+
+      mocks.postDeleteOne.mockResolvedValue({ deletedCount: 0 });
+
+      await expect(
+        deleteWorkspaceDraft(authUser, postId),
+      ).rejects.toMatchObject({ statusCode: 409 });
     });
   });
 });

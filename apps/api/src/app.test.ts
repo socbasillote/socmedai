@@ -475,3 +475,80 @@ describe("GET /api/posts/workspaces/:workspaceId", () => {
     });
   });
 });
+
+describe("DELETE /api/posts/:postId", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("rejects requests without authentication", async () => {
+    const response = await request(app).delete(
+      "/api/posts/507f1f77bcf86cd799439013",
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.body.error).toBe("Unauthorized");
+  });
+
+  it("deletes an authorized draft", async () => {
+    vi.spyOn(supabaseAuthClient.auth, "getUser").mockResolvedValue({
+      data: {
+        user: {
+          id: "test-supabase-user-id",
+          email: "test@example.com",
+        },
+      },
+      error: null,
+    } as Awaited<ReturnType<typeof supabaseAuthClient.auth.getUser>>);
+
+    const postId = "507f1f77bcf86cd799439013";
+
+    const deleteSpy = vi
+      .spyOn(postService, "deleteWorkspaceDraft")
+      .mockResolvedValue({ id: postId });
+
+    const response = await request(app)
+      .delete(`/api/posts/${postId}`)
+      .set("Authorization", "Bearer valid-test-token");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      message: "Draft deleted successfully.",
+      postId,
+    });
+
+    expect(deleteSpy).toHaveBeenCalledWith(
+      {
+        id: "test-supabase-user-id",
+        email: "test@example.com",
+      },
+      postId,
+    );
+  });
+
+  it("returns 409 when the post is not a draft", async () => {
+    vi.spyOn(supabaseAuthClient.auth, "getUser").mockResolvedValue({
+      data: {
+        user: {
+          id: "test-supabase-user-id",
+          email: "test@example.com",
+        },
+      },
+      error: null,
+    } as Awaited<ReturnType<typeof supabaseAuthClient.auth.getUser>>);
+
+    vi.spyOn(postService, "deleteWorkspaceDraft").mockRejectedValue(
+      new postService.PostServiceError("Only draft posts can be deleted.", 409),
+    );
+
+    const response = await request(app)
+      .delete("/api/posts/507f1f77bcf86cd799439013")
+      .set("Authorization", "Bearer valid-test-token");
+
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({
+      error: "Post deletion failed",
+      message: "Only draft posts can be deleted.",
+    });
+  });
+});
