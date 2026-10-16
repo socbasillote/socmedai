@@ -38,6 +38,8 @@ import {
   type Workspace,
 } from "@/lib/workspaces";
 
+import { createPost, getWorkspacePosts, type Post } from "@/lib/posts";
+
 import {
   clearStoredWorkspaceId,
   readStoredWorkspaceId,
@@ -108,8 +110,11 @@ function DashboardApp() {
   const [search, setSearch] = useState("");
   const [caption, setCaption] = useState("");
   const [draftCount, setDraftCount] = useState(12);
-  const [posts, setPosts] = useState(initialPosts);
+  const [posts] = useState(initialPosts);
   const [notice, setNotice] = useState("");
+  const [savingPost, setSavingPost] = useState(false);
+  const [postError, setPostError] = useState("");
+  const [savedPosts, setSavedPosts] = useState<Post[]>([]);
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspacesLoading, setWorkspacesLoading] = useState(true);
@@ -174,6 +179,39 @@ function DashboardApp() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    async function loadPosts() {
+      if (!selectedWorkspaceId) {
+        setSavedPosts([]);
+        return;
+      }
+
+      try {
+        const result = await getWorkspacePosts(selectedWorkspaceId);
+
+        if (active) {
+          setSavedPosts(result);
+        }
+      } catch (error) {
+        if (active) {
+          setNotice(
+            error instanceof Error
+              ? `Unable to load saved posts: ${error.message}`
+              : "Unable to load saved posts.",
+          );
+        }
+      }
+    }
+
+    void loadPosts();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedWorkspaceId]);
+
   const selectedWorkspace =
     workspaces.find((workspace) => workspace._id === selectedWorkspaceId) ??
     null;
@@ -186,37 +224,64 @@ function DashboardApp() {
       ([, path]) => path === location.pathname,
     )?.[0] ?? "Not found";
 
-  const filteredPosts = posts.filter((post) =>
+  const savedPostItems = savedPosts.map((post) => ({
+    id: post._id,
+    title: post.title || post.caption,
+    platform: post.platforms.join(", "),
+    date: new Date(post.createdAt).toLocaleString(),
+    status: post.status.charAt(0).toUpperCase() + post.status.slice(1),
+    color:
+      post.status === "failed"
+        ? "bg-rose-100 text-rose-700"
+        : post.status === "published"
+          ? "bg-emerald-100 text-emerald-700"
+          : "bg-violet-100 text-violet-700",
+    initials: "DR",
+  }));
+
+  const displayPosts = [...savedPostItems, ...posts];
+
+  const filteredPosts = displayPosts.filter((post) =>
     `${post.title} ${post.platform} ${post.status}`
       .toLowerCase()
       .includes(search.toLowerCase()),
   );
 
-  function saveDraft() {
+  async function saveDraft() {
     const text = caption.trim();
 
-    if (!text) {
-      setNotice("Enter a caption before saving your draft.");
+    if (!selectedWorkspaceId) {
+      setPostError("Select a workspace before saving a post.");
       return;
     }
 
-    setPosts((current) => [
-      {
-        id: Date.now(),
-        title: text,
-        platform: "Not selected",
-        date: "Just now",
-        status: "Draft",
-        color: "bg-slate-100 text-slate-700",
-        initials: "DR",
-      },
-      ...current,
-    ]);
+    if (!text) {
+      setPostError("Enter a caption before saving your draft.");
+      return;
+    }
 
-    setDraftCount((count) => count + 1);
-    setCaption("");
-    setCreateOpen(false);
-    setNotice("Draft saved in this session.");
+    setSavingPost(true);
+    setPostError("");
+
+    try {
+      const post = await createPost({
+        workspaceId: selectedWorkspaceId,
+        caption: text,
+        platforms: ["facebook"],
+      });
+
+      setSavedPosts((current) => [post, ...current]);
+      setDraftCount((count) => count + 1);
+      setCaption("");
+      setCreateOpen(false);
+      setNotice("Draft saved to your workspace.");
+    } catch (error) {
+      setPostError(
+        error instanceof Error ? error.message : "Unable to save the draft.",
+      );
+    } finally {
+      setSavingPost(false);
+    }
   }
 
   function selectPage(label: string) {
@@ -976,10 +1041,19 @@ function DashboardApp() {
               id="post-caption"
               rows={5}
               value={caption}
-              onChange={(event) => setCaption(event.target.value)}
+              onChange={(event) => {
+                setCaption(event.target.value);
+                setPostError("");
+              }}
               placeholder="What would you like to share with your audience?"
               className="w-full resize-y rounded-xl border border-slate-200 p-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
             />
+
+            {postError && (
+              <p role="alert" className="mt-2 text-sm text-rose-600">
+                {postError}
+              </p>
+            )}
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <span className="text-xs text-slate-400">
@@ -996,10 +1070,11 @@ function DashboardApp() {
                 </Button>
                 <Button
                   type="button"
-                  onClick={saveDraft}
-                  className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700"
+                  disabled={savingPost}
+                  onClick={() => void saveDraft()}
+                  className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
                 >
-                  Save draft
+                  {savingPost ? "Saving..." : "Save draft"}
                 </Button>
               </div>
             </div>
