@@ -64,36 +64,6 @@ const pagePaths: Record<string, string> = {
   Settings: "/settings",
 };
 
-const initialPosts = [
-  {
-    id: 1,
-    title: "A fresh look at our latest collection",
-    platform: "Instagram",
-    date: "Today, 10:30 AM",
-    status: "Published",
-    color: "bg-pink-100 text-pink-700",
-    initials: "IG",
-  },
-  {
-    id: 2,
-    title: "Behind the scenes at our studio",
-    platform: "Facebook",
-    date: "Today, 2:00 PM",
-    status: "Scheduled",
-    color: "bg-blue-100 text-blue-700",
-    initials: "FB",
-  },
-  {
-    id: 3,
-    title: "Three ideas to inspire your week",
-    platform: "LinkedIn",
-    date: "Tomorrow, 9:00 AM",
-    status: "Draft",
-    color: "bg-indigo-100 text-indigo-700",
-    initials: "in",
-  },
-];
-
 const weeklyActivity = [
   { day: "Mon", height: 42 },
   { day: "Tue", height: 66 },
@@ -110,7 +80,10 @@ function DashboardApp() {
   const [search, setSearch] = useState("");
   const [caption, setCaption] = useState("");
   const [draftCount, setDraftCount] = useState(12);
-  const [posts] = useState(initialPosts);
+
+  const [postsLoading, setPostsLoading] = useState(false);
+  const [postsLoadError, setPostsLoadError] = useState("");
+
   const [notice, setNotice] = useState("");
   const [savingPost, setSavingPost] = useState(false);
   const [postError, setPostError] = useState("");
@@ -185,8 +158,13 @@ function DashboardApp() {
     async function loadPosts() {
       if (!selectedWorkspaceId) {
         setSavedPosts([]);
+        setPostsLoading(false);
+        setPostsLoadError("");
         return;
       }
+
+      setPostsLoading(true);
+      setPostsLoadError("");
 
       try {
         const result = await getWorkspacePosts(selectedWorkspaceId);
@@ -196,11 +174,16 @@ function DashboardApp() {
         }
       } catch (error) {
         if (active) {
-          setNotice(
+          setSavedPosts([]);
+          setPostsLoadError(
             error instanceof Error
-              ? `Unable to load saved posts: ${error.message}`
-              : "Unable to load saved posts.",
+              ? error.message
+              : "Unable to load workspace posts.",
           );
+        }
+      } finally {
+        if (active) {
+          setPostsLoading(false);
         }
       }
     }
@@ -239,9 +222,7 @@ function DashboardApp() {
     initials: "DR",
   }));
 
-  const displayPosts = [...savedPostItems, ...posts];
-
-  const filteredPosts = displayPosts.filter((post) =>
+  const filteredPosts = savedPostItems.filter((post) =>
     `${post.title} ${post.platform} ${post.status}`
       .toLowerCase()
       .includes(search.toLowerCase()),
@@ -799,9 +780,22 @@ function DashboardApp() {
                 </div>
 
                 <div className="divide-y divide-slate-100">
-                  {filteredPosts.length === 0 ? (
+                  {postsLoading ? (
                     <div className="p-10 text-center text-sm text-slate-500">
-                      No posts match your search.
+                      Loading posts...
+                    </div>
+                  ) : postsLoadError ? (
+                    <div
+                      role="alert"
+                      className="p-10 text-center text-sm text-rose-600"
+                    >
+                      Unable to load posts: {postsLoadError}
+                    </div>
+                  ) : filteredPosts.length === 0 ? (
+                    <div className="p-10 text-center text-sm text-slate-500">
+                      {search.trim()
+                        ? "No posts match your search."
+                        : "No posts yet. Create your first post to get started."}
                     </div>
                   ) : (
                     filteredPosts.map((post) => (
@@ -857,15 +851,14 @@ function DashboardApp() {
 
                 <div className="border-t border-slate-100 px-5 py-4 sm:px-6">
                   <p className="text-xs text-slate-400">
-                    Sample content for the initial dashboard. Post records are
-                    not persisted to the database yet.
+                    Showing saved posts from this workspace.
                   </p>
                 </div>
               </section>
 
               <footer className="flex flex-col justify-between gap-2 py-8 text-xs text-slate-400 sm:flex-row">
                 <p>© 2026 Storm. Create something remarkable.</p>
-                <p>Workspace preview · Sample data</p>
+                <p>Workspace · Saved content</p>
               </footer>
             </>
           ) : (
