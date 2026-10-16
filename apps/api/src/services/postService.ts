@@ -94,3 +94,51 @@ export async function listWorkspacePosts(
     .sort({ updatedAt: -1 })
     .lean();
 }
+
+export async function deleteWorkspaceDraft(
+  authUser: AuthenticatedUser,
+  postId: string,
+) {
+  if (!mongoose.isValidObjectId(postId)) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  const profile = await UserProfile.findOne({
+    supabaseUserId: authUser.id,
+  }).select("_id");
+
+  if (!profile) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  const post = await Post.findOne({
+    _id: postId,
+    createdByUserId: profile._id,
+  }).select("_id workspaceId status");
+
+  if (!post) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  const workspace = await Workspace.findOne({
+    _id: post.workspaceId,
+    ownerUserId: profile._id,
+  }).select("_id");
+
+  if (!workspace) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  if (post.status !== "draft") {
+    throw new PostServiceError("Only draft posts can be deleted.", 409);
+  }
+
+  await Post.deleteOne({
+    _id: post._id,
+    workspaceId: workspace._id,
+    createdByUserId: profile._id,
+    status: "draft",
+  });
+
+  return { id: postId };
+}

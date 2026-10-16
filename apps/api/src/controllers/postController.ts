@@ -5,6 +5,7 @@ import type { AuthenticatedUser } from "../services/userProfileService.js";
 import {
   createWorkspacePost,
   listWorkspacePosts,
+  deleteWorkspaceDraft,
   PostServiceError,
 } from "../services/postService.js";
 
@@ -63,6 +64,38 @@ export const listPostsByWorkspace: RequestHandler = async (req, res, next) => {
     if (error instanceof PostServiceError) {
       res.status(error.statusCode).json({
         error: "Workspace not found",
+      });
+      return;
+    }
+
+    next(error);
+  }
+};
+
+export const deleteDraftPost: RequestHandler = async (req, res, next) => {
+  try {
+    const postId = req.params.postId;
+
+    if (typeof postId !== "string") {
+      res.status(404).json({
+        error: "Post not found",
+      });
+      return;
+    }
+
+    const authUser = getAuthenticatedUser(res);
+    const result = await deleteWorkspaceDraft(authUser, postId);
+
+    res.status(200).json({
+      message: "Draft deleted successfully.",
+      postId: result.id,
+    });
+  } catch (error) {
+    if (error instanceof PostServiceError) {
+      res.status(error.statusCode).json({
+        error:
+          error.statusCode === 404 ? "Post not found" : "Post deletion failed",
+        message: error.message,
       });
       return;
     }
