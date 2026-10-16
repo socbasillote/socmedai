@@ -86,7 +86,9 @@ function DashboardApp() {
   const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [caption, setCaption] = useState("");
-  const [draftCount, setDraftCount] = useState(12);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<
+    ("facebook" | "instagram" | "linkedin")[]
+  >(["facebook"]);
 
   const [postsLoading, setPostsLoading] = useState(false);
   const [postsLoadError, setPostsLoadError] = useState("");
@@ -95,6 +97,10 @@ function DashboardApp() {
   const [savingPost, setSavingPost] = useState(false);
   const [postError, setPostError] = useState("");
   const [savedPosts, setSavedPosts] = useState<Post[]>([]);
+  const draftCount = savedPosts.filter(
+    (post) => post.status === "draft",
+  ).length;
+
   const [postMode, setPostMode] = useState<"draft" | "scheduled">("draft");
   const [scheduledAt, setScheduledAt] = useState("");
 
@@ -271,6 +277,11 @@ function DashboardApp() {
       return;
     }
 
+    if (selectedPlatforms.length === 0) {
+      setPostError("Select at least one publishing platform.");
+      return;
+    }
+
     let scheduledTime: string | undefined;
 
     if (postMode === "scheduled") {
@@ -299,17 +310,14 @@ function DashboardApp() {
       const post = await createPost({
         workspaceId: selectedWorkspaceId,
         caption: text,
-        platforms: ["facebook"],
+        platforms: selectedPlatforms,
         ...(scheduledTime ? { scheduledAt: scheduledTime } : {}),
       });
 
       setSavedPosts((current) => [post, ...current]);
 
-      if (postMode === "draft") {
-        setDraftCount((count) => count + 1);
-      }
-
       setCaption("");
+      setSelectedPlatforms(["facebook"]);
       setScheduledAt("");
       setPostMode("draft");
       setCreateOpen(false);
@@ -1113,6 +1121,7 @@ function DashboardApp() {
                           placeholder="Write your post caption..."
                           className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 disabled:opacity-60"
                         />
+
                         <p className="text-right text-xs text-slate-400">
                           {editCaption.length}/10000
                         </p>
@@ -1444,6 +1453,43 @@ function DashboardApp() {
               placeholder="What would you like to share with your audience?"
               className="w-full resize-y rounded-xl border border-slate-200 p-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
             />
+
+            <fieldset className="mt-5">
+              <legend className="mb-3 block text-sm font-semibold text-slate-700">
+                Publishing platforms
+              </legend>
+
+              <div className="flex flex-wrap gap-4">
+                {(
+                  [
+                    ["facebook", "Facebook"],
+                    ["instagram", "Instagram"],
+                    ["linkedin", "LinkedIn"],
+                  ] as const
+                ).map(([platform, label]) => (
+                  <label
+                    key={platform}
+                    className="flex items-center gap-2 text-sm text-slate-600"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedPlatforms.includes(platform)}
+                      disabled={savingPost}
+                      onChange={(event) => {
+                        setSelectedPlatforms((current) =>
+                          event.target.checked
+                            ? [...current, platform]
+                            : current.filter((item) => item !== platform),
+                        );
+                        setPostError("");
+                      }}
+                      className="h-4 w-4 rounded border-slate-300 accent-violet-600"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
 
             {postError && (
               <p role="alert" className="mt-2 text-sm text-rose-600">
