@@ -79,6 +79,36 @@ export const updateDraftPostSchema = z
     },
   );
 
+export const listWorkspacePostsQuerySchema = z
+  .object({
+    limit: z.coerce
+      .number()
+      .int("Limit must be a whole number.")
+      .min(1, "Limit must be at least 1.")
+      .max(100, "Limit cannot exceed 100.")
+      .default(20),
+    cursor: z
+      .string()
+      .regex(/^[a-fA-F0-9]{24}$/, "Cursor must be a valid post ID.")
+      .optional(),
+    search: z
+      .string()
+      .trim()
+      .max(200, "Search cannot exceed 200 characters.")
+      .default(""),
+    status: z
+      .enum(["all", "draft", "scheduled", "publishing", "published", "failed"])
+      .default("all"),
+    platform: z
+      .enum(["all", "facebook", "instagram", "linkedin"])
+      .default("all"),
+  })
+  .strict();
+
+export type ListWorkspacePostsQuery = z.infer<
+  typeof listWorkspacePostsQuerySchema
+>;
+
 export type UpdateDraftPostInput = z.infer<typeof updateDraftPostSchema>;
 
 export type CreatePostInput = z.infer<typeof createPostSchema>;

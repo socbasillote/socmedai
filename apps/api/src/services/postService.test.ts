@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   postFindOne: vi.fn(),
   postDeleteOne: vi.fn(),
   postFindOneAndUpdate: vi.fn(),
+  postCountDocuments: vi.fn(),
 }));
 
 vi.mock("../models/UserProfile.js", () => ({
@@ -30,6 +31,7 @@ vi.mock("../models/Post.js", () => ({
     findOne: mocks.postFindOne,
     deleteOne: mocks.postDeleteOne,
     findOneAndUpdate: mocks.postFindOneAndUpdate,
+    countDocuments: mocks.postCountDocuments,
   },
 }));
 
@@ -61,6 +63,7 @@ function mockAuthorizedWorkspace() {
 
 describe("postService", () => {
   beforeEach(() => {
+    mocks.postCountDocuments.mockResolvedValue(0);
     vi.clearAllMocks();
   });
 
@@ -221,6 +224,205 @@ describe("postService", () => {
       });
 
       expect(result).toEqual(expectedPosts);
+    });
+
+    it("returns a paginated first page with a next cursor when more posts exist", async () => {
+      mockAuthorizedWorkspace();
+
+      const pagePosts = [
+        { _id: "post-1", workspaceId, caption: "First post" },
+        { _id: "post-2", workspaceId, caption: "Second post" },
+      ];
+
+      mocks.postFind.mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        sort: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue(pagePosts),
+        }),
+      });
+
+      const result = await listWorkspacePosts(authUser, workspaceId, {
+        limit: 1,
+      });
+
+      expect(mocks.postFind).toHaveBeenCalledWith({
+        workspaceId: expect.anything(),
+      });
+      expect(result).toEqual({
+        posts: [pagePosts[0]],
+        nextCursor: "post-1",
+        hasMore: true,
+        draftCount: 0,
+      });
+    });
+
+    it("uses the cursor post timestamp and ID to fetch the next page", async () => {
+      mockAuthorizedWorkspace();
+
+      const cursorId = "507f1f77bcf86cd799439011";
+      const cursorDate = new Date("2026-10-01T12:00:00.000Z");
+
+      mocks.postFindOne.mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        lean: vi.fn().mockResolvedValue({
+          _id: cursorId,
+          updatedAt: cursorDate,
+        }),
+      });
+
+      const nextPage = [
+        {
+          _id: "507f1f77bcf86cd799439012",
+          workspaceId,
+          caption: "Next page post",
+        },
+      ];
+
+      mocks.postFind.mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        sort: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue(nextPage),
+        }),
+      });
+
+      const result = await listWorkspacePosts(authUser, workspaceId, {
+        limit: 1,
+        cursor: cursorId,
+      });
+
+      expect(mocks.postFindOne).toHaveBeenCalledWith({
+        _id: cursorId,
+        workspaceId: expect.anything(),
+      });
+
+      expect(mocks.postFind).toHaveBeenCalledWith({
+        workspaceId: expect.anything(),
+        $and: [
+          {
+            $or: [
+              { updatedAt: { $lt: cursorDate } },
+              {
+                updatedAt: cursorDate,
+                _id: { $lt: cursorId },
+              },
+            ],
+          },
+        ],
+      });
+
+      expect(result).toEqual({
+        posts: nextPage,
+        nextCursor: null,
+        hasMore: false,
+        draftCount: 0,
+      });
+    });
+
+    it("filters paginated posts by status", async () => {
+      mockAuthorizedWorkspace();
+
+      mocks.postCountDocuments.mockResolvedValue(3);
+      mocks.postFind.mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        sort: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue([]),
+        }),
+      });
+
+      const result = await listWorkspacePosts(authUser, workspaceId, {
+        limit: 20,
+        status: "draft",
+      });
+
+      expect(mocks.postFind).toHaveBeenCalledWith({
+        workspaceId: expect.anything(),
+        status: "draft",
+      });
+      expect(result).toMatchObject({
+        draftCount: 3,
+      });
+    });
+
+    it("filters paginated posts by platform", async () => {
+      mockAuthorizedWorkspace();
+
+      mocks.postCountDocuments.mockResolvedValue(0);
+      mocks.postFind.mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        sort: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue([]),
+        }),
+      });
+
+      await listWorkspacePosts(authUser, workspaceId, {
+        limit: 20,
+        platform: "instagram",
+      });
+
+      expect(mocks.postFind).toHaveBeenCalledWith({
+        workspaceId: expect.anything(),
+        platforms: "instagram",
+      });
+    });
+
+    it("filters paginated posts by an escaped search term", async () => {
+      mockAuthorizedWorkspace();
+
+      mocks.postCountDocuments.mockResolvedValue(0);
+      mocks.postFind.mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        sort: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue([]),
+        }),
+      });
+
+      await listWorkspacePosts(authUser, workspaceId, {
+        limit: 20,
+        search: "launch (Q1)",
+      });
+
+      const query = mocks.postFind.mock.calls[0]?.[0] as {
+        workspaceId: unknown;
+        $and: Array<{
+          $or: Array<Record<string, RegExp>>;
+        }>;
+      };
+
+      expect(query.workspaceId).toBeDefined();
+      expect(query.$and[0]?.$or).toHaveLength(4);
+
+      const titleSearch = query.$and[0]?.$or[0]?.title;
+      expect(titleSearch).toBeInstanceOf(RegExp);
+      expect(titleSearch?.source).toBe("launch \\(Q1\\)");
+      expect(titleSearch?.test("launch (Q1)")).toBe(true);
+      expect(titleSearch?.test("launch Q1")).toBe(false);
+    });
+
+    it("rejects a cursor that does not belong to the authorized workspace", async () => {
+      mockAuthorizedWorkspace();
+
+      mocks.postFindOne.mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        lean: vi.fn().mockResolvedValue(null),
+      });
+
+      await expect(
+        listWorkspacePosts(authUser, workspaceId, {
+          limit: 10,
+          cursor: "507f1f77bcf86cd799439011",
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+
+      expect(mocks.postFindOne).toHaveBeenCalledWith({
+        _id: "507f1f77bcf86cd799439011",
+        workspaceId: expect.anything(),
+      });
+      expect(mocks.postFind).not.toHaveBeenCalled();
     });
 
     it("refuses to list posts from an unauthorized workspace", async () => {

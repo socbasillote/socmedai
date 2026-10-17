@@ -42,8 +42,8 @@ import {
 import {
   createPost,
   deleteDraftPost,
-  getWorkspacePosts,
   updateDraftPost,
+  getWorkspacePostsPage,
   type Post,
 } from "@/lib/posts";
 
@@ -101,14 +101,16 @@ function DashboardApp() {
 
   const [postsLoading, setPostsLoading] = useState(false);
   const [postsLoadError, setPostsLoadError] = useState("");
+  const [loadingMorePosts, setLoadingMorePosts] = useState(false);
+
+  const [nextPostsCursor, setNextPostsCursor] = useState<string | null>(null);
+  const [hasMorePosts, setHasMorePosts] = useState(false);
 
   const [notice, setNotice] = useState("");
   const [savingPost, setSavingPost] = useState(false);
   const [postError, setPostError] = useState("");
   const [savedPosts, setSavedPosts] = useState<Post[]>([]);
-  const draftCount = savedPosts.filter(
-    (post) => post.status === "draft",
-  ).length;
+  const [draftCount, setDraftCount] = useState(0);
 
   const [postMode, setPostMode] = useState<"draft" | "scheduled">("draft");
   const [scheduledAt, setScheduledAt] = useState("");
@@ -194,6 +196,9 @@ function DashboardApp() {
     async function loadPosts() {
       if (!selectedWorkspaceId) {
         setSavedPosts([]);
+        setDraftCount(0);
+        setNextPostsCursor(null);
+        setHasMorePosts(false);
         setPostsLoading(false);
         setPostsLoadError("");
         return;
@@ -203,14 +208,28 @@ function DashboardApp() {
       setPostsLoadError("");
 
       try {
-        const result = await getWorkspacePosts(selectedWorkspaceId);
+        setNextPostsCursor(null);
+        setHasMorePosts(false);
+
+        const result = await getWorkspacePostsPage(selectedWorkspaceId, {
+          limit: 20,
+          search,
+          status: statusFilter,
+          platform: platformFilter,
+        });
 
         if (active) {
-          setSavedPosts(result);
+          setSavedPosts(result.posts);
+          setDraftCount(result.draftCount);
+          setNextPostsCursor(result.nextCursor);
+          setHasMorePosts(result.hasMore);
         }
       } catch (error) {
         if (active) {
           setSavedPosts([]);
+          setDraftCount(0);
+          setNextPostsCursor(null);
+          setHasMorePosts(false);
           setPostsLoadError(
             error instanceof Error
               ? error.message
@@ -229,7 +248,7 @@ function DashboardApp() {
     return () => {
       active = false;
     };
-  }, [selectedWorkspaceId]);
+  }, [selectedWorkspaceId, search, statusFilter, platformFilter]);
 
   const selectedWorkspace =
     workspaces.find((workspace) => workspace._id === selectedWorkspaceId) ??
@@ -267,22 +286,7 @@ function DashboardApp() {
     };
   });
 
-  const filteredPosts = savedPostItems.filter((post) => {
-    const matchesSearch = `${post.title} ${post.platform} ${post.status}`
-      .toLowerCase()
-      .includes(search.toLowerCase());
-
-    const matchesStatus =
-      statusFilter === "all" || post.status.toLowerCase() === statusFilter;
-
-    const matchesPlatform =
-      platformFilter === "all" ||
-      savedPosts
-        .find((savedPost) => savedPost._id === post.id)
-        ?.platforms.includes(platformFilter) === true;
-
-    return matchesSearch && matchesStatus && matchesPlatform;
-  });
+  const filteredPosts = savedPostItems;
 
   async function saveDraft() {
     const text = caption.trim();
@@ -479,6 +483,44 @@ function DashboardApp() {
       );
     } finally {
       setCreatingWorkspace(false);
+    }
+  }
+
+  async function handleLoadMorePosts() {
+    if (!selectedWorkspaceId || !nextPostsCursor || loadingMorePosts) {
+      return;
+    }
+
+    setLoadingMorePosts(true);
+    setPostsLoadError("");
+
+    try {
+      const result = await getWorkspacePostsPage(selectedWorkspaceId, {
+        cursor: nextPostsCursor,
+        limit: 20,
+        search,
+        status: statusFilter,
+        platform: platformFilter,
+      });
+
+      setSavedPosts((currentPosts) => {
+        const existingIds = new Set(currentPosts.map((post) => post._id));
+        const newPosts = result.posts.filter(
+          (post) => !existingIds.has(post._id),
+        );
+
+        return [...currentPosts, ...newPosts];
+      });
+
+      setNextPostsCursor(result.nextCursor);
+      setHasMorePosts(result.hasMore);
+      setDraftCount(result.draftCount);
+    } catch (error) {
+      setPostsLoadError(
+        error instanceof Error ? error.message : "Unable to load more posts.",
+      );
+    } finally {
+      setLoadingMorePosts(false);
     }
   }
 
@@ -1115,6 +1157,18 @@ function DashboardApp() {
                         </div>
                       </div>
                     ))
+                  )}
+                  {hasMorePosts && (
+                    <div className="mt-4 flex justify-center">
+                      <button
+                        type="button"
+                        onClick={() => void handleLoadMorePosts()}
+                        disabled={loadingMorePosts}
+                        className="rounded-md border px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {loadingMorePosts ? "Loading..." : "Load more"}
+                      </button>
+                    </div>
                   )}
                 </div>
 

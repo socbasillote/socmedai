@@ -3,6 +3,7 @@ import type { RequestHandler } from "express";
 import {
   createPostSchema,
   updateDraftPostSchema,
+  listWorkspacePostsQuerySchema,
 } from "../schemas/postSchema.js";
 import type { AuthenticatedUser } from "../services/userProfileService.js";
 import {
@@ -61,13 +62,44 @@ export const listPostsByWorkspace: RequestHandler = async (req, res, next) => {
     }
 
     const authUser = getAuthenticatedUser(res);
-    const posts = await listWorkspacePosts(authUser, workspaceId);
 
-    res.status(200).json({ posts });
+    const hasPaginationOrFilters =
+      req.query.limit !== undefined ||
+      req.query.cursor !== undefined ||
+      req.query.search !== undefined ||
+      req.query.status !== undefined ||
+      req.query.platform !== undefined;
+
+    if (!hasPaginationOrFilters) {
+      const posts = await listWorkspacePosts(authUser, workspaceId);
+      res.status(200).json({ posts });
+      return;
+    }
+
+    const queryResult = listWorkspacePostsQuerySchema.safeParse(req.query);
+
+    if (!queryResult.success) {
+      res.status(400).json({
+        error: "Invalid pagination parameters.",
+        details: queryResult.error.issues,
+      });
+      return;
+    }
+
+    const result = await listWorkspacePosts(
+      authUser,
+      workspaceId,
+      queryResult.data,
+    );
+
+    res.status(200).json(result);
   } catch (error) {
     if (error instanceof PostServiceError) {
       res.status(error.statusCode).json({
-        error: "Workspace not found",
+        error:
+          error.statusCode === 400
+            ? "Invalid post cursor."
+            : "Workspace not found",
       });
       return;
     }

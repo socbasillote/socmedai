@@ -81,6 +81,19 @@ export async function createWorkspacePost(
 export async function listWorkspacePosts(
   authUser: AuthenticatedUser,
   workspaceId: string,
+  pagination?: {
+    limit: number;
+    cursor?: string;
+    search?: string;
+    status?:
+      | "all"
+      | "draft"
+      | "scheduled"
+      | "publishing"
+      | "published"
+      | "failed";
+    platform?: "all" | "facebook" | "instagram" | "linkedin";
+  },
 ) {
   const authorization = await getAuthorizedWorkspace(authUser, workspaceId);
 
@@ -88,14 +101,101 @@ export async function listWorkspacePosts(
     throw new PostServiceError("Workspace not found.", 404);
   }
 
-  return Post.find({
+  const fields =
+    "_id workspaceId createdByUserId title caption mediaIds platforms status scheduledAt publishedAt createdAt updatedAt";
+
+  const workspaceFilter = {
     workspaceId: authorization.workspace._id,
-  })
-    .select(
-      "_id workspaceId createdByUserId title caption mediaIds platforms status scheduledAt publishedAt createdAt updatedAt",
-    )
-    .sort({ updatedAt: -1 })
-    .lean();
+  };
+
+  // Preserve the existing full-list behavior for callers without pagination.
+  if (!pagination) {
+    return Post.find(workspaceFilter)
+      .select(fields)
+      .sort({ updatedAt: -1, _id: -1 })
+      .lean();
+  }
+
+  const filter: Record<string, unknown> = {
+    ...workspaceFilter,
+  };
+
+  if (pagination.status && pagination.status !== "all") {
+    filter.status = pagination.status;
+  }
+
+  if (pagination.platform && pagination.platform !== "all") {
+    filter.platforms = pagination.platform;
+  }
+
+  const search = pagination.search?.trim();
+
+  if (search) {
+    const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const searchRegex = new RegExp(escapedSearch, "i");
+
+    filter.$and = [
+      {
+        $or: [
+          { title: searchRegex },
+          { caption: searchRegex },
+          { platforms: searchRegex },
+          { status: searchRegex },
+        ],
+      },
+    ];
+  }
+
+  const draftCountPromise = Post.countDocuments({
+    ...workspaceFilter,
+    status: "draft",
+  });
+
+  if (pagination.cursor) {
+    const cursorPost = await Post.findOne({
+      _id: pagination.cursor,
+      ...workspaceFilter,
+    })
+      .select("_id updatedAt")
+      .lean();
+
+    if (!cursorPost) {
+      throw new PostServiceError("Invalid post cursor.", 400);
+    }
+
+    filter.$and = [
+      ...(Array.isArray(filter.$and) ? filter.$and : []),
+      {
+        $or: [
+          { updatedAt: { $lt: cursorPost.updatedAt } },
+          {
+            updatedAt: cursorPost.updatedAt,
+            _id: { $lt: cursorPost._id },
+          },
+        ],
+      },
+    ];
+  }
+
+  const [results, draftCount] = await Promise.all([
+    Post.find(filter)
+      .select(fields)
+      .sort({ updatedAt: -1, _id: -1 })
+      .limit(pagination.limit + 1)
+      .lean(),
+    draftCountPromise,
+  ]);
+
+  const hasMore = results.length > pagination.limit;
+  const posts = hasMore ? results.slice(0, pagination.limit) : results;
+  const lastPost = posts[posts.length - 1];
+
+  return {
+    posts,
+    nextCursor: hasMore && lastPost ? String(lastPost._id) : null,
+    hasMore,
+    draftCount,
+  };
 }
 
 export async function deleteWorkspaceDraft(

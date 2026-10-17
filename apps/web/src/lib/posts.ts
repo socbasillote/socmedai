@@ -47,6 +47,13 @@ type ListPostsResponse = {
   posts: Post[];
 };
 
+export type PaginatedPostsResponse = {
+  posts: Post[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  draftCount: number;
+};
+
 export async function createPost(input: CreatePostInput): Promise<Post> {
   const response = await apiFetch<CreatePostResponse>("/api/posts", {
     method: "POST",
@@ -62,6 +69,52 @@ export async function getWorkspacePosts(workspaceId: string): Promise<Post[]> {
   );
 
   return response.posts;
+}
+
+export async function getWorkspacePostsPage(
+  workspaceId: string,
+  options?: {
+    cursor?: string;
+    limit?: number;
+    search?: string;
+    status?:
+      | "all"
+      | "draft"
+      | "scheduled"
+      | "publishing"
+      | "published"
+      | "failed";
+    platform?: "all" | "facebook" | "instagram" | "linkedin";
+  },
+): Promise<PaginatedPostsResponse & { draftCount: number }> {
+  const params = new URLSearchParams();
+
+  if (options?.limit !== undefined) {
+    params.set("limit", String(options.limit));
+  }
+
+  if (options?.cursor) {
+    params.set("cursor", options.cursor);
+  }
+
+  if (options?.search?.trim()) {
+    params.set("search", options.search.trim());
+  }
+
+  if (options?.status && options.status !== "all") {
+    params.set("status", options.status);
+  }
+
+  if (options?.platform && options.platform !== "all") {
+    params.set("platform", options.platform);
+  }
+
+  const query = params.toString();
+  const path =
+    `/api/posts/workspaces/${encodeURIComponent(workspaceId)}` +
+    (query ? `?${query}` : "");
+
+  return apiFetch<PaginatedPostsResponse & { draftCount: number }>(path);
 }
 
 export async function deleteDraftPost(postId: string): Promise<void> {

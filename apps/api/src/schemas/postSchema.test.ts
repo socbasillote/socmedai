@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { createPostSchema, updateDraftPostSchema } from "./postSchema.js";
+import {
+  createPostSchema,
+  updateDraftPostSchema,
+  listWorkspacePostsQuerySchema,
+} from "./postSchema.js";
 
 const validPost = {
   workspaceId: "507f1f77bcf86cd799439011",
@@ -172,5 +176,57 @@ describe("updateDraftPostSchema", () => {
     if (result.success) {
       expect(result.data.title).toBe("");
     }
+  });
+});
+
+describe("listWorkspacePostsQuerySchema", () => {
+  it("defaults the limit to 20", () => {
+    expect(listWorkspacePostsQuerySchema.parse({})).toEqual({
+      limit: 20,
+      search: "",
+      status: "all",
+      platform: "all",
+    });
+  });
+
+  it("accepts a valid limit and ObjectId cursor", () => {
+    expect(
+      listWorkspacePostsQuerySchema.parse({
+        limit: "10",
+        cursor: "507f1f77bcf86cd799439011",
+      }),
+    ).toEqual({
+      limit: 10,
+      cursor: "507f1f77bcf86cd799439011",
+      search: "",
+      status: "all",
+      platform: "all",
+    });
+  });
+
+  it("rejects a limit below 1", () => {
+    expect(
+      listWorkspacePostsQuerySchema.safeParse({ limit: "0" }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a limit above 100", () => {
+    expect(
+      listWorkspacePostsQuerySchema.safeParse({ limit: "101" }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a fractional limit", () => {
+    expect(
+      listWorkspacePostsQuerySchema.safeParse({ limit: "1.5" }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an invalid cursor", () => {
+    expect(
+      listWorkspacePostsQuerySchema.safeParse({
+        cursor: "not-a-valid-object-id",
+      }).success,
+    ).toBe(false);
   });
 });
