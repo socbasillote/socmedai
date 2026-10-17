@@ -84,7 +84,16 @@ const weeklyActivity = [
 function DashboardApp() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "draft" | "scheduled" | "published" | "failed"
+  >("all");
+
+  const [platformFilter, setPlatformFilter] = useState<
+    "all" | "facebook" | "instagram" | "linkedin"
+  >("all");
+
   const [caption, setCaption] = useState("");
   const [selectedPlatforms, setSelectedPlatforms] = useState<
     ("facebook" | "instagram" | "linkedin")[]
@@ -258,11 +267,22 @@ function DashboardApp() {
     };
   });
 
-  const filteredPosts = savedPostItems.filter((post) =>
-    `${post.title} ${post.platform} ${post.status}`
+  const filteredPosts = savedPostItems.filter((post) => {
+    const matchesSearch = `${post.title} ${post.platform} ${post.status}`
       .toLowerCase()
-      .includes(search.toLowerCase()),
-  );
+      .includes(search.toLowerCase());
+
+    const matchesStatus =
+      statusFilter === "all" || post.status.toLowerCase() === statusFilter;
+
+    const matchesPlatform =
+      platformFilter === "all" ||
+      savedPosts
+        .find((savedPost) => savedPost._id === post.id)
+        ?.platforms.includes(platformFilter) === true;
+
+    return matchesSearch && matchesStatus && matchesPlatform;
+  });
 
   async function saveDraft() {
     const text = caption.trim();
@@ -926,6 +946,49 @@ function DashboardApp() {
                     <p className="mt-1 text-sm text-slate-500">
                       Keep track of your latest content
                     </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <select
+                      aria-label="Filter posts by status"
+                      value={statusFilter}
+                      onChange={(event) =>
+                        setStatusFilter(
+                          event.target.value as
+                            | "all"
+                            | "draft"
+                            | "scheduled"
+                            | "published"
+                            | "failed",
+                        )
+                      }
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-violet-400"
+                    >
+                      <option value="all">All statuses</option>
+                      <option value="draft">Draft</option>
+                      <option value="scheduled">Scheduled</option>
+                      <option value="published">Published</option>
+                      <option value="failed">Failed</option>
+                    </select>
+
+                    <select
+                      aria-label="Filter posts by platform"
+                      value={platformFilter}
+                      onChange={(event) =>
+                        setPlatformFilter(
+                          event.target.value as
+                            | "all"
+                            | "facebook"
+                            | "instagram"
+                            | "linkedin",
+                        )
+                      }
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-violet-400"
+                    >
+                      <option value="all">All platforms</option>
+                      <option value="facebook">Facebook</option>
+                      <option value="instagram">Instagram</option>
+                      <option value="linkedin">LinkedIn</option>
+                    </select>
                   </div>
                   <button
                     onClick={() => selectPage("Publishing")}
