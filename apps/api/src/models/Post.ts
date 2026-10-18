@@ -64,6 +64,20 @@ const postSchema = new Schema(
     scheduledAt: {
       type: Date,
     },
+    claimedAt: {
+      type: Date,
+    },
+    attemptCount: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+    },
+    lastError: {
+      type: String,
+      maxlength: 2000,
+    },
+
     publishedAt: {
       type: Date,
     },

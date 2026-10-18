@@ -20,6 +20,7 @@ export type Post = {
   status: PostStatus;
   scheduledAt?: string;
   publishedAt?: string;
+  lastError?: string;
   createdAt: string;
   updatedAt: string;
 };

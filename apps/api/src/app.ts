@@ -59,12 +59,10 @@ app.get("/api/me", requireAuth, (_req, res) => {
 });
 
 app.use("/api/workspaces", workspaceRoutes);
-
-app.use("/api/workspaces", workspaceRoutes);
 app.use("/api/posts", postRoutes);
 
 // Handle unknown routes.
-app.use((_req: Request, res: Response) => {
+app.use((_req, res) => {
   res.status(404).json({
     error: "Route not found",
   });

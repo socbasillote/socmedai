@@ -274,6 +274,7 @@ function DashboardApp() {
         ? new Date(displayDate).toLocaleString()
         : "Date unavailable",
       status: post.status.charAt(0).toUpperCase() + post.status.slice(1),
+      lastError: post.lastError,
       color:
         post.status === "failed"
           ? "bg-rose-100 text-rose-700"
@@ -1086,6 +1087,15 @@ function DashboardApp() {
                           <p className="mt-1 text-xs text-slate-400">
                             {post.platform}
                           </p>
+                          {post.status === "Failed" && (
+                            <p
+                              className="mt-2 text-xs text-rose-700"
+                              role="status"
+                            >
+                              {post.lastError ||
+                                "Publishing did not complete. Review this post before retrying."}
+                            </p>
+                          )}
                         </div>
 
                         <div className="hidden items-center gap-2 text-xs text-slate-500 md:flex">
