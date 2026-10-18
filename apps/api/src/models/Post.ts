@@ -14,6 +14,16 @@ export const POST_PLATFORMS = ["facebook", "instagram", "linkedin"] as const;
 
 export type PostPlatform = (typeof POST_PLATFORMS)[number];
 
+export const PLATFORM_PUBLISH_STATUSES = [
+  "pending",
+  "publishing",
+  "published",
+  "failed",
+  "unknown",
+] as const;
+
+export type PlatformPublishStatus = (typeof PLATFORM_PUBLISH_STATUSES)[number];
+
 const postSchema = new Schema(
   {
     workspaceId: {
@@ -76,6 +86,50 @@ const postSchema = new Schema(
     lastError: {
       type: String,
       maxlength: 2000,
+    },
+
+    platformResults: {
+      type: [
+        {
+          _id: false,
+          platform: {
+            type: String,
+            enum: POST_PLATFORMS,
+            required: true,
+          },
+          status: {
+            type: String,
+            enum: PLATFORM_PUBLISH_STATUSES,
+            required: true,
+            default: "pending",
+          },
+          externalPostId: {
+            type: String,
+            trim: true,
+          },
+          publishedAt: {
+            type: Date,
+          },
+          lastError: {
+            type: String,
+            maxlength: 2000,
+          },
+          attemptCount: {
+            type: Number,
+            required: true,
+            default: 0,
+            min: 0,
+          },
+        },
+      ],
+      default: () => [],
+      validate: {
+        validator: (results: Array<{ platform: string }>) => {
+          const platforms = results.map((result) => result.platform);
+          return new Set(platforms).size === platforms.length;
+        },
+        message: "Each platform can have only one publishing result.",
+      },
     },
 
     publishedAt: {
