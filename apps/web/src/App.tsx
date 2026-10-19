@@ -81,7 +81,14 @@ const weeklyActivity = [
   { day: "Sun", height: 48 },
 ];
 
+function getLocalDateTime() {
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  return now.toISOString().slice(0, 16);
+}
+
 function DashboardApp() {
+  const [minScheduledAt] = useState(() => getLocalDateTime());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -1535,11 +1542,7 @@ function DashboardApp() {
                       id="post-scheduled-at"
                       type="datetime-local"
                       value={scheduledAt}
-                      min={new Date(
-                        Date.now() - new Date().getTimezoneOffset() * 60_000,
-                      )
-                        .toISOString()
-                        .slice(0, 16)}
+                      min={minScheduledAt}
                       onChange={(event) => {
                         setScheduledAt(event.target.value);
                         setPostError("");

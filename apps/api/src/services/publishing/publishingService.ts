@@ -37,13 +37,24 @@ export class PublishingService {
 
       try {
         const result = await this.adapter.publish(input);
+
+        if (result.postId !== postId || result.platform !== platform) {
+          results.push({
+            outcome: "failed",
+            postId,
+            platform,
+            message: "Publishing adapter returned a mismatched result.",
+          });
+          continue;
+        }
+
         results.push(result);
       } catch {
         results.push({
-          outcome: "failed",
+          outcome: "unknown",
           postId,
           platform,
-          message: "Publishing adapter threw an unexpected error.",
+          message: "Publishing outcome is unknown after an unexpected error.",
         });
       }
     }

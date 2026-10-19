@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { summarizePublishingResult } from "./publishingCoordinator.js";
+import {
+  reconcileOverallPostStatus,
+  summarizePublishingResult,
+} from "./publishingCoordinator.js";
 import type { ProcessPostResult } from "./publishingService.js";
 
 describe("summarizePublishingResult", () => {
@@ -29,6 +32,7 @@ describe("summarizePublishingResult", () => {
       simulatedCount: 2,
       publishedCount: 0,
       failedCount: 0,
+      unknownCount: 0,
       allPublished: false,
     });
   });
@@ -59,6 +63,7 @@ describe("summarizePublishingResult", () => {
       simulatedCount: 0,
       publishedCount: 2,
       failedCount: 0,
+      unknownCount: 0,
       allPublished: true,
     });
   });
@@ -95,6 +100,30 @@ describe("summarizePublishingResult", () => {
       simulatedCount: 1,
       publishedCount: 1,
       failedCount: 1,
+      unknownCount: 0,
+      allPublished: false,
+    });
+  });
+
+  it("counts unknown outcomes without marking them as published", () => {
+    const result: ProcessPostResult = {
+      postId: "post-unknown",
+      results: [
+        {
+          outcome: "unknown",
+          postId: "post-unknown",
+          platform: "facebook",
+          message: "Publishing outcome is unknown after an unexpected error.",
+        },
+      ],
+    };
+
+    expect(summarizePublishingResult(result)).toEqual({
+      postId: "post-unknown",
+      simulatedCount: 0,
+      publishedCount: 0,
+      failedCount: 0,
+      unknownCount: 1,
       allPublished: false,
     });
   });
@@ -110,7 +139,44 @@ describe("summarizePublishingResult", () => {
       simulatedCount: 0,
       publishedCount: 0,
       failedCount: 0,
+      unknownCount: 0,
       allPublished: false,
     });
+  });
+});
+
+describe("reconcileOverallPostStatus", () => {
+  it("marks the post published only when every platform is published", () => {
+    expect(
+      reconcileOverallPostStatus("publishing", ["published", "published"]),
+    ).toBe("published");
+  });
+
+  it("keeps the post publishing while a platform outcome is unknown", () => {
+    expect(
+      reconcileOverallPostStatus("publishing", ["published", "unknown"]),
+    ).toBe("publishing");
+  });
+
+  it("keeps the post publishing while a platform is still in progress", () => {
+    expect(
+      reconcileOverallPostStatus("scheduled", ["published", "publishing"]),
+    ).toBe("publishing");
+  });
+
+  it("marks mixed confirmed publication and failure as failed", () => {
+    expect(
+      reconcileOverallPostStatus("publishing", ["published", "failed"]),
+    ).toBe("failed");
+  });
+
+  it("does not treat simulated results as real publication", () => {
+    expect(
+      reconcileOverallPostStatus("scheduled", ["simulated", "simulated"]),
+    ).toBe("scheduled");
+  });
+
+  it("preserves the current status when no platform results exist", () => {
+    expect(reconcileOverallPostStatus("scheduled", [])).toBe("scheduled");
   });
 });

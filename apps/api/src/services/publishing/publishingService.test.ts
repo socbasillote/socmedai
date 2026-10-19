@@ -67,9 +67,9 @@ describe("PublishingService", () => {
 
     expect(result.results).toHaveLength(2);
     expect(result.results[0]).toMatchObject({
-      outcome: "failed",
+      outcome: "unknown",
       platform: "facebook",
-      message: "Publishing adapter threw an unexpected error.",
+      message: "Publishing outcome is unknown after an unexpected error.",
     });
     expect(result.results[1].outcome).toBe("simulated");
     expect(publish).toHaveBeenCalledTimes(2);
@@ -91,5 +91,61 @@ describe("PublishingService", () => {
       results: [],
     });
     expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("rejects an adapter result for a different post", async () => {
+    const publish = vi.fn<PublishingAdapter["publish"]>().mockResolvedValue({
+      outcome: "simulated",
+      postId: "different-post",
+      platform: "facebook",
+      simulatedAt: new Date(),
+      message: "Dry run completed.",
+    });
+
+    const service = new PublishingService({ publish });
+
+    const result = await service.processPost({
+      _id: "post-123",
+      caption: "Test caption",
+      mediaIds: [],
+      platforms: ["facebook"],
+    });
+
+    expect(result.results).toEqual([
+      {
+        outcome: "failed",
+        postId: "post-123",
+        platform: "facebook",
+        message: "Publishing adapter returned a mismatched result.",
+      },
+    ]);
+  });
+
+  it("rejects an adapter result for a different platform", async () => {
+    const publish = vi.fn<PublishingAdapter["publish"]>().mockResolvedValue({
+      outcome: "simulated",
+      postId: "post-123",
+      platform: "linkedin",
+      simulatedAt: new Date(),
+      message: "Dry run completed.",
+    });
+
+    const service = new PublishingService({ publish });
+
+    const result = await service.processPost({
+      _id: "post-123",
+      caption: "Test caption",
+      mediaIds: [],
+      platforms: ["facebook"],
+    });
+
+    expect(result.results).toEqual([
+      {
+        outcome: "failed",
+        postId: "post-123",
+        platform: "facebook",
+        message: "Publishing adapter returned a mismatched result.",
+      },
+    ]);
   });
 });

@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { findOneAndUpdateMock } = vi.hoisted(() => ({
+const { findOneAndUpdateMock, existsMock } = vi.hoisted(() => ({
   findOneAndUpdateMock: vi.fn(),
+  existsMock: vi.fn(),
 }));
 
 vi.mock("../../models/Post.js", () => ({
   default: {
     findOneAndUpdate: findOneAndUpdateMock,
+    exists: existsMock,
   },
   POST_PLATFORMS: ["facebook", "instagram", "linkedin"],
   PLATFORM_PUBLISH_STATUSES: [
@@ -15,6 +17,7 @@ vi.mock("../../models/Post.js", () => ({
     "published",
     "failed",
     "unknown",
+    "simulated",
   ],
 }));
 
@@ -27,6 +30,7 @@ import {
 describe("updatePlatformResult", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    existsMock.mockReset();
   });
 
   it("updates the selected platform atomically", async () => {
@@ -45,18 +49,81 @@ describe("updatePlatformResult", () => {
 
     expect(result).toBe(post);
     expect(findOneAndUpdateMock).toHaveBeenCalledWith(
-      { _id: "post-123" },
+      {
+        _id: "post-123",
+        platformResults: {
+          $elemMatch: {
+            platform: "facebook",
+            status: { $in: ["publishing", "unknown"] },
+          },
+        },
+      },
       expect.objectContaining({
         $set: expect.objectContaining({
           "platformResults.$[result].status": "published",
           "platformResults.$[result].externalPostId": "external-123",
+          "platformResults.$[result].publishedAt": new Date(
+            "2026-10-19T00:00:00.000Z",
+          ),
           "platformResults.$[result].attemptCount": 1,
         }),
       }),
       expect.objectContaining({
         returnDocument: "after",
         runValidators: true,
-        arrayFilters: [{ "result.platform": "facebook" }],
+        arrayFilters: [
+          {
+            "result.platform": "facebook",
+            "result.status": {
+              $in: ["publishing", "unknown"],
+            },
+          },
+        ],
+      }),
+    );
+  });
+
+  it("persists a simulated outcome without publication metadata", async () => {
+    const post = {
+      platformResults: [{ platform: "facebook", status: "simulated" }],
+    };
+    findOneAndUpdateMock.mockResolvedValue(post);
+
+    const result = await updatePlatformResult("post-123", {
+      platform: "facebook",
+      status: "simulated",
+      lastError: "Dry run completed; no real publication was attempted.",
+      attemptCount: 1,
+    });
+
+    expect(result).toBe(post);
+    expect(findOneAndUpdateMock).toHaveBeenCalledWith(
+      {
+        _id: "post-123",
+        platformResults: {
+          $elemMatch: {
+            platform: "facebook",
+            status: { $in: ["publishing"] },
+          },
+        },
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          "platformResults.$[result].status": "simulated",
+          "platformResults.$[result].lastError":
+            "Dry run completed; no real publication was attempted.",
+          "platformResults.$[result].attemptCount": 1,
+        }),
+      }),
+      expect.objectContaining({
+        returnDocument: "after",
+        runValidators: true,
+        arrayFilters: [
+          {
+            "result.platform": "facebook",
+            "result.status": { $in: ["publishing"] },
+          },
+        ],
       }),
     );
   });
@@ -88,6 +155,7 @@ describe("updatePlatformResult", () => {
 
   it("returns not found when the post does not exist", async () => {
     findOneAndUpdateMock.mockResolvedValue(null);
+    existsMock.mockResolvedValue(null);
 
     await expect(
       updatePlatformResult("missing-post", {
@@ -101,9 +169,10 @@ describe("updatePlatformResult", () => {
   });
 
   it("rejects updates when the platform result is not initialized", async () => {
-    findOneAndUpdateMock.mockResolvedValue({
-      platformResults: [],
-    });
+    findOneAndUpdateMock.mockResolvedValue(null);
+    existsMock
+      .mockResolvedValueOnce({ _id: "post-123" })
+      .mockResolvedValueOnce(null);
 
     await expect(
       updatePlatformResult("post-123", {
@@ -120,6 +189,7 @@ describe("updatePlatformResult", () => {
 describe("initializePlatformResults", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    existsMock.mockReset();
   });
 
   it("adds results for the requested platforms using an update pipeline", async () => {

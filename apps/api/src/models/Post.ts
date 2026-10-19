@@ -20,6 +20,7 @@ export const PLATFORM_PUBLISH_STATUSES = [
   "published",
   "failed",
   "unknown",
+  "simulated",
 ] as const;
 
 export type PlatformPublishStatus = (typeof PLATFORM_PUBLISH_STATUSES)[number];

@@ -4,7 +4,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { env } from "../../config/env.js";
 import Post from "../../models/Post.js";
 import {
+  claimPlatformResult,
   initializePlatformResults,
+  PlatformResultServiceError,
   updatePlatformResult,
 } from "./platformResultService.js";
 
@@ -150,6 +152,11 @@ describe.skipIf(!integrationEnabled)(
         "facebook",
         "instagram",
       ]);
+      await updatePlatformResult(postId.toString(), {
+        platform: "facebook",
+        status: "publishing",
+        attemptCount: 1,
+      });
 
       const publishedAt = new Date("2026-10-19T08:30:00.000Z");
 
@@ -158,7 +165,7 @@ describe.skipIf(!integrationEnabled)(
         status: "published",
         externalPostId: "integration-external-123",
         publishedAt,
-        attemptCount: 1,
+        attemptCount: 2,
       });
 
       const results = post.platformResults as TestPlatformResult[];
@@ -169,7 +176,7 @@ describe.skipIf(!integrationEnabled)(
         platform: "facebook",
         status: "published",
         externalPostId: "integration-external-123",
-        attemptCount: 1,
+        attemptCount: 2,
         publishedAt,
       });
 
@@ -193,8 +200,114 @@ describe.skipIf(!integrationEnabled)(
       ).toMatchObject({
         status: "published",
         externalPostId: "integration-external-123",
-        attemptCount: 1,
+        attemptCount: 2,
         publishedAt,
+      });
+    });
+
+    it("rejects unconfirmed publication without modifying stored results", async () => {
+      await initializePlatformResults(postId.toString(), ["facebook"]);
+
+      await expect(
+        updatePlatformResult(postId.toString(), {
+          platform: "facebook",
+          status: "published",
+        }),
+      ).rejects.toThrow(
+        "Confirmed publication requires an external post ID and a valid publication timestamp.",
+      );
+
+      const post = await Post.findById(postId).lean();
+      expect(post).not.toBeNull();
+
+      const results = post!.platformResults as TestPlatformResult[];
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({
+        platform: "facebook",
+        status: "pending",
+        attemptCount: 0,
+      });
+    });
+
+    it("rejects updates for platforms that have not been initialized", async () => {
+      await initializePlatformResults(postId.toString(), ["facebook"]);
+
+      await expect(
+        updatePlatformResult(postId.toString(), {
+          platform: "instagram",
+          status: "pending",
+        }),
+      ).rejects.toMatchObject({
+        name: "PlatformResultServiceError",
+        statusCode: 409,
+      });
+
+      const post = await Post.findById(postId).lean();
+      expect(post).not.toBeNull();
+
+      const results = post!.platformResults as TestPlatformResult[];
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({
+        platform: "facebook",
+        status: "pending",
+        attemptCount: 0,
+      });
+    });
+    it("atomically claims a pending platform and increments its attempt count", async () => {
+      await initializePlatformResults(postId.toString(), ["facebook"]);
+
+      const claim = await claimPlatformResult(postId.toString(), "facebook");
+
+      expect(claim).not.toBeNull();
+      expect(claim!.attemptCount).toBe(1);
+
+      const claimedResult = (
+        claim!.post.platformResults as TestPlatformResult[]
+      ).find((result) => result.platform === "facebook");
+
+      expect(claimedResult).toMatchObject({
+        platform: "facebook",
+        status: "publishing",
+        attemptCount: 1,
+        lastError: "",
+      });
+
+      const persistedPost = await Post.findById(postId).lean();
+      expect(persistedPost).not.toBeNull();
+
+      const persistedResult = (
+        persistedPost!.platformResults as TestPlatformResult[]
+      ).find((result) => result.platform === "facebook");
+
+      expect(persistedResult).toMatchObject({
+        status: "publishing",
+        attemptCount: 1,
+      });
+    });
+
+    it("allows only one of two concurrent claims for the same platform", async () => {
+      await initializePlatformResults(postId.toString(), ["facebook"]);
+
+      const claims = await Promise.all([
+        claimPlatformResult(postId.toString(), "facebook"),
+        claimPlatformResult(postId.toString(), "facebook"),
+      ]);
+
+      expect(claims.filter((claim) => claim !== null)).toHaveLength(1);
+      expect(claims.filter((claim) => claim === null)).toHaveLength(1);
+
+      const persistedPost = await Post.findById(postId).lean();
+      expect(persistedPost).not.toBeNull();
+
+      const results = persistedPost!.platformResults as TestPlatformResult[];
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({
+        platform: "facebook",
+        status: "publishing",
+        attemptCount: 1,
       });
     });
   },

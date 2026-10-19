@@ -27,6 +27,12 @@ export type PublishingResult =
       postId: string;
       platform: PublishingPlatform;
       message: string;
+    }
+  | {
+      outcome: "unknown";
+      postId: string;
+      platform: PublishingPlatform;
+      message: string;
     };
 
 export interface PublishingAdapter {

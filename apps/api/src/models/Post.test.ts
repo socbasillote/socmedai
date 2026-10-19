@@ -75,6 +75,7 @@ describe("Post platformResults schema", () => {
       "published",
       "failed",
       "unknown",
+      "simulated",
     ]);
 
     expect(POST_PLATFORMS).toEqual(["facebook", "instagram", "linkedin"]);
