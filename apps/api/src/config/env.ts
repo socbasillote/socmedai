@@ -11,6 +11,16 @@ const optionalString = z.preprocess(
   z.string().trim().min(1).optional(),
 );
 
+const optionalUrl = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.string().trim().url().optional(),
+);
+
+const optionalEncryptionKey = optionalString.refine(
+  (value) => value === undefined || /^[a-f0-9]{64}$/i.test(value),
+  "Must be a 64-character hexadecimal key.",
+);
+
 const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -30,6 +40,11 @@ const envSchema = z.object({
   SUPABASE_ANON_KEY: z.string().trim().min(1),
   SUPABASE_SERVICE_ROLE_KEY: optionalString,
   OPENAI_API_KEY: optionalString,
+
+  LINKEDIN_CLIENT_ID: optionalString,
+  LINKEDIN_CLIENT_SECRET: optionalString,
+  LINKEDIN_REDIRECT_URI: optionalUrl,
+  LINKEDIN_TOKEN_ENCRYPTION_KEY: optionalEncryptionKey,
 });
 
 const result = envSchema.safeParse(process.env);

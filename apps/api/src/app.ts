@@ -13,6 +13,7 @@ import { requireAuth } from "./auth/requireAuth.js";
 
 import workspaceRoutes from "./routes/workspaceRoutes.js";
 import postRoutes from "./routes/postRoutes.js";
+import linkedInRoutes from "./routes/linkedinRoutes.js";
 
 export const app = express();
 
@@ -51,6 +52,8 @@ app.get("/api/health", (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+app.use("/api/linkedin", linkedInRoutes);
 
 app.get("/api/me", requireAuth, (_req, res) => {
   res.status(200).json({

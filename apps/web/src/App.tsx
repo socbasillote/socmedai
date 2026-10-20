@@ -53,6 +53,8 @@ import {
   storeWorkspaceId,
 } from "@/lib/workspaceSelection";
 
+import { startLinkedInConnect } from "@/lib/linkedin";
+
 const navigation = [
   { label: "Overview", icon: LayoutDashboard },
   { label: "Content calendar", icon: CalendarDays },
@@ -144,6 +146,9 @@ function DashboardApp() {
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
   const [createWorkspaceError, setCreateWorkspaceError] = useState("");
+
+  const [connectingLinkedIn, setConnectingLinkedIn] = useState(false);
+  const [linkedInConnectError, setLinkedInConnectError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -263,6 +268,43 @@ function DashboardApp() {
 
   const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const linkedInStatus = params.get("linkedin");
+
+    if (linkedInStatus !== "connected" && linkedInStatus !== "error") {
+      return;
+    }
+
+    if (linkedInStatus === "connected") {
+      setNotice("LinkedIn connected successfully.");
+      setLinkedInConnectError("");
+    } else {
+      const reason = params.get("reason");
+
+      setNotice("");
+      setLinkedInConnectError(
+        reason === "denied"
+          ? "LinkedIn authorization was denied. You can try connecting again."
+          : "LinkedIn connection failed. Please try again.",
+      );
+    }
+
+    params.delete("linkedin");
+    params.delete("reason");
+
+    const remainingSearch = params.toString();
+
+    navigate(
+      {
+        pathname: location.pathname,
+        search: remainingSearch ? `?${remainingSearch}` : "",
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  }, [location.hash, location.pathname, location.search, navigate]);
 
   const activePage =
     Object.entries(pagePaths).find(
@@ -491,6 +533,28 @@ function DashboardApp() {
       );
     } finally {
       setCreatingWorkspace(false);
+    }
+  }
+
+  async function handleConnectLinkedIn() {
+    if (!selectedWorkspaceId || connectingLinkedIn) {
+      return;
+    }
+
+    setConnectingLinkedIn(true);
+    setLinkedInConnectError("");
+
+    try {
+      const authorizationUrl = await startLinkedInConnect(selectedWorkspaceId);
+
+      window.location.assign(authorizationUrl);
+    } catch (error) {
+      setLinkedInConnectError(
+        error instanceof Error
+          ? error.message
+          : "Unable to start LinkedIn connection.",
+      );
+      setConnectingLinkedIn(false);
     }
   }
 
@@ -802,6 +866,23 @@ function DashboardApp() {
             </button>
 
             <SignOutButton />
+
+            <Button
+              type="button"
+              variant="outline"
+              disabled={
+                !selectedWorkspaceId || workspacesLoading || connectingLinkedIn
+              }
+              onClick={() => void handleConnectLinkedIn()}
+              className="shrink-0"
+            >
+              {connectingLinkedIn ? "Connecting..." : "Connect LinkedIn"}
+            </Button>
+            {linkedInConnectError && (
+              <p role="alert" className="max-w-xs text-sm text-rose-600">
+                {linkedInConnectError}
+              </p>
+            )}
           </div>
         </header>
 

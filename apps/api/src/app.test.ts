@@ -662,3 +662,50 @@ describe("PATCH /api/posts/:postId", () => {
     });
   });
 });
+
+describe("LinkedIn routes authentication", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("rejects connect requests without a Bearer token", async () => {
+    const response = await request(app)
+      .post("/api/linkedin/connect")
+      .send({ workspaceId: "507f1f77bcf86cd799439011" });
+
+    expect(response.status).toBe(401);
+    expect(response.body.error).toBe("Unauthorized");
+    expect(response.body.message).toBe(
+      "A valid Bearer access token is required.",
+    );
+  });
+
+  it("rejects an invalid token without starting LinkedIn OAuth", async () => {
+    vi.spyOn(supabaseAuthClient.auth, "getUser").mockResolvedValue({
+      data: { user: null },
+      error: {
+        name: "AuthApiError",
+        message: "Invalid token",
+        status: 401,
+        code: "invalid_token",
+      },
+    } as Awaited<ReturnType<typeof supabaseAuthClient.auth.getUser>>);
+
+    const response = await request(app)
+      .post("/api/linkedin/connect")
+      .set("Authorization", "Bearer invalid-test-token")
+      .send({ workspaceId: "507f1f77bcf86cd799439011" });
+
+    expect(response.status).toBe(401);
+    expect(response.body.error).toBe("Unauthorized");
+  });
+
+  it("keeps the OAuth callback public and redirects safely when parameters are missing", async () => {
+    const response = await request(app).get("/api/linkedin/callback");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe(
+      `${process.env.WEB_ORIGIN ?? "http://localhost:5173"}/?linkedin=error&reason=failed`,
+    );
+  });
+});

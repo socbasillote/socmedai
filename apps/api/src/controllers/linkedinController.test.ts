@@ -1,0 +1,201 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import express from "express";
+import request from "supertest";
+
+const { createAuthorizationUrlMock, consumeStateMock, completeCallbackMock } =
+  vi.hoisted(() => ({
+    createAuthorizationUrlMock: vi.fn(),
+    consumeStateMock: vi.fn(),
+    completeCallbackMock: vi.fn(),
+  }));
+
+vi.mock("../services/linkedin/linkedinAuthorizationService.js", () => ({
+  createLinkedInAuthorizationUrl: createAuthorizationUrlMock,
+  LinkedInAuthorizationError: class LinkedInAuthorizationError extends Error {
+    constructor(
+      message: string,
+      public readonly statusCode: number,
+    ) {
+      super(message);
+      this.name = "LinkedInAuthorizationError";
+    }
+  },
+}));
+
+vi.mock("../services/linkedin/linkedinOAuthStateService.js", () => ({
+  consumeLinkedInOAuthState: consumeStateMock,
+}));
+
+vi.mock("../services/linkedin/linkedinCallbackService.js", () => ({
+  completeLinkedInOAuthCallback: completeCallbackMock,
+}));
+
+vi.mock("../config/env.js", () => ({
+  env: { WEB_ORIGIN: "http://localhost:5173" },
+}));
+
+import {
+  linkedInOAuthCallback,
+  startLinkedInConnect,
+} from "./linkedinController.js";
+
+function createTestApp() {
+  const app = express();
+
+  app.use(express.json());
+
+  // Simulate an authenticated user for controller unit tests.
+  app.use((req, res, next) => {
+    res.locals.authUser = {
+      id: "supabase-user-123",
+      email: "test@example.com",
+    };
+    next();
+  });
+
+  app.post("/connect", startLinkedInConnect);
+  app.get("/callback", linkedInOAuthCallback);
+
+  return app;
+}
+
+describe("LinkedIn controller", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    createAuthorizationUrlMock.mockResolvedValue(
+      "https://www.linkedin.com/oauth/v2/authorization?state=test-state",
+    );
+
+    consumeStateMock.mockResolvedValue({
+      supabaseUserId: "supabase-user-123",
+      workspaceId: "507f1f77bcf86cd799439011",
+    });
+
+    completeCallbackMock.mockResolvedValue(undefined);
+  });
+
+  it("returns an authorization URL for a valid connect request", async () => {
+    const response = await request(createTestApp())
+      .post("/connect")
+      .send({ workspaceId: "507f1f77bcf86cd799439011" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.authorizationUrl).toContain(
+      "https://www.linkedin.com/oauth/v2/authorization",
+    );
+
+    expect(createAuthorizationUrlMock).toHaveBeenCalledWith(
+      { id: "supabase-user-123", email: "test@example.com" },
+      "507f1f77bcf86cd799439011",
+    );
+  });
+
+  it("rejects a connect request without a workspace ID", async () => {
+    const response = await request(createTestApp()).post("/connect").send({});
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("A valid workspaceId is required.");
+    expect(createAuthorizationUrlMock).not.toHaveBeenCalled();
+  });
+
+  it("completes a successful callback and redirects to the frontend", async () => {
+    const response = await request(createTestApp())
+      .get("/callback")
+      .query({ code: "authorization-code", state: "valid-state" });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe(
+      "http://localhost:5173/?linkedin=connected",
+    );
+
+    expect(completeCallbackMock).toHaveBeenCalledWith({
+      code: "authorization-code",
+      state: "valid-state",
+    });
+  });
+
+  it("handles a user-denied authorization without exposing provider details", async () => {
+    const response = await request(createTestApp()).get("/callback").query({
+      error: "access_denied",
+      error_description: "Sensitive provider details",
+      state: "valid-state",
+    });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe(
+      "http://localhost:5173/?linkedin=error&reason=denied",
+    );
+    expect(response.headers.location).not.toContain("Sensitive");
+    expect(consumeStateMock).toHaveBeenCalledWith({ state: "valid-state" });
+    expect(completeCallbackMock).not.toHaveBeenCalled();
+  });
+
+  it("redirects safely when the callback is missing required parameters", async () => {
+    const response = await request(createTestApp()).get("/callback");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe(
+      "http://localhost:5173/?linkedin=error&reason=failed",
+    );
+    expect(completeCallbackMock).not.toHaveBeenCalled();
+  });
+
+  it("does not expose internal errors when callback processing fails", async () => {
+    completeCallbackMock.mockRejectedValue(
+      new Error("Internal database credentials"),
+    );
+
+    const response = await request(createTestApp())
+      .get("/callback")
+      .query({ code: "authorization-code", state: "valid-state" });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe(
+      "http://localhost:5173/?linkedin=error&reason=failed",
+    );
+    expect(response.headers.location).not.toContain("credentials");
+  });
+
+  it("returns 404 when the workspace is inaccessible", async () => {
+    createAuthorizationUrlMock.mockRejectedValue(
+      new Error("Workspace not found."),
+    );
+
+    // Use the same error class that the controller imports.
+    const { LinkedInAuthorizationError } =
+      await import("../services/linkedin/linkedinAuthorizationService.js");
+
+    createAuthorizationUrlMock.mockRejectedValue(
+      new LinkedInAuthorizationError("Workspace not found.", 404),
+    );
+
+    const response = await request(createTestApp())
+      .post("/connect")
+      .send({ workspaceId: "507f1f77bcf86cd799439011" });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: "Workspace not found." });
+  });
+
+  it("returns 503 when LinkedIn OAuth is not configured", async () => {
+    const { LinkedInAuthorizationError } =
+      await import("../services/linkedin/linkedinAuthorizationService.js");
+
+    createAuthorizationUrlMock.mockRejectedValue(
+      new LinkedInAuthorizationError(
+        "LinkedIn OAuth is not configured on the server.",
+        503,
+      ),
+    );
+
+    const response = await request(createTestApp())
+      .post("/connect")
+      .send({ workspaceId: "507f1f77bcf86cd799439011" });
+
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({
+      error: "LinkedIn OAuth is not configured on the server.",
+    });
+  });
+});
