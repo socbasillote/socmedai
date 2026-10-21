@@ -2,12 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 
-const { createAuthorizationUrlMock, consumeStateMock, completeCallbackMock } =
-  vi.hoisted(() => ({
-    createAuthorizationUrlMock: vi.fn(),
-    consumeStateMock: vi.fn(),
-    completeCallbackMock: vi.fn(),
-  }));
+const {
+  createAuthorizationUrlMock,
+  consumeStateMock,
+  completeCallbackMock,
+  getConnectionStatusMock,
+} = vi.hoisted(() => ({
+  createAuthorizationUrlMock: vi.fn(),
+  consumeStateMock: vi.fn(),
+  completeCallbackMock: vi.fn(),
+  getConnectionStatusMock: vi.fn(),
+}));
 
 vi.mock("../services/linkedin/linkedinAuthorizationService.js", () => ({
   createLinkedInAuthorizationUrl: createAuthorizationUrlMock,
@@ -30,11 +35,16 @@ vi.mock("../services/linkedin/linkedinCallbackService.js", () => ({
   completeLinkedInOAuthCallback: completeCallbackMock,
 }));
 
+vi.mock("../services/linkedin/linkedinConnectionStatusService.js", () => ({
+  getLinkedInConnectionStatus: getConnectionStatusMock,
+}));
+
 vi.mock("../config/env.js", () => ({
   env: { WEB_ORIGIN: "http://localhost:5173" },
 }));
 
 import {
+  getLinkedInStatus,
   linkedInOAuthCallback,
   startLinkedInConnect,
 } from "./linkedinController.js";
@@ -54,6 +64,7 @@ function createTestApp() {
   });
 
   app.post("/connect", startLinkedInConnect);
+  app.get("/status", getLinkedInStatus);
   app.get("/callback", linkedInOAuthCallback);
 
   return app;
@@ -197,5 +208,71 @@ describe("LinkedIn controller", () => {
     expect(response.body).toEqual({
       error: "LinkedIn OAuth is not configured on the server.",
     });
+  });
+
+  it("returns disconnected status for a workspace without a connection", async () => {
+    getConnectionStatusMock.mockResolvedValue({
+      connected: false,
+      connection: null,
+    });
+
+    const response = await request(createTestApp())
+      .get("/status")
+      .query({ workspaceId: "507f1f77bcf86cd799439011" });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      connected: false,
+      connection: null,
+    });
+
+    expect(getConnectionStatusMock).toHaveBeenCalledWith(
+      { id: "supabase-user-123", email: "test@example.com" },
+      "507f1f77bcf86cd799439011",
+    );
+  });
+
+  it("returns safe connection metadata without exposing tokens", async () => {
+    getConnectionStatusMock.mockResolvedValue({
+      connected: true,
+      connection: {
+        id: "connection-123",
+        workspaceId: "507f1f77bcf86cd799439011",
+        linkedinMemberId: "member-123",
+        displayName: "Test Member",
+        tokenExpiresAt: "2026-10-22T00:00:00.000Z",
+        status: "connected",
+      },
+    });
+
+    const response = await request(createTestApp())
+      .get("/status")
+      .query({ workspaceId: "507f1f77bcf86cd799439011" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.connected).toBe(true);
+    expect(response.body.connection.displayName).toBe("Test Member");
+    expect(response.body).not.toHaveProperty("accessToken");
+    expect(response.body.connection).not.toHaveProperty("accessToken");
+    expect(response.body.connection).not.toHaveProperty("accessTokenEncrypted");
+    expect(response.body.connection).not.toHaveProperty(
+      "refreshTokenEncrypted",
+    );
+  });
+
+  it("returns the service error status for an inaccessible workspace", async () => {
+    const { LinkedInConnectionError } =
+      await import("../services/linkedin/linkedinConnectionService.js");
+
+    getConnectionStatusMock.mockRejectedValue(
+      new LinkedInConnectionError("Workspace not found.", 404),
+    );
+
+    const response = await request(createTestApp())
+      .get("/status")
+      .query({ workspaceId: "507f1f77bcf86cd799439011" });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: "Workspace not found." });
   });
 });

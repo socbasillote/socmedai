@@ -7,6 +7,8 @@ import { createLinkedInAuthorizationUrl } from "../services/linkedin/linkedinAut
 import { consumeLinkedInOAuthState } from "../services/linkedin/linkedinOAuthStateService.js";
 import { completeLinkedInOAuthCallback } from "../services/linkedin/linkedinCallbackService.js";
 import { LinkedInAuthorizationError } from "../services/linkedin/linkedinAuthorizationService.js";
+import { getLinkedInConnectionStatus } from "../services/linkedin/linkedinConnectionStatusService.js";
+import { LinkedInConnectionError } from "../services/linkedin/linkedinConnectionService.js";
 
 const connectBodySchema = z.object({
   workspaceId: z.string().trim().min(1),
@@ -83,5 +85,25 @@ export const linkedInOAuthCallback: RequestHandler = async (req, res) => {
   } catch {
     // Do not expose authorization codes, state, tokens, or provider error details.
     frontendRedirect(res, "error", "failed");
+  }
+};
+
+export const getLinkedInStatus: RequestHandler = async (req, res, next) => {
+  try {
+    const workspaceId =
+      typeof req.query.workspaceId === "string" ? req.query.workspaceId : "";
+
+    const authUser = res.locals.authUser as AuthenticatedUser;
+
+    const status = await getLinkedInConnectionStatus(authUser, workspaceId);
+
+    res.status(200).json(status);
+  } catch (error) {
+    if (error instanceof LinkedInConnectionError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+
+    next(error);
   }
 };

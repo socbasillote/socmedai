@@ -34,3 +34,34 @@ export async function startLinkedInConnect(
 
   return response.authorizationUrl;
 }
+
+export type LinkedInConnectionInfo = {
+  id: string;
+  workspaceId: string;
+  linkedinMemberId: string;
+  displayName?: string;
+  profilePictureUrl?: string;
+  tokenExpiresAt: string;
+  status: "connected" | "expired" | "revoked";
+};
+
+export type LinkedInStatusResponse = {
+  connected: boolean;
+  connection: LinkedInConnectionInfo | null;
+};
+
+export async function getLinkedInStatus(
+  workspaceId: string,
+): Promise<LinkedInStatusResponse> {
+  const normalizedWorkspaceId = workspaceId.trim();
+
+  if (!normalizedWorkspaceId) {
+    throw new Error("Select a workspace before checking LinkedIn status.");
+  }
+
+  const response = await apiFetch<LinkedInStatusResponse>(
+    `/api/linkedin/status?workspaceId=${encodeURIComponent(normalizedWorkspaceId)}`,
+  );
+
+  return response;
+}

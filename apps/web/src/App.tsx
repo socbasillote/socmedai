@@ -53,7 +53,7 @@ import {
   storeWorkspaceId,
 } from "@/lib/workspaceSelection";
 
-import { startLinkedInConnect } from "@/lib/linkedin";
+import { getLinkedInStatus, startLinkedInConnect } from "@/lib/linkedin";
 
 const navigation = [
   { label: "Overview", icon: LayoutDashboard },
@@ -149,6 +149,20 @@ function DashboardApp() {
 
   const [connectingLinkedIn, setConnectingLinkedIn] = useState(false);
   const [linkedInConnectError, setLinkedInConnectError] = useState("");
+
+  const [linkedInStatus, setLinkedInStatus] = useState<
+    | "idle"
+    | "loading"
+    | "connected"
+    | "disconnected"
+    | "expired"
+    | "revoked"
+    | "error"
+  >("idle");
+
+  const [linkedInDisplayName, setLinkedInDisplayName] = useState("");
+  const [linkedInStatusError, setLinkedInStatusError] = useState("");
+  const [linkedInStatusRefreshKey, setLinkedInStatusRefreshKey] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -270,26 +284,83 @@ function DashboardApp() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const linkedInStatus = params.get("linkedin");
+    let active = true;
 
-    if (linkedInStatus !== "connected" && linkedInStatus !== "error") {
+    async function loadLinkedInStatus() {
+      if (!selectedWorkspaceId) {
+        setLinkedInStatus("idle");
+        setLinkedInDisplayName("");
+        setLinkedInStatusError("");
+        return;
+      }
+
+      setLinkedInStatus("loading");
+      setLinkedInDisplayName("");
+      setLinkedInStatusError("");
+
+      try {
+        const result = await getLinkedInStatus(selectedWorkspaceId);
+
+        if (!active) return;
+
+        if (!result.connection) {
+          setLinkedInStatus("disconnected");
+          return;
+        }
+
+        setLinkedInStatus(result.connection.status);
+        setLinkedInDisplayName(result.connection.displayName ?? "");
+      } catch (error) {
+        if (!active) return;
+
+        setLinkedInStatus("error");
+        setLinkedInStatusError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load LinkedIn connection status.",
+        );
+      }
+    }
+
+    void loadLinkedInStatus();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedWorkspaceId, linkedInStatusRefreshKey]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const callbackStatus = params.get("linkedin");
+
+    if (callbackStatus !== "connected" && callbackStatus !== "error") {
       return;
     }
 
-    if (linkedInStatus === "connected") {
-      setNotice("LinkedIn connected successfully.");
-      setLinkedInConnectError("");
-    } else {
-      const reason = params.get("reason");
+    let active = true;
 
-      setNotice("");
-      setLinkedInConnectError(
-        reason === "denied"
-          ? "LinkedIn authorization was denied. You can try connecting again."
-          : "LinkedIn connection failed. Please try again.",
-      );
-    }
+    const handleCallbackResult = async () => {
+      await Promise.resolve();
+
+      if (!active) return;
+
+      if (callbackStatus === "connected") {
+        setNotice("LinkedIn connected successfully.");
+        setLinkedInConnectError("");
+        setLinkedInStatusRefreshKey((current) => current + 1);
+      } else {
+        const reason = params.get("reason");
+
+        setNotice("");
+        setLinkedInConnectError(
+          reason === "denied"
+            ? "LinkedIn authorization was denied. You can try connecting again."
+            : "LinkedIn connection failed. Please try again.",
+        );
+      }
+    };
+
+    void handleCallbackResult();
 
     params.delete("linkedin");
     params.delete("reason");
@@ -304,6 +375,10 @@ function DashboardApp() {
       },
       { replace: true },
     );
+
+    return () => {
+      active = false;
+    };
   }, [location.hash, location.pathname, location.search, navigate]);
 
   const activePage =
@@ -878,6 +953,42 @@ function DashboardApp() {
             >
               {connectingLinkedIn ? "Connecting..." : "Connect LinkedIn"}
             </Button>
+
+            <div className="flex flex-col gap-1 text-sm">
+              {linkedInStatus === "loading" && (
+                <span className="text-slate-500">Checking LinkedIn...</span>
+              )}
+
+              {linkedInStatus === "connected" && (
+                <span className="text-emerald-600">
+                  Connected
+                  {linkedInDisplayName ? ` · ${linkedInDisplayName}` : ""}
+                </span>
+              )}
+
+              {linkedInStatus === "disconnected" && (
+                <span className="text-slate-500">LinkedIn not connected</span>
+              )}
+
+              {linkedInStatus === "expired" && (
+                <span className="text-amber-600">
+                  LinkedIn session expired. Reconnect required.
+                </span>
+              )}
+
+              {linkedInStatus === "revoked" && (
+                <span className="text-amber-600">
+                  LinkedIn access revoked. Reconnect required.
+                </span>
+              )}
+
+              {linkedInStatus === "error" && (
+                <span role="alert" className="text-rose-600">
+                  {linkedInStatusError || "Unable to load LinkedIn status."}
+                </span>
+              )}
+            </div>
+
             {linkedInConnectError && (
               <p role="alert" className="max-w-xs text-sm text-rose-600">
                 {linkedInConnectError}

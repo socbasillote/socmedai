@@ -708,4 +708,35 @@ describe("LinkedIn routes authentication", () => {
       `${process.env.WEB_ORIGIN ?? "http://localhost:5173"}/?linkedin=error&reason=failed`,
     );
   });
+
+  it("rejects status requests without a Bearer token", async () => {
+    const response = await request(app).get("/api/linkedin/status");
+
+    expect(response.status).toBe(401);
+    expect(response.body.error).toBe("Unauthorized");
+    expect(response.body.message).toBe(
+      "A valid Bearer access token is required.",
+    );
+  });
+
+  it("rejects status requests without a workspace ID", async () => {
+    vi.spyOn(supabaseAuthClient.auth, "getUser").mockResolvedValue({
+      data: {
+        user: {
+          id: "test-supabase-user-id",
+          email: "test@example.com",
+        },
+      },
+      error: null,
+    } as Awaited<ReturnType<typeof supabaseAuthClient.auth.getUser>>);
+
+    const response = await request(app)
+      .get("/api/linkedin/status")
+      .set("Authorization", "Bearer valid-test-token");
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({
+      error: "Workspace not found.",
+    });
+  });
 });
