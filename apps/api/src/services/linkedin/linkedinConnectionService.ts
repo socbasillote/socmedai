@@ -157,3 +157,44 @@ export async function saveLinkedInConnection({
     status: connection.status,
   };
 }
+
+type DisconnectLinkedInConnectionInput = {
+  authUser: AuthenticatedUser;
+  workspaceId: string;
+  connectionId: string;
+};
+
+export async function disconnectLinkedInConnection({
+  authUser,
+  workspaceId,
+  connectionId,
+}: DisconnectLinkedInConnectionInput): Promise<{ disconnected: true }> {
+  if (!isValidWorkspaceId(workspaceId)) {
+    throw new LinkedInConnectionError("Workspace not found.", 404);
+  }
+
+  if (!authUser.id.trim()) {
+    throw new LinkedInConnectionError("Authentication is required.", 401);
+  }
+
+  if (!isValidWorkspaceId(connectionId)) {
+    throw new LinkedInConnectionError("LinkedIn connection not found.", 404);
+  }
+
+  const workspace = await getUserWorkspaceById(authUser, workspaceId);
+
+  if (!workspace) {
+    throw new LinkedInConnectionError("Workspace not found.", 404);
+  }
+
+  const connection = await LinkedInConnection.findOneAndDelete({
+    _id: connectionId,
+    workspaceId: workspace._id,
+  });
+
+  if (!connection) {
+    throw new LinkedInConnectionError("LinkedIn connection not found.", 404);
+  }
+
+  return { disconnected: true };
+}

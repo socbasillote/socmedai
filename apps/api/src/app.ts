@@ -34,7 +34,7 @@ app.use(express.json({ limit: "1mb" }));
 // Limit repeated requests to API endpoints.
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 100,
+  limit: 150,
   standardHeaders: "draft-8",
   legacyHeaders: false,
 });

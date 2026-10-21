@@ -1,16 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { findOneAndUpdateMock, getWorkspaceMock, encryptTokenMock } = vi.hoisted(
-  () => ({
-    findOneAndUpdateMock: vi.fn(),
-    getWorkspaceMock: vi.fn(),
-    encryptTokenMock: vi.fn((token: string) => `encrypted:${token}`),
-  }),
-);
+const {
+  findOneAndUpdateMock,
+  findOneAndDeleteMock,
+  getWorkspaceMock,
+  encryptTokenMock,
+} = vi.hoisted(() => ({
+  findOneAndUpdateMock: vi.fn(),
+  findOneAndDeleteMock: vi.fn(),
+  getWorkspaceMock: vi.fn(),
+  encryptTokenMock: vi.fn((token: string) => `encrypted:${token}`),
+}));
 
 vi.mock("../../models/LinkedInConnection.js", () => ({
   default: {
     findOneAndUpdate: findOneAndUpdateMock,
+    findOneAndDelete: findOneAndDeleteMock,
   },
 }));
 
@@ -25,6 +30,7 @@ vi.mock("./linkedinTokenEncryptionService.js", () => ({
 
 import {
   LinkedInConnectionError,
+  disconnectLinkedInConnection,
   saveLinkedInConnection,
 } from "./linkedinConnectionService.js";
 
@@ -78,6 +84,7 @@ describe("LinkedIn connection service", () => {
       (token: string) => `encrypted:${token}`,
     );
     findOneAndUpdateMock.mockResolvedValue(makeConnection());
+    findOneAndDeleteMock.mockResolvedValue(makeConnection());
   });
 
   afterEach(() => {
@@ -255,6 +262,84 @@ describe("LinkedIn connection service", () => {
     ).rejects.toMatchObject({
       name: "LinkedInConnectionError",
       statusCode: 500,
+    });
+  });
+
+  it("disconnects only the selected connection in the authorized workspace", async () => {
+    const result = await disconnectLinkedInConnection({
+      authUser,
+      workspaceId,
+      connectionId: "507f1f77bcf86cd799439012",
+    });
+
+    expect(getWorkspaceMock).toHaveBeenCalledWith(authUser, workspaceId);
+    expect(findOneAndDeleteMock).toHaveBeenCalledWith({
+      _id: "507f1f77bcf86cd799439012",
+      workspaceId: workspace._id,
+    });
+    expect(result).toEqual({ disconnected: true });
+    expect(JSON.stringify(result)).not.toContain("token");
+  });
+
+  it("rejects a malformed connection ID without deleting anything", async () => {
+    await expect(
+      disconnectLinkedInConnection({
+        authUser,
+        workspaceId,
+        connectionId: "invalid-id",
+      }),
+    ).rejects.toMatchObject({
+      name: "LinkedInConnectionError",
+      statusCode: 404,
+    });
+
+    expect(findOneAndDeleteMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a user without an ID", async () => {
+    await expect(
+      disconnectLinkedInConnection({
+        authUser: { id: " ", email: null },
+        workspaceId,
+        connectionId: "507f1f77bcf86cd799439012",
+      }),
+    ).rejects.toMatchObject({
+      name: "LinkedInConnectionError",
+      statusCode: 401,
+    });
+
+    expect(findOneAndDeleteMock).not.toHaveBeenCalled();
+  });
+
+  it("does not delete a connection from a workspace the user does not own", async () => {
+    getWorkspaceMock.mockResolvedValue(null);
+
+    await expect(
+      disconnectLinkedInConnection({
+        authUser,
+        workspaceId,
+        connectionId: "507f1f77bcf86cd799439012",
+      }),
+    ).rejects.toMatchObject({
+      name: "LinkedInConnectionError",
+      statusCode: 404,
+    });
+
+    expect(findOneAndDeleteMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when the selected connection does not exist in the workspace", async () => {
+    findOneAndDeleteMock.mockResolvedValue(null);
+
+    await expect(
+      disconnectLinkedInConnection({
+        authUser,
+        workspaceId,
+        connectionId: "507f1f77bcf86cd799439012",
+      }),
+    ).rejects.toMatchObject({
+      name: "LinkedInConnectionError",
+      statusCode: 404,
     });
   });
 });

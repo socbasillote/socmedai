@@ -7,11 +7,13 @@ const {
   consumeStateMock,
   completeCallbackMock,
   getConnectionStatusMock,
+  disconnectConnectionMock,
 } = vi.hoisted(() => ({
   createAuthorizationUrlMock: vi.fn(),
   consumeStateMock: vi.fn(),
   completeCallbackMock: vi.fn(),
   getConnectionStatusMock: vi.fn(),
+  disconnectConnectionMock: vi.fn(),
 }));
 
 vi.mock("../services/linkedin/linkedinAuthorizationService.js", () => ({
@@ -23,6 +25,19 @@ vi.mock("../services/linkedin/linkedinAuthorizationService.js", () => ({
     ) {
       super(message);
       this.name = "LinkedInAuthorizationError";
+    }
+  },
+}));
+
+vi.mock("../services/linkedin/linkedinConnectionService.js", () => ({
+  disconnectLinkedInConnection: disconnectConnectionMock,
+  LinkedInConnectionError: class LinkedInConnectionError extends Error {
+    constructor(
+      message: string,
+      public readonly statusCode: number,
+    ) {
+      super(message);
+      this.name = "LinkedInConnectionError";
     }
   },
 }));
@@ -47,6 +62,7 @@ import {
   getLinkedInStatus,
   linkedInOAuthCallback,
   startLinkedInConnect,
+  disconnectLinkedIn,
 } from "./linkedinController.js";
 
 function createTestApp() {
@@ -66,6 +82,7 @@ function createTestApp() {
   app.post("/connect", startLinkedInConnect);
   app.get("/status", getLinkedInStatus);
   app.get("/callback", linkedInOAuthCallback);
+  app.delete("/connections/:connectionId", disconnectLinkedIn);
 
   return app;
 }
@@ -84,6 +101,7 @@ describe("LinkedIn controller", () => {
     });
 
     completeCallbackMock.mockResolvedValue(undefined);
+    disconnectConnectionMock.mockResolvedValue({ disconnected: true });
   });
 
   it("returns an authorization URL for a valid connect request", async () => {
@@ -274,5 +292,59 @@ describe("LinkedIn controller", () => {
 
     expect(response.status).toBe(404);
     expect(response.body).toEqual({ error: "Workspace not found." });
+  });
+
+  it("disconnects the selected LinkedIn connection", async () => {
+    const response = await request(createTestApp())
+      .delete("/connections/507f1f77bcf86cd799439012")
+      .query({ workspaceId: "507f1f77bcf86cd799439011" });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ disconnected: true });
+
+    expect(disconnectConnectionMock).toHaveBeenCalledWith({
+      authUser: {
+        id: "supabase-user-123",
+        email: "test@example.com",
+      },
+      workspaceId: "507f1f77bcf86cd799439011",
+      connectionId: "507f1f77bcf86cd799439012",
+    });
+
+    expect(JSON.stringify(response.body)).not.toContain("token");
+  });
+
+  it("returns the service error status for a failed disconnect", async () => {
+    const { LinkedInConnectionError } =
+      await import("../services/linkedin/linkedinConnectionService.js");
+
+    disconnectConnectionMock.mockRejectedValue(
+      new LinkedInConnectionError("LinkedIn connection not found.", 404),
+    );
+
+    const response = await request(createTestApp())
+      .delete("/connections/507f1f77bcf86cd799439012")
+      .query({ workspaceId: "507f1f77bcf86cd799439011" });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({
+      error: "LinkedIn connection not found.",
+    });
+  });
+
+  it("does not expose internal errors when disconnecting fails unexpectedly", async () => {
+    disconnectConnectionMock.mockRejectedValue(
+      new Error("Sensitive database details"),
+    );
+
+    const response = await request(createTestApp())
+      .delete("/connections/507f1f77bcf86cd799439012")
+      .query({ workspaceId: "507f1f77bcf86cd799439011" });
+
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({
+      error: "Failed to disconnect LinkedIn.",
+    });
+    expect(JSON.stringify(response.body)).not.toContain("Sensitive");
   });
 });

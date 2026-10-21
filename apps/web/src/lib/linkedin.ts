@@ -65,3 +65,32 @@ export async function getLinkedInStatus(
 
   return response;
 }
+
+export async function disconnectLinkedInConnection(
+  connectionId: string,
+  workspaceId: string,
+): Promise<{ disconnected: true }> {
+  const normalizedConnectionId = connectionId.trim();
+  const normalizedWorkspaceId = workspaceId.trim();
+
+  if (!normalizedConnectionId) {
+    throw new Error("Select a LinkedIn connection to disconnect.");
+  }
+
+  if (!normalizedWorkspaceId) {
+    throw new Error("Select a workspace before disconnecting LinkedIn.");
+  }
+
+  const response = await apiFetch<{ disconnected: true }>(
+    `/api/linkedin/connections/${encodeURIComponent(normalizedConnectionId)}?workspaceId=${encodeURIComponent(normalizedWorkspaceId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (response.disconnected !== true) {
+    throw new Error("The API did not confirm the LinkedIn disconnection.");
+  }
+
+  return response;
+}

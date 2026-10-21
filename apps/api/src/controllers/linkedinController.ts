@@ -1,4 +1,4 @@
-import type { RequestHandler } from "express";
+import type { Request, RequestHandler, Response } from "express";
 import { z } from "zod";
 
 import { env } from "../config/env.js";
@@ -8,7 +8,10 @@ import { consumeLinkedInOAuthState } from "../services/linkedin/linkedinOAuthSta
 import { completeLinkedInOAuthCallback } from "../services/linkedin/linkedinCallbackService.js";
 import { LinkedInAuthorizationError } from "../services/linkedin/linkedinAuthorizationService.js";
 import { getLinkedInConnectionStatus } from "../services/linkedin/linkedinConnectionStatusService.js";
-import { LinkedInConnectionError } from "../services/linkedin/linkedinConnectionService.js";
+import {
+  LinkedInConnectionError,
+  disconnectLinkedInConnection,
+} from "../services/linkedin/linkedinConnectionService.js";
 
 const connectBodySchema = z.object({
   workspaceId: z.string().trim().min(1),
@@ -107,3 +110,42 @@ export const getLinkedInStatus: RequestHandler = async (req, res, next) => {
     next(error);
   }
 };
+
+export async function disconnectLinkedIn(req: Request, res: Response) {
+  try {
+    const authUser = res.locals.authUser as AuthenticatedUser | undefined;
+    const workspaceId =
+      typeof req.query.workspaceId === "string" ? req.query.workspaceId : "";
+    const connectionId = req.params.connectionId;
+
+    if (!authUser) {
+      return res.status(401).json({
+        error: "Authentication is required.",
+      });
+    }
+
+    if (!connectionId || typeof connectionId !== "string") {
+      return res.status(404).json({
+        error: "LinkedIn connection not found.",
+      });
+    }
+
+    const result = await disconnectLinkedInConnection({
+      authUser,
+      workspaceId,
+      connectionId,
+    });
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof LinkedInConnectionError) {
+      return res.status(error.statusCode).json({
+        error: error.message,
+      });
+    }
+
+    return res.status(500).json({
+      error: "Failed to disconnect LinkedIn.",
+    });
+  }
+}

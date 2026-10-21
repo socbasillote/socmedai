@@ -5,6 +5,7 @@ import {
   getLinkedInStatus,
   linkedInOAuthCallback,
   startLinkedInConnect,
+  disconnectLinkedIn,
 } from "../controllers/linkedinController.js";
 
 const router = Router();
@@ -17,5 +18,7 @@ router.get("/status", requireAuth, getLinkedInStatus);
 // This route must remain public because the provider doesn't send
 // the user's Supabase bearer token with its redirect.
 router.get("/callback", linkedInOAuthCallback);
+
+router.delete("/connections/:connectionId", requireAuth, disconnectLinkedIn);
 
 export default router;
