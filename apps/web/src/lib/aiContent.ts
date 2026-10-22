@@ -20,6 +20,12 @@ export type GenerateCaptionInput = {
   length: CaptionLength;
 };
 
+export type ReviseCaptionInput = {
+  caption: string;
+  instruction: string;
+  platform: PostPlatform;
+};
+
 type GenerateCaptionResponse = {
   caption: string;
 };
@@ -29,6 +35,20 @@ export async function generateCaption(
 ): Promise<string> {
   const response = await apiFetch<GenerateCaptionResponse>(
     "/api/ai/generate-caption",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+
+  return response.caption;
+}
+
+export async function reviseCaption(
+  input: ReviseCaptionInput,
+): Promise<string> {
+  const response = await apiFetch<GenerateCaptionResponse>(
+    "/api/ai/revise-caption",
     {
       method: "POST",
       body: JSON.stringify(input),

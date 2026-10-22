@@ -4,6 +4,7 @@ import { Sparkles, WandSparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   generateCaption,
+  reviseCaption,
   type CaptionLength,
   type CaptionTone,
 } from "@/lib/aiContent";
@@ -50,6 +51,8 @@ export function ContentStudio({
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [revisionInstruction, setRevisionInstruction] = useState("");
+  const [revising, setRevising] = useState(false);
 
   async function handleGenerate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -83,6 +86,41 @@ export function ContentStudio({
       );
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function handleReviseCaption() {
+    if (!caption.trim()) {
+      setError("Enter or generate a caption before revising it.");
+      return;
+    }
+
+    if (revisionInstruction.trim().length < 3) {
+      setError("Describe how you want to revise the caption.");
+      return;
+    }
+
+    setRevising(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const revisedCaption = await reviseCaption({
+        caption: caption.trim(),
+        instruction: revisionInstruction.trim(),
+        platform,
+      });
+
+      setCaption(revisedCaption);
+      setNotice("Caption revised. Review and edit it before saving.");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to revise the caption. Please try again.",
+      );
+    } finally {
+      setRevising(false);
     }
   }
 
@@ -328,6 +366,40 @@ export function ContentStudio({
           <p className="mt-2 text-right text-xs text-slate-400">
             {caption.length} characters
           </p>
+
+          <div className="mt-4 space-y-2">
+            <label
+              htmlFor="studio-revision-instruction"
+              className="block text-sm font-medium text-slate-700"
+            >
+              How would you like to improve this caption?
+            </label>
+
+            <textarea
+              id="studio-revision-instruction"
+              value={revisionInstruction}
+              onChange={(event) => setRevisionInstruction(event.target.value)}
+              maxLength={500}
+              rows={3}
+              placeholder="e.g. Make it shorter and add a stronger call to action."
+              className="w-full resize-y rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
+            />
+
+            <Button
+              type="button"
+              disabled={
+                revising ||
+                generating ||
+                savingDraft ||
+                !caption.trim() ||
+                revisionInstruction.trim().length < 3
+              }
+              onClick={() => void handleReviseCaption()}
+              className="w-full rounded-xl border border-violet-200 bg-white py-3 font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+            >
+              {revising ? "Revising caption..." : "Revise caption"}
+            </Button>
+          </div>
 
           <Button
             type="button"
