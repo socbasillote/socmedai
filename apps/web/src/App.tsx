@@ -28,6 +28,8 @@ import { DashboardOverview } from "./components/DashboardOverview";
 import { PagePlaceholder } from "@/components/PagePlaceholder";
 import { DashboardLayout } from "./components/DashboardLayout";
 
+import { ContentStudio } from "@/components/ContentStudio";
+
 const pagePaths: Record<string, string> = {
   Overview: "/",
   "Content calendar": "/calendar",
@@ -313,6 +315,22 @@ function DashboardApp() {
             }}
             onOpenStudio={() => selectPage("Content studio")}
             onViewPublishing={() => selectPage("Publishing")}
+          />
+        ) : activePage === "Content studio" ? (
+          <ContentStudio
+            selectedWorkspaceId={selectedWorkspaceId}
+            onPostSaved={(post) => {
+              setSavedPosts((current) => [
+                post,
+                ...current.filter((item) => item._id !== post._id),
+              ]);
+
+              if (post.status === "draft") {
+                setDraftCount((current) => current + 1);
+              }
+
+              setNotice("Draft saved to your workspace.");
+            }}
           />
         ) : (
           <PagePlaceholder

@@ -14,6 +14,7 @@ import { requireAuth } from "./auth/requireAuth.js";
 import workspaceRoutes from "./routes/workspaceRoutes.js";
 import postRoutes from "./routes/postRoutes.js";
 import linkedInRoutes from "./routes/linkedinRoutes.js";
+import aiContentRoutes from "./routes/aiContentRoutes.js";
 
 export const app = express();
 
@@ -63,6 +64,7 @@ app.get("/api/me", requireAuth, (_req, res) => {
 
 app.use("/api/workspaces", workspaceRoutes);
 app.use("/api/posts", postRoutes);
+app.use("/api/ai", aiContentRoutes);
 
 // Handle unknown routes.
 app.use((_req, res) => {
