@@ -2,6 +2,17 @@ import { z } from "zod";
 
 import { POST_PLATFORMS } from "../models/Post.js";
 
+const platformConnectionsSchema = z
+  .object({
+    linkedin: z
+      .string()
+      .regex(/^[a-f\d]{24}$/i, {
+        message: "A valid LinkedIn connection ID is required.",
+      })
+      .optional(),
+  })
+  .strict();
+
 export const createPostSchema = z
   .object({
     workspaceId: z.string().regex(/^[a-f\d]{24}$/i, {
@@ -31,9 +42,21 @@ export const createPostSchema = z
       .refine((platforms) => new Set(platforms).size === platforms.length, {
         message: "Publishing platforms must not contain duplicates.",
       }),
+    platformConnections: platformConnectionsSchema.optional(),
     scheduledAt: z.iso.datetime().optional(),
   })
   .superRefine((data, context) => {
+    if (
+      data.platformConnections?.linkedin &&
+      !data.platforms.includes("linkedin")
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["platformConnections", "linkedin"],
+        message:
+          "A LinkedIn account can only be selected when LinkedIn is a publishing platform.",
+      });
+    }
     if (data.scheduledAt) {
       const scheduledTime = new Date(data.scheduledAt).getTime();
 
@@ -67,13 +90,15 @@ export const updateDraftPostSchema = z
         message: "Publishing platforms must not contain duplicates.",
       })
       .optional(),
+    platformConnections: platformConnectionsSchema.optional(),
   })
   .strict()
   .refine(
     (data) =>
       data.title !== undefined ||
       data.caption !== undefined ||
-      data.platforms !== undefined,
+      data.platforms !== undefined ||
+      data.platformConnections !== undefined,
     {
       message: "Provide at least one field to update.",
     },

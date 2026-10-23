@@ -7,9 +7,14 @@ import type {
 
 export type PublishingPost = {
   _id: string | { toString(): string };
+  workspaceId: string | { toString(): string };
   caption?: string | null;
   mediaIds: Array<string | { toString(): string }>;
   platforms: PublishingPlatform[];
+
+  platformConnections?: {
+    linkedin?: string | { toString(): string };
+  };
 };
 
 export type ProcessPostResult = {
@@ -28,12 +33,38 @@ export class PublishingService {
     const results: PublishingResult[] = [];
 
     for (const platform of post.platforms) {
-      const input: PublishingInput = {
-        postId,
-        platform,
-        caption,
-        mediaIds,
-      };
+      const connectionId = post.platformConnections?.linkedin
+        ? String(post.platformConnections.linkedin)
+        : undefined;
+
+      if (platform === "linkedin" && !connectionId) {
+        results.push({
+          outcome: "failed",
+          postId,
+          platform,
+          message: "No LinkedIn account was selected for this post.",
+        });
+
+        continue;
+      }
+
+      const input: PublishingInput =
+        platform === "linkedin"
+          ? {
+              postId,
+              workspaceId: String(post.workspaceId),
+              platform: "linkedin",
+              connectionId: connectionId!,
+              caption,
+              mediaIds,
+            }
+          : {
+              postId,
+              workspaceId: String(post.workspaceId),
+              platform,
+              caption,
+              mediaIds,
+            };
 
       try {
         const result = await this.adapter.publish(input);

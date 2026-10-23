@@ -7,6 +7,7 @@ describe("DryRunPublishingAdapter", () => {
 
     const input = {
       postId: "post-123",
+      workspaceId: "workspace-123",
       platform: "facebook" as const,
       caption: "Test post from Storm",
       mediaIds: [],
@@ -34,12 +35,24 @@ describe("DryRunPublishingAdapter", () => {
     async (platform) => {
       const adapter = new DryRunPublishingAdapter();
 
-      const result = await adapter.publish({
-        postId: "post-456",
-        platform,
-        caption: "Platform simulation",
-        mediaIds: [],
-      });
+      const result = await adapter.publish(
+        platform === "linkedin"
+          ? {
+              postId: "post-456",
+              workspaceId: "workspace-123",
+              platform: "linkedin",
+              connectionId: "507f1f77bcf86cd799439011",
+              caption: "Test caption",
+              mediaIds: [],
+            }
+          : {
+              postId: "post-456",
+              workspaceId: "workspace-123",
+              platform,
+              caption: "Test caption",
+              mediaIds: [],
+            },
+      );
 
       expect(result.outcome).toBe("simulated");
       expect(result.platform).toBe(platform);

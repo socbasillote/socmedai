@@ -66,6 +66,13 @@ const postSchema = new Schema(
         message: "Select at least one publishing platform.",
       },
     },
+    platformConnections: {
+      linkedin: {
+        type: Schema.Types.ObjectId,
+        ref: "LinkedInConnection",
+        default: undefined,
+      },
+    },
     status: {
       type: String,
       enum: POST_STATUSES,

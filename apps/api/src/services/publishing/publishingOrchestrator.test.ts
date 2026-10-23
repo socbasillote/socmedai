@@ -105,6 +105,7 @@ describe("PublishingOrchestrator", () => {
 
     const result = await orchestrator.processPost({
       _id: "post-123",
+      workspaceId: "workspace-123",
       caption: "Test caption",
       mediaIds: [],
       platforms: ["facebook"],
@@ -150,6 +151,7 @@ describe("PublishingOrchestrator", () => {
 
     const result = await orchestrator.processPost({
       _id: "post-published",
+      workspaceId: "workspace-123",
       caption: "Confirmed publication test",
       mediaIds: [],
       platforms: ["facebook"],
@@ -188,6 +190,7 @@ describe("PublishingOrchestrator", () => {
 
     const result = await orchestrator.processPost({
       _id: "post-failed",
+      workspaceId: "workspace-123",
       caption: "Failure test",
       mediaIds: [],
       platforms: ["facebook"],
@@ -221,6 +224,7 @@ describe("PublishingOrchestrator", () => {
 
     const result = await orchestrator.processPost({
       _id: "post-unknown",
+      workspaceId: "workspace-123",
       caption: "Uncertain outcome test",
       mediaIds: [],
       platforms: ["facebook"],
@@ -264,9 +268,13 @@ describe("PublishingOrchestrator", () => {
 
     const result = await orchestrator.processPost({
       _id: "post-multiple",
+      workspaceId: "workspace-123",
       caption: "Multiple platform test",
       mediaIds: [],
       platforms: ["facebook", "linkedin"],
+      platformConnections: {
+        linkedin: "507f1f77bcf86cd799439011",
+      },
     });
 
     expect(adapter.publish).toHaveBeenCalledTimes(2);
@@ -313,6 +321,7 @@ describe("PublishingOrchestrator", () => {
 
       const result = await orchestrator.processPost({
         _id: "post-already-processed",
+        workspaceId: "workspace-123",
         caption: "Do not republish",
         mediaIds: [],
         platforms: ["facebook"],
@@ -347,6 +356,7 @@ describe("PublishingOrchestrator", () => {
     await expect(
       orchestrator.processPost({
         _id: "post-write-failure",
+        workspaceId: "workspace-123",
         caption: "Do not duplicate this post",
         mediaIds: [],
         platforms: ["facebook"],
@@ -388,6 +398,7 @@ describe("PublishingOrchestrator", () => {
     await expect(
       orchestrator.processPost({
         _id: "post-partial-persistence",
+        workspaceId: "workspace-123",
         caption: "Test multi-platform publishing",
         mediaIds: [],
         platforms: ["facebook", "instagram", "linkedin"],
@@ -425,6 +436,7 @@ describe("PublishingOrchestrator", () => {
 
     const result = await orchestrator.processPost({
       _id: "post-invalid-confirmation",
+      workspaceId: "workspace-123",
       caption: "Validate publication confirmation",
       mediaIds: [],
       platforms: ["facebook"],
@@ -467,6 +479,7 @@ describe("PublishingOrchestrator", () => {
 
     await orchestrator.processPost({
       _id: "post-reconcile",
+      workspaceId: "workspace-123",
       caption: "Reconciliation test",
       mediaIds: [],
       platforms: ["facebook"],
@@ -474,5 +487,98 @@ describe("PublishingOrchestrator", () => {
 
     expect(reconcileMock).toHaveBeenCalledOnce();
     expect(reconcileMock).toHaveBeenCalledWith("post-reconcile");
+  });
+
+  it("passes the selected LinkedIn connection to the adapter", async () => {
+    const connectionId = "507f1f77bcf86cd799439011";
+
+    const adapter: PublishingAdapter = {
+      publish: vi.fn(async (input) => ({
+        outcome: "simulated" as const,
+        postId: input.postId,
+        platform: input.platform,
+        simulatedAt: new Date("2026-10-19T00:00:00.000Z"),
+        message: "Dry run completed.",
+      })),
+    };
+
+    const orchestrator = new PublishingOrchestrator(adapter);
+
+    const result = await orchestrator.processPost({
+      _id: "post-123",
+      workspaceId: "workspace-123",
+      caption: "LinkedIn publishing test",
+      mediaIds: [],
+      platforms: ["linkedin"],
+      platformConnections: {
+        linkedin: connectionId,
+      },
+    });
+
+    expect(adapter.publish).toHaveBeenCalledOnce();
+
+    expect(adapter.publish).toHaveBeenCalledWith({
+      postId: "post-123",
+      workspaceId: "workspace-123",
+      platform: "linkedin",
+      connectionId,
+      caption: "LinkedIn publishing test",
+      mediaIds: [],
+    });
+
+    expect(claimMock).toHaveBeenCalledWith("post-123", "linkedin");
+
+    expect(updateMock).toHaveBeenCalledWith(
+      "post-123",
+      expect.objectContaining({
+        platform: "linkedin",
+        status: "simulated",
+      }),
+    );
+
+    expect(reconcileMock).toHaveBeenCalledWith("post-123");
+
+    expect(result.postId).toBe("post-123");
+  });
+
+  it("does not call the adapter when no LinkedIn account is selected", async () => {
+    const adapter: PublishingAdapter = {
+      publish: vi.fn(async (input) => ({
+        outcome: "simulated" as const,
+        postId: input.postId,
+        platform: input.platform,
+        simulatedAt: new Date("2026-10-19T00:00:00.000Z"),
+        message: "Dry run completed.",
+      })),
+    };
+
+    const orchestrator = new PublishingOrchestrator(adapter);
+
+    await orchestrator.processPost({
+      _id: "post-123",
+      workspaceId: "workspace-123",
+      caption: "LinkedIn publishing test",
+      mediaIds: [],
+      platforms: ["linkedin"],
+    });
+
+    // The platform attempt is claimed before the missing-account check.
+    expect(claimMock).toHaveBeenCalledWith("post-123", "linkedin");
+
+    // Publishing must stop before reaching the adapter.
+    expect(adapter.publish).not.toHaveBeenCalled();
+
+    // The failure must be persisted.
+    expect(updateMock).toHaveBeenCalledWith(
+      "post-123",
+      expect.objectContaining({
+        platform: "linkedin",
+        status: "failed",
+        lastError: "No LinkedIn account was selected for this post.",
+      }),
+    );
+
+    // The overall post status must be reconciled.
+    expect(reconcileMock).toHaveBeenCalledWith("post-123");
   });
 });

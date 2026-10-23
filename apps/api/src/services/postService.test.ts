@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UpdateDraftPostInput } from "../schemas/postSchema.js";
+import { LinkedInConnectionSelectionError } from "./linkedin/linkedinConnectionSelectionService.js";
 
 const mocks = vi.hoisted(() => ({
   profileFindOne: vi.fn(),
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   postDeleteOne: vi.fn(),
   postFindOneAndUpdate: vi.fn(),
   postCountDocuments: vi.fn(),
+  validateLinkedInSelection: vi.fn(),
 }));
 
 vi.mock("../models/UserProfile.js", () => ({
@@ -35,6 +37,21 @@ vi.mock("../models/Post.js", () => ({
   },
 }));
 
+vi.mock(
+  "./linkedin/linkedinConnectionSelectionService.js",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("./linkedin/linkedinConnectionSelectionService.js")
+      >();
+
+    return {
+      ...actual,
+      validateLinkedInConnectionSelection: mocks.validateLinkedInSelection,
+    };
+  },
+);
+
 import {
   createWorkspacePost,
   listWorkspacePosts,
@@ -50,6 +67,7 @@ const authUser = {
 
 const workspaceId = "507f1f77bcf86cd799439011";
 const profileId = "507f1f77bcf86cd799439012";
+const linkedinConnectionId = "507f1f77bcf86cd799439014";
 
 function mockAuthorizedWorkspace() {
   mocks.profileFindOne.mockReturnValue({
@@ -197,6 +215,73 @@ describe("postService", () => {
           mediaIds: [profileId],
         }),
       ).rejects.toMatchObject({ statusCode: 400 });
+
+      expect(mocks.postCreate).not.toHaveBeenCalled();
+    });
+
+    it("persists a validated LinkedIn connection during post creation", async () => {
+      mockAuthorizedWorkspace();
+
+      mocks.validateLinkedInSelection.mockResolvedValue(linkedinConnectionId);
+
+      mocks.postCreate.mockImplementation(async (data) => ({
+        toObject: () => data,
+      }));
+
+      const result = await createWorkspacePost(authUser, {
+        workspaceId,
+        caption: "LinkedIn campaign",
+        mediaIds: [],
+        platforms: ["linkedin"],
+        platformConnections: {
+          linkedin: linkedinConnectionId,
+        },
+      });
+
+      expect(mocks.validateLinkedInSelection).toHaveBeenCalledWith({
+        workspaceId,
+        connectionId: linkedinConnectionId,
+      });
+
+      expect(mocks.postCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          caption: "LinkedIn campaign",
+          platforms: ["linkedin"],
+          platformConnections: {
+            linkedin: linkedinConnectionId,
+          },
+        }),
+      );
+
+      expect(result.platformConnections).toEqual({
+        linkedin: linkedinConnectionId,
+      });
+    });
+
+    it("does not create a post when the selected LinkedIn connection is unauthorized", async () => {
+      mockAuthorizedWorkspace();
+
+      mocks.validateLinkedInSelection.mockRejectedValue(
+        new LinkedInConnectionSelectionError(
+          "LinkedIn connection not found in this workspace.",
+          404,
+        ),
+      );
+
+      await expect(
+        createWorkspacePost(authUser, {
+          workspaceId,
+          caption: "LinkedIn campaign",
+          mediaIds: [],
+          platforms: ["linkedin"],
+          platformConnections: {
+            linkedin: linkedinConnectionId,
+          },
+        }),
+      ).rejects.toMatchObject({
+        name: "PostServiceError",
+        statusCode: 404,
+      });
 
       expect(mocks.postCreate).not.toHaveBeenCalled();
     });
@@ -566,9 +651,11 @@ describe("updateWorkspaceDraft", () => {
     caption: "Original caption",
     mediaIds: [],
     platforms: ["facebook"],
+    platformConnections: {},
     status: "draft",
     scheduledAt: null,
     publishedAt: null,
+    __v: 0,
   };
 
   const updatedDraft = {
@@ -582,6 +669,38 @@ describe("updateWorkspaceDraft", () => {
     id: userId,
     email: "creator@example.com",
   };
+
+  function mockEditableDraft(overrides: Record<string, unknown> = {}) {
+    mocks.profileFindOne.mockReturnValue({
+      select: vi.fn().mockResolvedValue({ _id: profileId }),
+    } as never);
+
+    mocks.postFindOne.mockReturnValue({
+      select: vi.fn().mockResolvedValue({
+        _id: postId,
+        workspaceId,
+        status: "draft",
+        platforms: ["linkedin"],
+        platformConnections: {
+          linkedin: linkedinConnectionId,
+        },
+        __v: 0,
+        ...overrides,
+      }),
+    } as never);
+
+    mocks.workspaceFindOne.mockReturnValue({
+      select: vi.fn().mockResolvedValue({ _id: workspaceId }),
+    } as never);
+
+    mocks.postFindOneAndUpdate.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      lean: vi.fn().mockResolvedValue({
+        ...existingDraft,
+        ...overrides,
+      }),
+    } as never);
+  }
 
   const updateInput: UpdateDraftPostInput = {
     title: "Updated title",
@@ -599,6 +718,9 @@ describe("updateWorkspaceDraft", () => {
         _id: postId,
         workspaceId,
         status: "draft",
+        platforms: ["facebook"],
+        platformConnections: {},
+        __v: 0,
       }),
     } as never);
 
@@ -631,9 +753,13 @@ describe("updateWorkspaceDraft", () => {
         workspaceId,
         createdByUserId: profileId,
         status: "draft",
+        __v: 0,
       }),
       {
         $set: updateInput,
+        $inc: {
+          __v: 1,
+        },
       },
       expect.objectContaining({
         new: true,
@@ -700,5 +826,229 @@ describe("updateWorkspaceDraft", () => {
     await expect(
       updateWorkspaceDraft(authenticatedUser, postId, updateInput),
     ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("validates and updates the selected LinkedIn account", async () => {
+    mockEditableDraft();
+
+    const newConnectionId = "507f1f77bcf86cd799439015";
+
+    mocks.validateLinkedInSelection.mockResolvedValue(newConnectionId);
+
+    await updateWorkspaceDraft(authenticatedUser, postId, {
+      platformConnections: {
+        linkedin: newConnectionId,
+      },
+    });
+
+    expect(mocks.validateLinkedInSelection).toHaveBeenCalledWith({
+      workspaceId,
+      connectionId: newConnectionId,
+    });
+
+    expect(mocks.postFindOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "draft",
+      }),
+      {
+        $set: {
+          "platformConnections.linkedin": newConnectionId,
+        },
+        $inc: {
+          __v: 1,
+        },
+      },
+      expect.objectContaining({
+        new: true,
+        runValidators: true,
+      }),
+    );
+  });
+
+  it("removes the LinkedIn connection when LinkedIn is removed", async () => {
+    mockEditableDraft();
+
+    await updateWorkspaceDraft(authenticatedUser, postId, {
+      platforms: ["facebook"],
+    });
+
+    expect(mocks.postFindOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "draft",
+      }),
+      {
+        $set: {
+          platforms: ["facebook"],
+        },
+        $unset: {
+          "platformConnections.linkedin": "",
+        },
+        $inc: {
+          __v: 1,
+        },
+      },
+      expect.anything(),
+    );
+  });
+
+  it("preserves the LinkedIn connection on caption-only edits", async () => {
+    mockEditableDraft();
+
+    await updateWorkspaceDraft(authenticatedUser, postId, {
+      caption: "Updated LinkedIn caption",
+    });
+
+    expect(mocks.validateLinkedInSelection).not.toHaveBeenCalled();
+
+    expect(mocks.postFindOneAndUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        $set: {
+          caption: "Updated LinkedIn caption",
+        },
+        $inc: {
+          __v: 1,
+        },
+      },
+      expect.anything(),
+    );
+  });
+
+  it("rejects unauthorized LinkedIn account changes", async () => {
+    mockEditableDraft();
+
+    mocks.validateLinkedInSelection.mockRejectedValue(
+      new LinkedInConnectionSelectionError(
+        "LinkedIn connection not found in this workspace.",
+        404,
+      ),
+    );
+
+    await expect(
+      updateWorkspaceDraft(authenticatedUser, postId, {
+        platformConnections: {
+          linkedin: "507f1f77bcf86cd799439015",
+        },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+    });
+
+    expect(mocks.postFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rejects account changes when the draft status changes before update", async () => {
+    mockEditableDraft();
+
+    const newConnectionId = "507f1f77bcf86cd799439015";
+
+    mocks.validateLinkedInSelection.mockResolvedValue(newConnectionId);
+
+    mocks.postFindOneAndUpdate.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      lean: vi.fn().mockResolvedValue(null),
+    } as never);
+
+    await expect(
+      updateWorkspaceDraft(authenticatedUser, postId, {
+        platformConnections: {
+          linkedin: newConnectionId,
+        },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+    });
+  });
+
+  it("rejects a draft whose version is unavailable", async () => {
+    mockEditableDraft({
+      __v: undefined,
+    });
+
+    await expect(
+      updateWorkspaceDraft(authenticatedUser, postId, {
+        caption: "Updated caption",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+    });
+
+    expect(mocks.postFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("uses the draft version as an atomic update condition", async () => {
+    mockEditableDraft({
+      __v: 4,
+    });
+
+    await updateWorkspaceDraft(authenticatedUser, postId, {
+      caption: "Versioned caption",
+    });
+
+    expect(mocks.postFindOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "draft",
+        __v: 4,
+      }),
+      expect.objectContaining({
+        $set: {
+          caption: "Versioned caption",
+        },
+        $inc: {
+          __v: 1,
+        },
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("rejects an update when another request changes the draft version", async () => {
+    mockEditableDraft({
+      __v: 2,
+    });
+
+    mocks.postFindOneAndUpdate.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      lean: vi.fn().mockResolvedValue(null),
+    } as never);
+
+    await expect(
+      updateWorkspaceDraft(authenticatedUser, postId, {
+        caption: "Conflicting edit",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+    });
+
+    expect(mocks.postFindOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        __v: 2,
+        status: "draft",
+      }),
+      expect.objectContaining({
+        $inc: {
+          __v: 1,
+        },
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("rejects selecting a LinkedIn account while removing LinkedIn", async () => {
+    mockEditableDraft();
+
+    await expect(
+      updateWorkspaceDraft(authenticatedUser, postId, {
+        platforms: ["facebook"],
+        platformConnections: {
+          linkedin: "507f1f77bcf86cd799439015",
+        },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+    });
+
+    expect(mocks.validateLinkedInSelection).not.toHaveBeenCalled();
+    expect(mocks.postFindOneAndUpdate).not.toHaveBeenCalled();
   });
 });

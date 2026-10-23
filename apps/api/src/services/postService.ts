@@ -8,6 +8,10 @@ import type {
   CreatePostInput,
   UpdateDraftPostInput,
 } from "../schemas/postSchema.js";
+import {
+  validateLinkedInConnectionSelection,
+  LinkedInConnectionSelectionError,
+} from "./linkedin/linkedinConnectionSelectionService.js";
 
 export class PostServiceError extends Error {
   statusCode: number;
@@ -47,6 +51,36 @@ async function getAuthorizedWorkspace(
   return { profile, workspace };
 }
 
+async function validatePostLinkedInSelection(
+  workspaceId: string,
+  platforms: readonly string[],
+  connectionId?: string,
+): Promise<string | undefined> {
+  if (!connectionId) {
+    return undefined;
+  }
+
+  if (!platforms.includes("linkedin")) {
+    throw new PostServiceError(
+      "A LinkedIn account can only be selected when LinkedIn is a publishing platform.",
+      400,
+    );
+  }
+
+  try {
+    return await validateLinkedInConnectionSelection({
+      workspaceId,
+      connectionId,
+    });
+  } catch (error) {
+    if (error instanceof LinkedInConnectionSelectionError) {
+      throw new PostServiceError(error.message, error.statusCode);
+    }
+
+    throw error;
+  }
+}
+
 export async function createWorkspacePost(
   authUser: AuthenticatedUser,
   input: CreatePostInput,
@@ -64,14 +98,32 @@ export async function createWorkspacePost(
     throw new PostServiceError("Media attachments are not available yet.", 400);
   }
 
+  const linkedinConnectionId = await validatePostLinkedInSelection(
+    String(authorization.workspace._id),
+    input.platforms,
+    input.platformConnections?.linkedin,
+  );
+
   const post = await Post.create({
     workspaceId: authorization.workspace._id,
     createdByUserId: authorization.profile._id,
+
     ...(input.title !== undefined ? { title: input.title } : {}),
+
     caption: input.caption,
     mediaIds: [],
     platforms: input.platforms,
+
+    ...(linkedinConnectionId
+      ? {
+          platformConnections: {
+            linkedin: linkedinConnectionId,
+          },
+        }
+      : {}),
+
     status: input.scheduledAt ? "scheduled" : "draft",
+
     ...(input.scheduledAt ? { scheduledAt: new Date(input.scheduledAt) } : {}),
   });
 
@@ -273,7 +325,7 @@ export async function updateWorkspaceDraft(
   const post = await Post.findOne({
     _id: postId,
     createdByUserId: profile._id,
-  }).select("_id workspaceId status");
+  }).select("_id workspaceId status platforms platformConnections __v");
 
   if (!post) {
     throw new PostServiceError("Post not found.", 404);
@@ -292,11 +344,44 @@ export async function updateWorkspaceDraft(
     throw new PostServiceError("Only draft posts can be edited.", 409);
   }
 
+  if (!Number.isSafeInteger(post.__v) || post.__v < 0) {
+    throw new PostServiceError(
+      "The draft version is unavailable. Refresh the post and try again.",
+      409,
+    );
+  }
+
+  const finalPlatforms = input.platforms ?? post.platforms;
+
+  const linkedinIsSelected = finalPlatforms.includes("linkedin");
+
+  const requestedLinkedInConnection = input.platformConnections?.linkedin;
+
+  if (requestedLinkedInConnection && !linkedinIsSelected) {
+    throw new PostServiceError(
+      "A LinkedIn account can only be selected when LinkedIn is a publishing platform.",
+      400,
+    );
+  }
+
+  let validatedLinkedInConnection: string | undefined;
+
+  if (requestedLinkedInConnection) {
+    validatedLinkedInConnection = await validatePostLinkedInSelection(
+      String(workspace._id),
+      finalPlatforms,
+      requestedLinkedInConnection,
+    );
+  }
+
   const update: {
     title?: string;
     caption?: string;
     platforms?: UpdateDraftPostInput["platforms"];
+    "platformConnections.linkedin"?: string;
   } = {};
+
+  const unset: Record<string, ""> = {};
 
   if (input.title !== undefined) {
     update.title = input.title;
@@ -310,23 +395,45 @@ export async function updateWorkspaceDraft(
     update.platforms = input.platforms;
   }
 
+  if (!linkedinIsSelected) {
+    unset["platformConnections.linkedin"] = "";
+  } else if (validatedLinkedInConnection) {
+    update["platformConnections.linkedin"] = validatedLinkedInConnection;
+  }
+
+  const mongoUpdate: {
+    $set: typeof update;
+    $unset?: Record<string, "">;
+    $inc: {
+      __v: number;
+    };
+  } = {
+    $set: update,
+    $inc: {
+      __v: 1,
+    },
+  };
+
+  if (Object.keys(unset).length > 0) {
+    mongoUpdate.$unset = unset;
+  }
+
   const updatedPost = await Post.findOneAndUpdate(
     {
       _id: post._id,
       workspaceId: workspace._id,
       createdByUserId: profile._id,
       status: "draft",
+      __v: post.__v,
     },
-    {
-      $set: update,
-    },
+    mongoUpdate,
     {
       new: true,
       runValidators: true,
     },
   )
     .select(
-      "_id workspaceId createdByUserId title caption mediaIds platforms status scheduledAt publishedAt createdAt updatedAt",
+      "_id workspaceId createdByUserId title caption mediaIds platforms platformConnections status scheduledAt publishedAt createdAt updatedAt __v",
     )
     .lean();
 

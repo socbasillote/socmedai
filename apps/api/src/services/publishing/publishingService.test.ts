@@ -18,6 +18,7 @@ describe("PublishingService", () => {
 
     const result = await service.processPost({
       _id: "post-123",
+      workspaceId: "workspace-123",
       caption: "Test caption",
       mediaIds: ["media-1"],
       platforms: ["facebook", "instagram"],
@@ -26,12 +27,14 @@ describe("PublishingService", () => {
     expect(publish).toHaveBeenCalledTimes(2);
     expect(publish).toHaveBeenNthCalledWith(1, {
       postId: "post-123",
+      workspaceId: "workspace-123",
       platform: "facebook",
       caption: "Test caption",
       mediaIds: ["media-1"],
     });
     expect(publish).toHaveBeenNthCalledWith(2, {
       postId: "post-123",
+      workspaceId: "workspace-123",
       platform: "instagram",
       caption: "Test caption",
       mediaIds: ["media-1"],
@@ -60,6 +63,7 @@ describe("PublishingService", () => {
 
     const result = await service.processPost({
       _id: "post-456",
+      workspaceId: "workspace-123",
       caption: "Another test",
       mediaIds: [],
       platforms: ["facebook", "instagram"],
@@ -81,6 +85,7 @@ describe("PublishingService", () => {
 
     const result = await service.processPost({
       _id: "post-789",
+      workspaceId: "workspace-123",
       caption: "",
       mediaIds: [],
       platforms: [],
@@ -106,6 +111,7 @@ describe("PublishingService", () => {
 
     const result = await service.processPost({
       _id: "post-123",
+      workspaceId: "workspace-123",
       caption: "Test caption",
       mediaIds: [],
       platforms: ["facebook"],
@@ -134,6 +140,7 @@ describe("PublishingService", () => {
 
     const result = await service.processPost({
       _id: "post-123",
+      workspaceId: "workspace-123",
       caption: "Test caption",
       mediaIds: [],
       platforms: ["facebook"],

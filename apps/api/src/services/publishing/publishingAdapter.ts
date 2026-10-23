@@ -1,11 +1,21 @@
 export type PublishingPlatform = "facebook" | "instagram" | "linkedin";
 
-export type PublishingInput = {
+type BasePublishingInput = {
   postId: string;
-  platform: PublishingPlatform;
+  workspaceId: string;
   caption: string;
   mediaIds: string[];
 };
+
+export type PublishingInput =
+  | (BasePublishingInput & {
+      platform: "linkedin";
+      connectionId: string;
+    })
+  | (BasePublishingInput & {
+      platform: "facebook" | "instagram";
+      connectionId?: never;
+    });
 
 export type PublishingResult =
   | {
