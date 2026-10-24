@@ -32,6 +32,9 @@ export type CreatePostInput = {
   mediaIds?: string[];
   platforms: PostPlatform[];
   scheduledAt?: string;
+  platformConnections?: {
+    linkedin?: string;
+  };
 };
 
 export type UpdateDraftPostInput = {

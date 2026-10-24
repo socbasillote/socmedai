@@ -33,6 +33,11 @@ const lengthOptions: { value: CaptionLength; label: string }[] = [
 
 type ContentStudioProps = {
   selectedWorkspaceId: string;
+
+  linkedInConnectionId: string | null;
+  linkedInDisplayName: string | null;
+  linkedInStatus: string;
+
   onPostSaved: (post: Post) => void;
 };
 
@@ -40,6 +45,9 @@ type PostSaveMode = "draft" | "scheduled";
 
 export function ContentStudio({
   selectedWorkspaceId,
+  linkedInConnectionId,
+  linkedInDisplayName,
+  linkedInStatus,
   onPostSaved,
 }: ContentStudioProps) {
   const [brief, setBrief] = useState("");
@@ -144,6 +152,15 @@ export function ContentStudio({
       return;
     }
 
+    if (
+      platform === "linkedin" &&
+      postSaveMode === "scheduled" &&
+      (linkedInStatus !== "connected" || !linkedInConnectionId)
+    ) {
+      setError("Connect a LinkedIn account before scheduling a LinkedIn post.");
+      return;
+    }
+
     let scheduledAtISO: string | undefined;
 
     if (postSaveMode === "scheduled") {
@@ -174,6 +191,17 @@ export function ContentStudio({
         workspaceId: selectedWorkspaceId,
         caption: trimmedCaption,
         platforms: [platform],
+
+        ...(platform === "linkedin" &&
+        linkedInStatus === "connected" &&
+        linkedInConnectionId
+          ? {
+              platformConnections: {
+                linkedin: linkedInConnectionId,
+              },
+            }
+          : {}),
+
         ...(scheduledAtISO ? { scheduledAt: scheduledAtISO } : {}),
       });
 
@@ -273,7 +301,40 @@ export function ContentStudio({
               ))}
             </select>
           </div>
+          {/* LinkedIn account information */}
+          {platform === "linkedin" && (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-700">
+                Connected LinkedIn account
+              </label>
 
+              {linkedInStatus === "connected" && linkedInConnectionId ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                  <p className="text-sm font-semibold text-emerald-800">
+                    {linkedInDisplayName || "LinkedIn account"}
+                  </p>
+
+                  <p className="mt-1 text-xs text-emerald-700">
+                    Connected and ready for post scheduling.
+                  </p>
+                </div>
+              ) : (
+                <div
+                  role="status"
+                  className="rounded-xl border border-amber-200 bg-amber-50 p-4"
+                >
+                  <p className="text-sm font-semibold text-amber-800">
+                    No connected LinkedIn account
+                  </p>
+
+                  <p className="mt-1 text-xs text-amber-700">
+                    Connect your LinkedIn account using the dashboard before
+                    scheduling a LinkedIn post.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
           <div>
             <label
               htmlFor="studio-tone"

@@ -319,6 +319,9 @@ function DashboardApp() {
         ) : activePage === "Content studio" ? (
           <ContentStudio
             selectedWorkspaceId={selectedWorkspaceId}
+            linkedInConnectionId={linkedInConnectionId}
+            linkedInDisplayName={linkedInDisplayName}
+            linkedInStatus={linkedInStatus}
             onPostSaved={(post) => {
               setSavedPosts((current) => [
                 post,
