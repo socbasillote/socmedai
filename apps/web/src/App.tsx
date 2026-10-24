@@ -329,7 +329,11 @@ function DashboardApp() {
                 setDraftCount((current) => current + 1);
               }
 
-              setNotice("Draft saved to your workspace.");
+              setNotice(
+                post.status === "scheduled"
+                  ? "Post scheduled successfully."
+                  : "Draft saved to your workspace.",
+              );
             }}
           />
         ) : (

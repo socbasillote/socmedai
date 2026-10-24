@@ -36,11 +36,12 @@ type ContentStudioProps = {
   onPostSaved: (post: Post) => void;
 };
 
+type PostSaveMode = "draft" | "scheduled";
+
 export function ContentStudio({
   selectedWorkspaceId,
   onPostSaved,
 }: ContentStudioProps) {
-  const [savingDraft, setSavingDraft] = useState(false);
   const [brief, setBrief] = useState("");
   const [platform, setPlatform] = useState<PostPlatform>("instagram");
   const [tone, setTone] = useState<CaptionTone>("friendly");
@@ -53,6 +54,12 @@ export function ContentStudio({
   const [notice, setNotice] = useState("");
   const [revisionInstruction, setRevisionInstruction] = useState("");
   const [revising, setRevising] = useState(false);
+
+  const [savingDraft, setSavingDraft] = useState(false);
+
+  const [postSaveMode, setPostSaveMode] = useState<PostSaveMode>("draft");
+
+  const [scheduledAt, setScheduledAt] = useState("");
 
   async function handleGenerate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -128,13 +135,34 @@ export function ContentStudio({
     const trimmedCaption = caption.trim();
 
     if (!selectedWorkspaceId) {
-      setError("Select a workspace before saving a draft.");
+      setError("Select a workspace before saving a post.");
       return;
     }
 
     if (!trimmedCaption) {
       setError("Generate or enter a caption before saving.");
       return;
+    }
+
+    let scheduledAtISO: string | undefined;
+
+    if (postSaveMode === "scheduled") {
+      if (!scheduledAt) {
+        setError("Select a publishing date and time.");
+        return;
+      }
+
+      const scheduledDate = new Date(scheduledAt);
+
+      if (
+        Number.isNaN(scheduledDate.getTime()) ||
+        scheduledDate.getTime() <= Date.now()
+      ) {
+        setError("Select a valid future publishing date and time.");
+        return;
+      }
+
+      scheduledAtISO = scheduledDate.toISOString();
     }
 
     setSavingDraft(true);
@@ -146,15 +174,24 @@ export function ContentStudio({
         workspaceId: selectedWorkspaceId,
         caption: trimmedCaption,
         platforms: [platform],
+        ...(scheduledAtISO ? { scheduledAt: scheduledAtISO } : {}),
       });
 
       onPostSaved(post);
-      setNotice("Draft saved to your workspace.");
+
+      setNotice(
+        postSaveMode === "scheduled"
+          ? "Post scheduled successfully."
+          : "Draft saved to your workspace.",
+      );
+
+      setPostSaveMode("draft");
+      setScheduledAt("");
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : "Unable to save the draft. Please try again.",
+          : "Unable to save the post. Please try again.",
       );
     } finally {
       setSavingDraft(false);
@@ -401,20 +438,92 @@ export function ContentStudio({
             </Button>
           </div>
 
-          <Button
-            type="button"
-            disabled={
-              savingDraft ||
-              generating ||
-              !caption.trim() ||
-              !selectedWorkspaceId
-            }
-            onClick={() => void handleSaveDraft()}
-            className="mt-3 w-full rounded-xl bg-violet-600 py-3 font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
-          >
-            {savingDraft ? "Saving draft..." : "Save as draft"}
-          </Button>
+          {/* Publishing options */}
+          <div className="mt-6 space-y-4 border-t border-slate-200 pt-5">
+            <div>
+              <h4 className="text-sm font-semibold text-slate-900">
+                Publishing options
+              </h4>
 
+              <p className="mt-1 text-xs text-slate-500">
+                Save your content as a draft or schedule it for later.
+              </p>
+            </div>
+
+            {/* Save mode */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setPostSaveMode("draft")}
+                aria-pressed={postSaveMode === "draft"}
+                className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                  postSaveMode === "draft"
+                    ? "border-violet-400 bg-violet-50 text-violet-700"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                Save as Draft
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPostSaveMode("scheduled")}
+                aria-pressed={postSaveMode === "scheduled"}
+                className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                  postSaveMode === "scheduled"
+                    ? "border-violet-400 bg-violet-50 text-violet-700"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                Schedule Post
+              </button>
+            </div>
+
+            {/* Scheduling date and time */}
+            {postSaveMode === "scheduled" && (
+              <div className="space-y-2">
+                <label
+                  htmlFor="studio-scheduled-at"
+                  className="block text-sm font-medium text-slate-700"
+                >
+                  Publishing date and time
+                </label>
+
+                <input
+                  id="studio-scheduled-at"
+                  type="datetime-local"
+                  value={scheduledAt}
+                  onChange={(event) => setScheduledAt(event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
+                />
+
+                <p className="text-xs text-slate-500">
+                  Choose a future date and time in your local timezone.
+                </p>
+              </div>
+            )}
+
+            {/* Save button */}
+            <Button
+              type="button"
+              disabled={
+                savingDraft ||
+                generating ||
+                revising ||
+                !caption.trim() ||
+                !selectedWorkspaceId ||
+                (postSaveMode === "scheduled" && !scheduledAt)
+              }
+              onClick={() => void handleSaveDraft()}
+              className="w-full rounded-xl bg-violet-600 py-3 font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
+            >
+              {savingDraft
+                ? "Saving..."
+                : postSaveMode === "scheduled"
+                  ? "Schedule Post"
+                  : "Save as Draft"}
+            </Button>
+          </div>
           {error && (
             <p
               role="alert"
