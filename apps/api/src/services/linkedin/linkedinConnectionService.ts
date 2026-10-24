@@ -81,7 +81,7 @@ export async function saveLinkedInConnection({
     connectedByUserId: authUser.id,
     accessTokenEncrypted: encryptLinkedInToken(tokens.access_token),
     tokenExpiresAt,
-    scopes: tokens.scope ? tokens.scope.split(/\s+/).filter(Boolean) : [],
+    scopes: tokens.scope ? tokens.scope.split(/[\s,]+/).filter(Boolean) : [],
     status: "connected",
   };
 

@@ -18,6 +18,9 @@ type CreateDraftFormProps = {
   onScheduledAtChange: (value: string) => void;
   onSave: () => void;
   onCancel: () => void;
+  linkedInConnectionId: string | null;
+  linkedInDisplayName: string | null;
+  linkedInStatus: string;
 };
 
 export function CreateDraftForm({
@@ -28,6 +31,11 @@ export function CreateDraftForm({
   postMode,
   scheduledAt,
   minScheduledAt,
+
+  linkedInConnectionId,
+  linkedInDisplayName,
+  linkedInStatus,
+
   onCaptionChange,
   onPlatformsChange,
   onPostModeChange,
@@ -188,6 +196,41 @@ export function CreateDraftForm({
           <p role="alert" className="mt-2 text-sm text-rose-600">
             {postError}
           </p>
+        )}
+
+        {/* LinkedIn account information */}
+        {selectedPlatforms.includes("linkedin") && (
+          <div className="mt-4 space-y-2">
+            <p className="text-sm font-medium text-slate-700">
+              Connected LinkedIn account
+            </p>
+
+            {linkedInStatus === "connected" && linkedInConnectionId ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                <p className="text-sm font-semibold text-emerald-800">
+                  {linkedInDisplayName || "LinkedIn account"}
+                </p>
+
+                <p className="mt-1 text-xs text-emerald-700">
+                  Connected account selected for this post.
+                </p>
+              </div>
+            ) : (
+              <div
+                role="status"
+                className="rounded-xl border border-amber-200 bg-amber-50 p-4"
+              >
+                <p className="text-sm font-semibold text-amber-800">
+                  No connected LinkedIn account
+                </p>
+
+                <p className="mt-1 text-xs text-amber-700">
+                  Connect LinkedIn before scheduling this post. You can still
+                  save it as a draft.
+                </p>
+              </div>
+            )}
+          </div>
         )}
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">

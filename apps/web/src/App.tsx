@@ -163,6 +163,10 @@ function DashboardApp() {
     setPostMode,
     scheduledAt,
     setScheduledAt,
+
+    linkedInConnectionId,
+    linkedInStatus,
+
     setCreateOpen,
     setNotice,
   });
@@ -364,6 +368,9 @@ function DashboardApp() {
       {createOpen && (
         <CreateDraftForm
           caption={caption}
+          linkedInConnectionId={linkedInConnectionId}
+          linkedInDisplayName={linkedInDisplayName}
+          linkedInStatus={linkedInStatus}
           selectedPlatforms={selectedPlatforms}
           savingPost={savingPost}
           postError={postError}

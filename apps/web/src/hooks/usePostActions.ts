@@ -16,8 +16,11 @@ type UsePostActionsOptions = {
   setPostMode: (value: PostMode) => void;
   scheduledAt: string;
   setScheduledAt: (value: string) => void;
-  setCreateOpen: (value: boolean) => void;
 
+  linkedInConnectionId: string | null;
+  linkedInStatus: string;
+
+  setCreateOpen: (value: boolean) => void;
   setNotice: (value: string) => void;
 };
 
@@ -32,6 +35,8 @@ export function usePostActions({
   setPostMode,
   scheduledAt,
   setScheduledAt,
+  linkedInConnectionId,
+  linkedInStatus,
   setCreateOpen,
   setNotice,
 }: UsePostActionsOptions) {
@@ -79,15 +84,41 @@ export function usePostActions({
       scheduledTime = parsedTime.toISOString();
     }
 
+    if (
+      postMode === "scheduled" &&
+      selectedPlatforms.includes("linkedin") &&
+      (linkedInStatus !== "connected" || !linkedInConnectionId)
+    ) {
+      setPostError(
+        "Connect a LinkedIn account before scheduling a LinkedIn post.",
+      );
+      return;
+    }
+
     setSavingPost(true);
     setPostError("");
 
     try {
       const post = await createPost({
         workspaceId: selectedWorkspaceId,
-        caption: text,
+        caption: caption.trim(),
         platforms: selectedPlatforms,
-        ...(scheduledTime ? { scheduledAt: scheduledTime } : {}),
+
+        ...(selectedPlatforms.includes("linkedin") &&
+        linkedInStatus === "connected" &&
+        linkedInConnectionId
+          ? {
+              platformConnections: {
+                linkedin: linkedInConnectionId,
+              },
+            }
+          : {}),
+
+        ...(scheduledTime
+          ? {
+              scheduledAt: scheduledTime,
+            }
+          : {}),
       });
 
       setSavedPosts((current) => [post, ...current]);
