@@ -3,6 +3,7 @@ import {
   ArrowRight,
   CalendarDays,
   CircleHelp,
+  FileText,
   Image,
   LayoutDashboard,
   Send,
@@ -32,6 +33,7 @@ export function DashboardSidebar({
 }: DashboardSidebarProps) {
   const navigation = [
     { label: "Overview", icon: LayoutDashboard },
+    { label: "Posts", icon: FileText },
     { label: "Content calendar", icon: CalendarDays },
     { label: "Content studio", icon: Sparkles },
     { label: "Media library", icon: Image },

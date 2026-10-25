@@ -20,7 +20,12 @@ import { usePostFilters } from "@/hooks/usePostFilters";
 import { useDashboardNotice } from "@/hooks/useDashboardNotice";
 import { useWorkspaceMenu } from "@/hooks/useWorkspaceMenu";
 
-import { type RecentPostItem } from "@/components/RecentPostsList";
+import {
+  RecentPostsList,
+  type RecentPostItem,
+} from "@/components/RecentPostsList";
+
+import { PostsPage } from "@/components/PostsPage";
 
 import { CreateDraftForm } from "@/components/CreateDraftForm";
 import { CreateWorkspaceForm } from "@/components/CreateWorkspaceForm";
@@ -32,6 +37,7 @@ import { ContentStudio } from "@/components/ContentStudio";
 
 const pagePaths: Record<string, string> = {
   Overview: "/",
+  Posts: "/posts",
   "Content calendar": "/calendar",
   "Content studio": "/studio",
   "Media library": "/media",
@@ -343,6 +349,41 @@ function DashboardApp() {
               );
             }}
           />
+        ) : activePage === "Posts" ? (
+          <PostsPage
+            search={search}
+            statusFilter={statusFilter}
+            platformFilter={platformFilter}
+            onSearchChange={setSearch}
+            onStatusFilterChange={setStatusFilter}
+            onPlatformFilterChange={setPlatformFilter}
+          >
+            <RecentPostsList
+              posts={filteredPosts}
+              loading={postsLoading}
+              loadError={postsLoadError}
+              search={search}
+              deleteError={deletePostError}
+              deletingPostId={deletingPostId}
+              hasMorePosts={hasMorePosts}
+              loadingMorePosts={loadingMorePosts}
+              onEdit={(postId) => {
+                const draft = savedPosts.find((item) => item._id === postId);
+
+                if (draft) {
+                  handleEditDraft(draft);
+                  selectPage("Overview");
+                }
+              }}
+              onDelete={(postId, postTitle) => {
+                void handleDeleteDraft(postId, postTitle);
+              }}
+              onMoreOptions={(postTitle) => {
+                setNotice(`Selected post: ${postTitle}`);
+              }}
+              onLoadMore={handleLoadMorePosts}
+            />
+          </PostsPage>
         ) : (
           <PagePlaceholder
             activePage={activePage}
