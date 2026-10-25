@@ -26,6 +26,7 @@ import {
 } from "@/components/RecentPostsList";
 
 import { PostsPage } from "@/components/PostsPage";
+import { PostDetailsModal } from "@/components/PostDetailsModal";
 
 import { CreateDraftForm } from "@/components/CreateDraftForm";
 import { CreateWorkspaceForm } from "@/components/CreateWorkspaceForm";
@@ -48,6 +49,7 @@ const pagePaths: Record<string, string> = {
 
 function DashboardApp() {
   const [createOpen, setCreateOpen] = useState(false);
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
 
   const { notice, setNotice, clearNotice } = useDashboardNotice();
 
@@ -233,6 +235,9 @@ function DashboardApp() {
   });
 
   const filteredPosts = savedPostItems;
+  const selectedPost = selectedPostId
+    ? (savedPosts.find((post) => post._id === selectedPostId) ?? null)
+    : null;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -362,6 +367,7 @@ function DashboardApp() {
               posts={filteredPosts}
               loading={postsLoading}
               loadError={postsLoadError}
+              onView={setSelectedPostId}
               search={search}
               deleteError={deletePostError}
               deletingPostId={deletingPostId}
@@ -436,6 +442,13 @@ function DashboardApp() {
           }}
           onSave={() => void saveDraft()}
           onCancel={() => setCreateOpen(false)}
+        />
+      )}
+
+      {selectedPost && (
+        <PostDetailsModal
+          post={selectedPost}
+          onClose={() => setSelectedPostId(null)}
         />
       )}
     </div>

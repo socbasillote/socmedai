@@ -20,6 +20,7 @@ type RecentPostsListProps = {
   deletingPostId: string | null;
   hasMorePosts: boolean;
   loadingMorePosts: boolean;
+  onView?: (postId: string) => void;
   onEdit: (postId: string) => void;
   onDelete: (postId: string, postTitle: string) => void;
   onMoreOptions: (postTitle: string) => void;
@@ -36,6 +37,7 @@ export function RecentPostsList({
   hasMorePosts,
   loadingMorePosts,
   onEdit,
+  onView,
   onDelete,
   onMoreOptions,
   onLoadMore,
@@ -109,6 +111,17 @@ export function RecentPostsList({
               </span>
 
               <div className="flex items-center gap-1">
+                {onView && (
+                  <button
+                    type="button"
+                    aria-label={`View details for ${post.title}`}
+                    title="View post details"
+                    onClick={() => onView(post.id)}
+                    className="rounded-lg px-3 py-2 text-xs font-medium text-violet-700 transition hover:bg-violet-50"
+                  >
+                    View
+                  </button>
+                )}
                 {post.status === "Draft" && (
                   <button
                     type="button"
