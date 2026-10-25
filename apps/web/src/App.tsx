@@ -35,6 +35,7 @@ import { PagePlaceholder } from "@/components/PagePlaceholder";
 import { DashboardLayout } from "./components/DashboardLayout";
 
 import { ContentStudio } from "@/components/ContentStudio";
+import { PostEditorRoute } from "@/components/PostEditorRoute";
 
 const pagePaths: Record<string, string> = {
   Overview: "/",
@@ -487,6 +488,19 @@ export default function App() {
 
   if (isAuthRoute) {
     return <AuthPage />;
+  }
+
+  const isNewPostRoute = location.pathname === "/posts/new";
+
+  const editPostMatch = location.pathname.match(/^\/posts\/([^/]+)\/edit\/?$/);
+
+  if (isNewPostRoute || editPostMatch) {
+    return (
+      <PostEditorRoute
+        mode={isNewPostRoute ? "create" : "edit"}
+        postId={editPostMatch?.[1]}
+      />
+    );
   }
 
   return <DashboardApp />;
