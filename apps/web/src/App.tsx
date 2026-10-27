@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation, Navigate } from "react-router";
+import { useLocation, useNavigate, Navigate } from "react-router";
 import { useAuth } from "@/auth/useAuth";
 
 import AuthPage from "@/auth/AuthPage";
@@ -14,7 +14,6 @@ import { useWorkspaceActions } from "@/hooks/useWorkspaceActions";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useLinkedInCallback } from "@/hooks/useLinkedInCallback";
 import { usePostPagination } from "@/hooks/usePostPagination";
-import { useCreatePostForm } from "@/hooks/useCreatePostForm";
 import { useCreateWorkspaceForm } from "@/hooks/useCreateWorkspaceForm";
 import { usePostFilters } from "@/hooks/usePostFilters";
 import { useDashboardNotice } from "@/hooks/useDashboardNotice";
@@ -28,7 +27,6 @@ import {
 import { PostsPage } from "@/components/PostsPage";
 import { PostDetailsModal } from "@/components/PostDetailsModal";
 
-import { CreateDraftForm } from "@/components/CreateDraftForm";
 import { CreateWorkspaceForm } from "@/components/CreateWorkspaceForm";
 import { DashboardOverview } from "./components/DashboardOverview";
 import { PagePlaceholder } from "@/components/PagePlaceholder";
@@ -49,7 +47,13 @@ const pagePaths: Record<string, string> = {
 };
 
 function DashboardApp() {
-  const [createOpen, setCreateOpen] = useState(false);
+  const navigate = useNavigate();
+
+  function handleOpenPostEditor() {
+    setNotice("");
+    navigate("/posts/new");
+  }
+
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
 
   const { notice, setNotice, clearNotice } = useDashboardNotice();
@@ -73,17 +77,6 @@ function DashboardApp() {
     openCreateWorkspace,
     closeCreateWorkspace,
   } = useCreateWorkspaceForm();
-  const {
-    minScheduledAt,
-    caption,
-    setCaption,
-    selectedPlatforms,
-    setSelectedPlatforms,
-    postMode,
-    setPostMode,
-    scheduledAt,
-    setScheduledAt,
-  } = useCreatePostForm();
 
   const {
     workspaces,
@@ -153,32 +146,12 @@ function DashboardApp() {
     setPostsLoadError,
   });
 
-  const {
-    savingPost,
-    postError,
-    setPostError,
-    deletingPostId,
-    deletePostError,
-    saveDraft,
-    handleDeleteDraft,
-  } = usePostActions({
-    selectedWorkspaceId,
-    setSavedPosts,
-    caption,
-    setCaption,
-    selectedPlatforms,
-    setSelectedPlatforms,
-    postMode,
-    setPostMode,
-    scheduledAt,
-    setScheduledAt,
-
-    linkedInConnectionId,
-    linkedInStatus,
-
-    setCreateOpen,
-    setNotice,
-  });
+  const { deletingPostId, deletePostError, handleDeleteDraft } = usePostActions(
+    {
+      setSavedPosts,
+      setNotice,
+    },
+  );
 
   const {
     editingPostId,
@@ -325,10 +298,7 @@ function DashboardApp() {
             onEditPlatformsChange={setEditPlatforms}
             onSaveEdit={() => void handleSaveDraftEdit()}
             onCancelEdit={cancelEdit}
-            onCreatePost={() => {
-              setNotice("");
-              setCreateOpen(true);
-            }}
+            onCreatePost={handleOpenPostEditor}
             onOpenStudio={() => selectPage("Content studio")}
             onViewPublishing={() => selectPage("Publishing")}
           />
@@ -375,12 +345,15 @@ function DashboardApp() {
               hasMorePosts={hasMorePosts}
               loadingMorePosts={loadingMorePosts}
               onEdit={(postId) => {
-                const draft = savedPosts.find((item) => item._id === postId);
+                const draft = savedPosts.find(
+                  (item) => item._id === postId && item.status === "draft",
+                );
 
-                if (draft) {
-                  handleEditDraft(draft);
-                  selectPage("Overview");
+                if (!draft) {
+                  return;
                 }
+
+                navigate(`/posts/${encodeURIComponent(draft._id)}/edit`);
               }}
               onDelete={(postId, postTitle) => {
                 void handleDeleteDraft(postId, postTitle);
@@ -410,39 +383,6 @@ function DashboardApp() {
           }}
           onSubmit={() => void handleCreateWorkspace(newWorkspaceName)}
           onCancel={closeCreateWorkspace}
-        />
-      )}
-
-      {createOpen && (
-        <CreateDraftForm
-          caption={caption}
-          linkedInConnectionId={linkedInConnectionId}
-          linkedInDisplayName={linkedInDisplayName}
-          linkedInStatus={linkedInStatus}
-          selectedPlatforms={selectedPlatforms}
-          savingPost={savingPost}
-          postError={postError}
-          postMode={postMode}
-          scheduledAt={scheduledAt}
-          minScheduledAt={minScheduledAt}
-          onCaptionChange={(value) => {
-            setCaption(value);
-            setPostError("");
-          }}
-          onPlatformsChange={(platforms) => {
-            setSelectedPlatforms(platforms);
-            setPostError("");
-          }}
-          onPostModeChange={(mode) => {
-            setPostMode(mode);
-            setPostError("");
-          }}
-          onScheduledAtChange={(value) => {
-            setScheduledAt(value);
-            setPostError("");
-          }}
-          onSave={() => void saveDraft()}
-          onCancel={() => setCreateOpen(false)}
         />
       )}
 

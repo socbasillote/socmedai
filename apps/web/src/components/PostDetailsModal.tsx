@@ -24,7 +24,43 @@ function formatStatus(status: Post["status"]): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
+function getLinkedInPublishingResult(post: Post) {
+  return post.platformResults?.find((result) => result.platform === "linkedin");
+}
+
+function getLinkedInPostUrl(externalPostId?: string): string | null {
+  if (!externalPostId) {
+    return null;
+  }
+
+  // LinkedIn publishing currently returns URNs such as:
+  // urn:li:share:7520618256152530944
+  // urn:li:ugcPost:1234567890123456789
+
+  if (!/^urn:li:(share|ugcPost):\d+$/.test(externalPostId)) {
+    return null;
+  }
+
+  return `https://www.linkedin.com/feed/update/${encodeURIComponent(
+    externalPostId,
+  )}/`;
+}
+
 export function PostDetailsModal({ post, onClose }: PostDetailsModalProps) {
+  const linkedInResult = getLinkedInPublishingResult(post);
+
+  const linkedInPostUrl = getLinkedInPostUrl(linkedInResult?.externalPostId);
+
+  console.log("[Storm] Post publishing debug:", {
+    postId: post._id,
+    postStatus: post.status,
+    platformResults: post.platformResults,
+    linkedInResult,
+    linkedInPostUrl,
+    shouldShowLinkedInButton:
+      linkedInResult?.status === "published" && Boolean(linkedInPostUrl),
+  });
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -159,6 +195,73 @@ export function PostDetailsModal({ post, onClose }: PostDetailsModalProps) {
               </section>
             )}
           </div>
+
+          {linkedInResult && (
+            <section className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="text-sm font-bold text-slate-900">
+                LinkedIn Publishing Details
+              </h3>
+
+              <div className="mt-4 space-y-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase text-slate-500">
+                    Publishing Status
+                  </p>
+
+                  <p className="mt-1 text-sm font-semibold capitalize text-slate-800">
+                    {linkedInResult.status}
+                  </p>
+                </div>
+
+                {linkedInResult.publishedAt && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-slate-500">
+                      Published on LinkedIn
+                    </p>
+
+                    <p className="mt-1 text-sm text-slate-800">
+                      {formatDate(linkedInResult.publishedAt)}
+                    </p>
+                  </div>
+                )}
+
+                {linkedInResult.externalPostId && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-slate-500">
+                      LinkedIn Post ID
+                    </p>
+
+                    <p className="mt-1 break-all font-mono text-xs text-slate-700">
+                      {linkedInResult.externalPostId}
+                    </p>
+                  </div>
+                )}
+
+                {linkedInResult.lastError && (
+                  <div role="alert">
+                    <p className="text-xs font-semibold uppercase text-rose-600">
+                      Publishing Error
+                    </p>
+
+                    <p className="mt-1 text-sm text-rose-700">
+                      {linkedInResult.lastError}
+                    </p>
+                  </div>
+                )}
+
+                {linkedInResult.status === "published" && linkedInPostUrl && (
+                  <a
+                    href={linkedInPostUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center rounded-xl bg-[#0A66C2] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#004182]"
+                  >
+                    View on LinkedIn ↗
+                  </a>
+                )}
+              </div>
+            </section>
+          )}
 
           {post.lastError && (
             <section

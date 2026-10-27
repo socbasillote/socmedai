@@ -9,6 +9,15 @@ export type PostStatus =
 
 export type PostPlatform = "facebook" | "instagram" | "linkedin";
 
+export type PostPlatformResult = {
+  platform: PostPlatform;
+  status: "pending" | "publishing" | "published" | "failed" | "unknown";
+  externalPostId?: string;
+  publishedAt?: string;
+  lastError?: string;
+  attemptCount?: number;
+};
+
 export type Post = {
   _id: string;
   workspaceId: string;
@@ -21,6 +30,9 @@ export type Post = {
   scheduledAt?: string;
   publishedAt?: string;
   lastError?: string;
+
+  platformResults?: PostPlatformResult[];
+
   createdAt: string;
   updatedAt: string;
 };
@@ -41,6 +53,9 @@ export type UpdateDraftPostInput = {
   title?: string;
   caption?: string;
   platforms?: PostPlatform[];
+  platformConnections?: {
+    linkedin?: string;
+  };
 };
 
 type CreatePostResponse = {
@@ -58,11 +73,43 @@ export type PaginatedPostsResponse = {
   draftCount: number;
 };
 
+export type PublishingOutcome =
+  | "published"
+  | "failed"
+  | "unknown"
+  | "simulated";
+
+export type PlatformPublishingResult = {
+  outcome: PublishingOutcome;
+  postId: string;
+  platform: PostPlatform;
+  externalPostId?: string;
+  publishedAt?: string;
+  message?: string;
+};
+
+export type PublishPostResponse = {
+  message: string;
+  result: {
+    postId: string;
+    results: PlatformPublishingResult[];
+  };
+  post: Post;
+};
+
 export async function createPost(input: CreatePostInput): Promise<Post> {
   const response = await apiFetch<CreatePostResponse>("/api/posts", {
     method: "POST",
     body: JSON.stringify(input),
   });
+
+  return response.post;
+}
+
+export async function getPostById(postId: string): Promise<Post> {
+  const response = await apiFetch<CreatePostResponse>(
+    `/api/posts/${encodeURIComponent(postId)}`,
+  );
 
   return response.post;
 }
@@ -143,4 +190,15 @@ export async function updateDraftPost(
   );
 
   return response.post;
+}
+
+export async function publishPostNow(
+  postId: string,
+): Promise<PublishPostResponse> {
+  return apiFetch<PublishPostResponse>(
+    `/api/posts/${encodeURIComponent(postId)}/publish`,
+    {
+      method: "POST",
+    },
+  );
 }

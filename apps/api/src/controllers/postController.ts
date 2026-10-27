@@ -6,9 +6,16 @@ import {
   listWorkspacePostsQuerySchema,
 } from "../schemas/postSchema.js";
 import type { AuthenticatedUser } from "../services/userProfileService.js";
+
+import {
+  publishImmediatePost,
+  ImmediatePublishingError,
+} from "../services/publishing/immediatePublishingService.js";
+
 import {
   createWorkspacePost,
   listWorkspacePosts,
+  getWorkspacePostById,
   deleteWorkspaceDraft,
   updateWorkspaceDraft,
   PostServiceError,
@@ -140,6 +147,35 @@ export const deleteDraftPost: RequestHandler = async (req, res, next) => {
   }
 };
 
+export const getPostById: RequestHandler = async (req, res, next) => {
+  try {
+    const postId = req.params.postId;
+
+    if (typeof postId !== "string") {
+      res.status(404).json({
+        error: "Post not found",
+      });
+      return;
+    }
+
+    const authUser = getAuthenticatedUser(res);
+
+    const post = await getWorkspacePostById(authUser, postId);
+
+    res.status(200).json({ post });
+  } catch (error) {
+    if (error instanceof PostServiceError) {
+      res.status(error.statusCode).json({
+        error: "Post not found",
+        message: error.message,
+      });
+      return;
+    }
+
+    next(error);
+  }
+};
+
 export const updateDraftPost: RequestHandler = async (req, res, next) => {
   try {
     const postId = req.params.postId;
@@ -168,6 +204,60 @@ export const updateDraftPost: RequestHandler = async (req, res, next) => {
       res.status(error.statusCode).json({
         error:
           error.statusCode === 404 ? "Post not found" : "Post update failed",
+        message: error.message,
+      });
+      return;
+    }
+
+    next(error);
+  }
+};
+
+export const publishPostNow: RequestHandler = async (req, res, next) => {
+  try {
+    const postId = req.params.postId;
+
+    if (typeof postId !== "string") {
+      res.status(404).json({
+        error: "Post not found",
+      });
+      return;
+    }
+
+    const authUser = getAuthenticatedUser(res);
+
+    // Reuse the existing workspace authorization and post lookup.
+    const post = await getWorkspacePostById(authUser, postId);
+
+    const workspaceId = String(post.workspaceId);
+
+    const result = await publishImmediatePost({
+      authUser,
+      workspaceId,
+      postId,
+    });
+
+    // Return the persisted post so the frontend can display
+    // the latest publishing status.
+    const updatedPost = await getWorkspacePostById(authUser, postId);
+
+    res.status(200).json({
+      message: "Publishing attempt completed.",
+      result,
+      post: updatedPost,
+    });
+  } catch (error) {
+    if (error instanceof ImmediatePublishingError) {
+      res.status(error.statusCode).json({
+        error: "Publishing failed",
+        message: error.message,
+      });
+      return;
+    }
+
+    if (error instanceof PostServiceError) {
+      res.status(error.statusCode).json({
+        error: "Post not found",
         message: error.message,
       });
       return;

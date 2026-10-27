@@ -154,7 +154,7 @@ export async function listWorkspacePosts(
   }
 
   const fields =
-    "_id workspaceId createdByUserId title caption mediaIds platforms status scheduledAt publishedAt createdAt updatedAt";
+    "_id workspaceId createdByUserId title caption mediaIds platforms status scheduledAt publishedAt platformResults createdAt updatedAt";
 
   const workspaceFilter = {
     workspaceId: authorization.workspace._id,
@@ -248,6 +248,49 @@ export async function listWorkspacePosts(
     hasMore,
     draftCount,
   };
+}
+
+export async function getWorkspacePostById(
+  authUser: AuthenticatedUser,
+  postId: string,
+) {
+  // Reject invalid MongoDB IDs.
+  if (!mongoose.isValidObjectId(postId)) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  // Locate the post to determine its workspace.
+  const post = await Post.findById(postId).select("_id workspaceId").lean();
+
+  if (!post) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  // Reuse the existing workspace authorization.
+  const authorization = await getAuthorizedWorkspace(
+    authUser,
+    String(post.workspaceId),
+  );
+
+  if (!authorization) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  // Return only a post belonging to the authorized workspace.
+  const authorizedPost = await Post.findOne({
+    _id: postId,
+    workspaceId: authorization.workspace._id,
+  })
+    .select(
+      "_id workspaceId createdByUserId title caption mediaIds platforms status scheduledAt publishedAt lastError createdAt updatedAt",
+    )
+    .lean();
+
+  if (!authorizedPost) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  return authorizedPost;
 }
 
 export async function deleteWorkspaceDraft(

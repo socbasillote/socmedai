@@ -3,7 +3,7 @@ import { ImagePlus, Video } from "lucide-react";
 
 import type { PostPlatform } from "@/lib/posts";
 
-type PostMode = "draft" | "scheduled";
+type PostMode = "draft" | "scheduled" | "immediate";
 
 type PostEditorFormProps = {
   mode: "create" | "edit";
@@ -32,6 +32,8 @@ type PostEditorFormProps = {
 
   onSave: () => void | Promise<void>;
   onCancel: () => void;
+
+  locked?: boolean;
 };
 
 const platforms: {
@@ -47,6 +49,7 @@ export function PostEditorForm({
   mode,
   title,
   caption,
+  locked = false,
   selectedPlatforms,
   postMode,
   scheduledAt,
@@ -67,7 +70,7 @@ export function PostEditorForm({
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (saving) return;
+    if (saving || locked) return;
 
     void onSave();
   }
@@ -81,7 +84,7 @@ export function PostEditorForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} noValidate className="space-y-6">
       {/* Title */}
       <div>
         <label
@@ -97,7 +100,7 @@ export function PostEditorForm({
           value={title}
           onChange={(event) => onTitleChange(event.target.value)}
           placeholder="Enter a title (optional)"
-          disabled={saving}
+          disabled={saving || locked}
           className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
         />
       </div>
@@ -117,7 +120,7 @@ export function PostEditorForm({
           value={caption}
           onChange={(event) => onCaptionChange(event.target.value)}
           placeholder="What would you like to share?"
-          disabled={saving}
+          disabled={saving || locked}
           required
           className="w-full resize-y rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
         />
@@ -148,7 +151,7 @@ export function PostEditorForm({
       </section>
 
       {/* Platforms */}
-      <fieldset disabled={saving}>
+      <fieldset disabled={saving || locked}>
         <legend className="mb-3 text-sm font-semibold text-slate-700">
           Publishing Platforms
         </legend>
@@ -193,12 +196,12 @@ export function PostEditorForm({
       )}
 
       {/* Publishing mode */}
-      <fieldset disabled={saving}>
+      <fieldset disabled={saving || locked}>
         <legend className="mb-3 text-sm font-semibold text-slate-700">
           Publishing Options
         </legend>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <button
             type="button"
             aria-pressed={postMode === "draft"}
@@ -216,6 +219,11 @@ export function PostEditorForm({
             type="button"
             aria-pressed={postMode === "scheduled"}
             onClick={() => onPostModeChange("scheduled")}
+            title={
+              mode === "edit"
+                ? "Scheduling existing drafts is not available yet."
+                : undefined
+            }
             className={`rounded-xl border px-4 py-3 text-sm font-semibold ${
               postMode === "scheduled"
                 ? "border-violet-300 bg-violet-50 text-violet-700"
@@ -223,6 +231,20 @@ export function PostEditorForm({
             }`}
           >
             Schedule Post
+          </button>
+
+          <button
+            type="button"
+            aria-pressed={postMode === "immediate"}
+            onClick={() => onPostModeChange("immediate")}
+            title="Publish immediately to your connected LinkedIn account."
+            className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+              postMode === "immediate"
+                ? "border-violet-300 bg-violet-50 text-violet-700"
+                : "border-slate-200 text-slate-600 hover:bg-slate-50"
+            } disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            Publish Now
           </button>
         </div>
       </fieldset>
@@ -243,7 +265,7 @@ export function PostEditorForm({
             value={scheduledAt}
             min={minScheduledAt}
             onChange={(event) => onScheduledAtChange(event.target.value)}
-            disabled={saving}
+            disabled={saving || locked}
             required
             className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
           />
@@ -266,7 +288,7 @@ export function PostEditorForm({
         <button
           type="button"
           onClick={onCancel}
-          disabled={saving}
+          disabled={saving || locked}
           className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
         >
           Cancel
@@ -274,16 +296,22 @@ export function PostEditorForm({
 
         <button
           type="submit"
-          disabled={saving}
+          disabled={saving || locked}
           className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
         >
           {saving
-            ? "Saving..."
-            : mode === "edit"
-              ? "Save Changes"
-              : postMode === "scheduled"
-                ? "Schedule Post"
-                : "Save Draft"}
+            ? postMode === "immediate"
+              ? "Publishing..."
+              : "Saving..."
+            : locked
+              ? "Publishing Attempt Completed"
+              : postMode === "immediate"
+                ? "Review & Publish"
+                : mode === "edit"
+                  ? "Save Changes"
+                  : postMode === "scheduled"
+                    ? "Schedule Post"
+                    : "Save Draft"}
         </button>
       </div>
     </form>
