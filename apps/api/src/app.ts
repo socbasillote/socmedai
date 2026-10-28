@@ -14,6 +14,7 @@ import { requireAuth } from "./auth/requireAuth.js";
 import workspaceRoutes from "./routes/workspaceRoutes.js";
 import postRoutes from "./routes/postRoutes.js";
 import linkedInRoutes from "./routes/linkedinRoutes.js";
+import facebookRoutes from "./routes/facebookRoutes.js";
 import aiContentRoutes from "./routes/aiContentRoutes.js";
 
 export const app = express();
@@ -55,6 +56,7 @@ app.get("/api/health", (_req: Request, res: Response) => {
 });
 
 app.use("/api/linkedin", linkedInRoutes);
+app.use("/api/facebook", facebookRoutes);
 
 app.get("/api/me", requireAuth, (_req, res) => {
   res.status(200).json({

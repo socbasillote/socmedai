@@ -45,6 +45,20 @@ const envSchema = z.object({
   LINKEDIN_CLIENT_SECRET: optionalString,
   LINKEDIN_REDIRECT_URI: optionalUrl,
   LINKEDIN_TOKEN_ENCRYPTION_KEY: optionalEncryptionKey,
+
+  // Facebook integration
+  FACEBOOK_APP_ID: optionalString,
+  FACEBOOK_APP_SECRET: optionalString,
+  FACEBOOK_REDIRECT_URI: optionalUrl,
+  FACEBOOK_TOKEN_ENCRYPTION_KEY: optionalEncryptionKey,
+
+  FACEBOOK_GRAPH_API_VERSION: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^v\d+\.\d+$/, "Must be a Graph API version such as v25.0.")
+      .optional(),
+  ),
 });
 
 const result = envSchema.safeParse(process.env);
