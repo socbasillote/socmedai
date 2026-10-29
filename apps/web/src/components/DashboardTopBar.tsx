@@ -3,6 +3,8 @@ import { Bell, ChevronDown, Menu, Search } from "lucide-react";
 import SignOutButton from "@/auth/SignOutButton";
 import { LinkedInConnectionPanel } from "@/components/LinkedInConnectionPanel";
 
+import { SocialConnectionsMenu } from "@/components/SocialConnectionsMenu";
+
 type DashboardTopBarProps = {
   activePage: string;
   workspaceName?: string;
@@ -12,6 +14,8 @@ type DashboardTopBarProps = {
   onOpenNavigation: () => void;
   onNotificationClick: () => void;
   linkedInProps: ComponentProps<typeof LinkedInConnectionPanel>;
+
+  facebookProps?: ComponentProps<typeof SocialConnectionsMenu>["facebookProps"];
 };
 
 export function DashboardTopBar({
@@ -23,9 +27,10 @@ export function DashboardTopBar({
   onOpenNavigation,
   onNotificationClick,
   linkedInProps,
+  facebookProps,
 }: DashboardTopBarProps) {
   return (
-    <header className="sticky top-0 z-20 flex h-20 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur-xl sm:px-8">
+    <header className="sticky top-0 z-20 flex min-h-20 items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8">
       <div className="flex min-w-0 items-center gap-3">
         <button
           aria-label="Open navigation"
@@ -49,7 +54,7 @@ export function DashboardTopBar({
         </div>
       </div>
 
-      <div className="flex items-center gap-2 sm:gap-4">
+      <div className="flex shrink-0 items-center gap-2 lg:gap-3">
         <label className="hidden h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 md:flex">
           <Search size={17} className="text-slate-400" />
 
@@ -88,7 +93,14 @@ export function DashboardTopBar({
 
         <SignOutButton />
 
-        <LinkedInConnectionPanel {...linkedInProps} />
+        {facebookProps ? (
+          <SocialConnectionsMenu
+            linkedInProps={linkedInProps}
+            facebookProps={facebookProps}
+          />
+        ) : (
+          <LinkedInConnectionPanel {...linkedInProps} />
+        )}
       </div>
     </header>
   );

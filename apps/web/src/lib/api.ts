@@ -46,6 +46,7 @@ export async function apiFetch<T>(
   const response = await fetch(`${API_BASE_URL}${normalizedPath}`, {
     ...init,
     headers,
+    credentials: init.credentials ?? "same-origin",
   });
 
   if (!response.ok) {

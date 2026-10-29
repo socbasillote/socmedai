@@ -18,6 +18,7 @@ type DashboardLayoutProps = {
   onOpenNavigation: () => void;
   onNotificationClick: () => void;
   linkedInProps: ComponentProps<typeof DashboardTopBar>["linkedInProps"];
+  facebookProps?: ComponentProps<typeof DashboardTopBar>["facebookProps"];
   notice: string;
   onDismissNotice: () => void;
   children: ReactNode;
@@ -36,6 +37,7 @@ export function DashboardLayout({
   onOpenNavigation,
   onNotificationClick,
   linkedInProps,
+  facebookProps,
   notice,
   onDismissNotice,
   children,
@@ -60,6 +62,7 @@ export function DashboardLayout({
           onOpenNavigation={onOpenNavigation}
           onNotificationClick={onNotificationClick}
           linkedInProps={linkedInProps}
+          facebookProps={facebookProps}
         />
 
         <PageContent notice={notice} onDismissNotice={onDismissNotice}>

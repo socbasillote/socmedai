@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate, Navigate } from "react-router";
 import { useAuth } from "@/auth/useAuth";
 
@@ -6,6 +6,15 @@ import AuthPage from "@/auth/AuthPage";
 import { storeWorkspaceId } from "@/lib/workspaceSelection";
 
 import { useLinkedInConnection } from "@/hooks/useLinkedInConnection";
+import { useFacebookConnection } from "@/hooks/useFacebookConnection";
+
+import FacebookOAuthSessionLoader from "@/components/facebook/FacebookOAuthSessionLoader";
+
+import {
+  readFacebookOAuthWorkspaceId,
+  clearFacebookOAuthWorkspaceId,
+} from "@/lib/facebookOAuthWorkspace";
+
 import { useWorkspaces } from "@/hooks/useWorkspaces";
 import { usePosts } from "@/hooks/usePosts";
 import { usePostActions } from "@/hooks/usePostActions";
@@ -48,6 +57,14 @@ const pagePaths: Record<string, string> = {
 
 function DashboardApp() {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const facebookCallbackPending =
+    new URLSearchParams(location.search).get("facebook") === "connected";
+
+  const facebookCallbackWorkspaceId = facebookCallbackPending
+    ? readFacebookOAuthWorkspaceId()
+    : null;
 
   function handleOpenPostEditor() {
     setNotice("");
@@ -57,6 +74,53 @@ function DashboardApp() {
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
 
   const { notice, setNotice, clearNotice } = useDashboardNotice();
+
+  /**
+   * Handle unsuccessful Facebook OAuth callbacks.
+   *
+   * The backend redirects to:
+   *   /?facebook=error&reason=denied
+   *   /?facebook=error&reason=failed
+   *
+   * Clear the temporary workspace and remove
+   * the callback parameters without disrupting
+   * unrelated URL parameters.
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+
+    if (params.get("facebook") !== "error") {
+      return;
+    }
+
+    const reason = params.get("reason");
+
+    clearFacebookOAuthWorkspaceId();
+
+    if (reason === "denied") {
+      setNotice(
+        "Facebook authorization was cancelled. No Facebook Pages were connected.",
+      );
+    } else {
+      setNotice("Facebook authorization failed. Please try connecting again.");
+    }
+
+    params.delete("facebook");
+    params.delete("reason");
+
+    const search = params.toString();
+
+    navigate(
+      {
+        pathname: location.pathname,
+        search: search ? `?${search}` : "",
+        hash: location.hash,
+      },
+      {
+        replace: true,
+      },
+    );
+  }, [location.pathname, location.search, location.hash, navigate, setNotice]);
 
   const { workspaceMenuOpen, setWorkspaceMenuOpen } = useWorkspaceMenu();
 
@@ -86,6 +150,59 @@ function DashboardApp() {
     workspaceError,
     addWorkspace,
   } = useWorkspaces();
+
+  const facebookCallbackWorkspace = facebookCallbackWorkspaceId
+    ? workspaces.find(
+        (workspace) => workspace._id === facebookCallbackWorkspaceId,
+      )
+    : undefined;
+
+  useEffect(() => {
+    if (
+      !facebookCallbackPending ||
+      workspacesLoading ||
+      !facebookCallbackWorkspaceId ||
+      !facebookCallbackWorkspace
+    ) {
+      return;
+    }
+
+    if (selectedWorkspaceId === facebookCallbackWorkspaceId) {
+      return;
+    }
+
+    // Restore the workspace that originally initiated OAuth.
+    setSelectedWorkspaceId(facebookCallbackWorkspaceId);
+    storeWorkspaceId(facebookCallbackWorkspaceId);
+  }, [
+    facebookCallbackPending,
+    facebookCallbackWorkspaceId,
+    facebookCallbackWorkspace,
+    workspacesLoading,
+    selectedWorkspaceId,
+    setSelectedWorkspaceId,
+  ]);
+
+  function clearFacebookCallback() {
+    clearFacebookOAuthWorkspaceId();
+
+    const params = new URLSearchParams(location.search);
+
+    params.delete("facebook");
+
+    const search = params.toString();
+
+    navigate(
+      {
+        pathname: location.pathname,
+        search: search ? `?${search}` : "",
+        hash: location.hash,
+      },
+      {
+        replace: true,
+      },
+    );
+  }
   const {
     creatingWorkspace,
     createWorkspaceError,
@@ -119,6 +236,12 @@ function DashboardApp() {
     setConnectError: setLinkedInConnectError,
     setNotice,
   });
+
+  const {
+    connecting: connectingFacebook,
+    connectError: facebookConnectError,
+    connect: handleConnectFacebook,
+  } = useFacebookConnection(selectedWorkspaceId);
 
   const {
     savedPosts,
@@ -258,9 +381,112 @@ function DashboardApp() {
           onConnect: () => void handleConnectLinkedIn(),
           onDisconnect: () => void handleDisconnectLinkedIn(),
         }}
+        facebookProps={{
+          workspaceId: selectedWorkspaceId,
+          workspacesLoading,
+          connecting: connectingFacebook,
+          connectError: facebookConnectError,
+          onConnect: () => void handleConnectFacebook(),
+        }}
         notice={notice}
         onDismissNotice={clearNotice}
       >
+        {facebookCallbackPending && (
+          <section
+            aria-label="Facebook account authorization"
+            className="mb-6 rounded-xl border border-blue-200 bg-blue-50/50 p-4 sm:p-6"
+          >
+            <div className="mb-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+                Facebook Authorization
+              </p>
+
+              <h2 className="mt-1 text-xl font-semibold text-slate-900">
+                Finish Connecting Facebook
+              </h2>
+
+              <p className="mt-2 text-sm text-slate-600">
+                Select the Facebook Pages you want to connect to your Storm
+                workspace.
+              </p>
+            </div>
+
+            {workspacesLoading ? (
+              <div
+                role="status"
+                className="rounded-lg bg-white p-4 text-sm text-slate-600"
+              >
+                Checking your workspace...
+              </div>
+            ) : !facebookCallbackWorkspaceId ? (
+              <div
+                role="alert"
+                className="rounded-lg border border-amber-200 bg-white p-4"
+              >
+                <p className="text-sm text-amber-800">
+                  Storm could not identify the workspace that initiated Facebook
+                  authorization. Please start the Facebook connection again.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={clearFacebookCallback}
+                  className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                >
+                  Close
+                </button>
+              </div>
+            ) : !facebookCallbackWorkspace ? (
+              <div
+                role="alert"
+                className="rounded-lg border border-red-200 bg-white p-4"
+              >
+                <p className="text-sm text-red-700">
+                  The workspace that initiated Facebook authorization is no
+                  longer available to your account.
+                </p>
+
+                {workspaceError && (
+                  <p className="mt-2 text-sm text-red-600">{workspaceError}</p>
+                )}
+
+                <button
+                  type="button"
+                  onClick={clearFacebookCallback}
+                  className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-blue-100 bg-white px-4 py-3">
+                  <p className="text-xs text-slate-500">
+                    Connecting Pages to workspace
+                  </p>
+
+                  <p className="mt-1 text-sm font-semibold text-slate-900">
+                    {facebookCallbackWorkspace.name}
+                  </p>
+                </div>
+
+                <FacebookOAuthSessionLoader
+                  workspaceId={facebookCallbackWorkspaceId}
+                  onConnected={(connections) => {
+                    clearFacebookCallback();
+
+                    setNotice(
+                      `Successfully connected ${connections.length} Facebook ${
+                        connections.length === 1 ? "Page" : "Pages"
+                      } to ${facebookCallbackWorkspace.name}.`,
+                    );
+                  }}
+                  onClose={clearFacebookCallback}
+                />
+              </div>
+            )}
+          </section>
+        )}
         {activePage === "Overview" ? (
           <DashboardOverview
             draftCount={draftCount}
