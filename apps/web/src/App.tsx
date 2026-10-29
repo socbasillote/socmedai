@@ -7,6 +7,7 @@ import { storeWorkspaceId } from "@/lib/workspaceSelection";
 
 import { useLinkedInConnection } from "@/hooks/useLinkedInConnection";
 import { useFacebookConnection } from "@/hooks/useFacebookConnection";
+import { useFacebookConnections } from "@/hooks/useFacebookConnections";
 
 import FacebookOAuthSessionLoader from "@/components/facebook/FacebookOAuthSessionLoader";
 
@@ -244,6 +245,13 @@ function DashboardApp() {
   } = useFacebookConnection(selectedWorkspaceId);
 
   const {
+    connections: facebookConnections,
+    loading: facebookConnectionsLoading,
+    error: facebookConnectionsError,
+    refreshConnections: refreshFacebookConnections,
+  } = useFacebookConnections(selectedWorkspaceId);
+
+  const {
     savedPosts,
     setSavedPosts,
     draftCount,
@@ -387,6 +395,9 @@ function DashboardApp() {
           connecting: connectingFacebook,
           connectError: facebookConnectError,
           onConnect: () => void handleConnectFacebook(),
+          connections: facebookConnections,
+          connectionsLoading: facebookConnectionsLoading,
+          connectionsError: facebookConnectionsError,
         }}
         notice={notice}
         onDismissNotice={clearNotice}
@@ -474,6 +485,7 @@ function DashboardApp() {
                   workspaceId={facebookCallbackWorkspaceId}
                   onConnected={(connections) => {
                     clearFacebookCallback();
+                    refreshFacebookConnections();
 
                     setNotice(
                       `Successfully connected ${connections.length} Facebook ${

@@ -7,6 +7,7 @@ import {
   facebookOAuthCallback,
   getFacebookOAuthSessionController,
   connectFacebookPagesController,
+  getFacebookConnectionsController,
 } from "../controllers/facebookController.js";
 
 const router = Router();
@@ -48,5 +49,13 @@ router.get("/oauth/session", requireAuth, getFacebookOAuthSessionController);
  * - CREATE_CONTENT permission for selected Pages
  */
 router.post("/pages/connect", requireAuth, connectFacebookPagesController);
+
+/**
+ * List Facebook Pages connected to a workspace.
+ *
+ * Authentication is required.
+ * Workspace access is verified by the controller's service.
+ */
+router.get("/connections", requireAuth, getFacebookConnectionsController);
 
 export default router;

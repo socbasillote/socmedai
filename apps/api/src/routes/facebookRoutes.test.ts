@@ -19,6 +19,11 @@ vi.mock("../controllers/facebookController.js", () => ({
   facebookOAuthCallback: mocks.facebookOAuthCallback,
   getFacebookOAuthSessionController: mocks.getFacebookOAuthSessionController,
   connectFacebookPagesController: mocks.connectFacebookPagesController,
+  getFacebookConnectionsController: vi.fn((_req, res) => {
+    res.status(200).json({
+      connections: [],
+    });
+  }),
 }));
 
 import facebookRoutes from "./facebookRoutes.js";

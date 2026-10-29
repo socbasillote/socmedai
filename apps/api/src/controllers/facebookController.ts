@@ -41,6 +41,11 @@ import {
   FacebookOriginValidationError,
 } from "../services/facebook/facebookOriginValidationService.js";
 
+import {
+  listFacebookConnections,
+  FacebookConnectionQueryError,
+} from "../services/facebook/facebookConnectionQueryService.js";
+
 const connectBodySchema = z.object({
   workspaceId: z.string().trim().min(1),
 });
@@ -395,6 +400,73 @@ export async function connectFacebookPagesController(
     // encryption details, or internal stack traces.
     res.status(500).json({
       message: "Unable to connect Facebook Pages.",
+    });
+  }
+}
+
+/**
+ * GET /api/facebook/connections
+ *
+ * Retrieve Facebook Pages connected to a workspace.
+ *
+ * Security:
+ * - Requires authenticated Storm user.
+ * - Validates workspace ID.
+ * - Verifies workspace access through the query service.
+ * - Returns safe Page metadata only.
+ * - Never exposes Facebook access tokens.
+ */
+export async function getFacebookConnectionsController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  // 1. Verify authentication.
+  const authUser = res.locals.authUser as AuthenticatedUser | undefined;
+
+  if (!authUser || typeof authUser.id !== "string" || !authUser.id.trim()) {
+    res.status(401).json({
+      message: "Authentication is required.",
+    });
+
+    return;
+  }
+
+  // 2. Validate workspace query parameter.
+  const workspaceId = req.query.workspaceId;
+
+  if (
+    typeof workspaceId !== "string" ||
+    !mongoose.isValidObjectId(workspaceId)
+  ) {
+    res.status(400).json({
+      message: "A valid workspace is required.",
+    });
+
+    return;
+  }
+
+  try {
+    // 3. Retrieve connections.
+    // Workspace access is verified by the service.
+    const connections = await listFacebookConnections(authUser, workspaceId);
+
+    // 4. Return safe connection metadata.
+    res.status(200).json({
+      connections,
+    });
+  } catch (error) {
+    // 5. Handle known service errors.
+    if (error instanceof FacebookConnectionQueryError) {
+      res.status(error.statusCode).json({
+        message: error.message,
+      });
+
+      return;
+    }
+
+    // 6. Do not expose database or internal errors.
+    res.status(500).json({
+      message: "Unable to retrieve Facebook connections.",
     });
   }
 }

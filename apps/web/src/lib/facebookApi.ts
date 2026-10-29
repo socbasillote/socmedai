@@ -37,6 +37,56 @@ export type ConnectFacebookPagesResponse = {
 };
 
 /**
+ * A Facebook Page already connected to Storm.
+ *
+ * This represents a saved MongoDB connection,
+ * not a temporary OAuth discovery result.
+ */
+export type FacebookConnectionInfo = {
+  id: string;
+  facebookPageId: string;
+  pageName: string;
+  status: "connected" | "expired" | "revoked";
+};
+
+/**
+ * Response from the Facebook connections endpoint.
+ */
+export type FacebookConnectionsResponse = {
+  connections: FacebookConnectionInfo[];
+};
+
+/**
+ * Retrieve Facebook Pages connected to a workspace.
+ *
+ * The backend:
+ * - Requires Supabase authentication.
+ * - Verifies workspace access.
+ * - Returns only safe Page metadata.
+ * - Excludes Facebook access tokens.
+ */
+export async function getFacebookConnections(
+  workspaceId: string,
+): Promise<FacebookConnectionsResponse> {
+  const normalizedWorkspaceId = workspaceId.trim();
+
+  if (!normalizedWorkspaceId) {
+    throw new Error("Select a workspace before checking Facebook connections.");
+  }
+
+  const params = new URLSearchParams({
+    workspaceId: normalizedWorkspaceId,
+  });
+
+  return apiFetch<FacebookConnectionsResponse>(
+    `/api/facebook/connections?${params.toString()}`,
+    {
+      method: "GET",
+    },
+  );
+}
+
+/**
  * Retrieve the temporary Facebook OAuth session.
  *
  * The session contains safe Page metadata only.
