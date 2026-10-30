@@ -43,12 +43,11 @@ describe("getLinkedInPublishingCredentials", () => {
 
   function mockConnection(value: typeof connection | null) {
     const lean = vi.fn().mockResolvedValue(value);
-    const sort = vi.fn().mockReturnValue({ lean });
-    const select = vi.fn().mockReturnValue({ sort });
+    const select = vi.fn().mockReturnValue({ lean });
 
     mocks.findOne.mockReturnValue({ select });
 
-    return { select, sort, lean };
+    return { select, lean };
   }
 
   beforeEach(() => {

@@ -582,3 +582,206 @@ describe("PublishingOrchestrator", () => {
     expect(reconcileMock).toHaveBeenCalledWith("post-123");
   });
 });
+
+describe("platform-specific connection routing", () => {
+  const workspaceId = "507f1f77bcf86cd799439011";
+  const facebookConnectionId = "507f1f77bcf86cd799439013";
+  const linkedinConnectionId = "507f1f77bcf86cd799439014";
+
+  function createRecordingAdapter() {
+    const publish = vi.fn<PublishingAdapter["publish"]>(async (input) => ({
+      outcome: "simulated",
+      postId: input.postId,
+      platform: input.platform,
+      simulatedAt: new Date("2026-10-30T00:00:00.000Z"),
+      message: "Dry run completed.",
+    }));
+
+    return {
+      publish,
+    } satisfies PublishingAdapter;
+  }
+
+  it("passes the selected Facebook Page connection to Facebook", async () => {
+    const adapter = createRecordingAdapter();
+    const orchestrator = new PublishingOrchestrator(adapter);
+
+    const result = await orchestrator.processPost({
+      _id: "post-facebook-routing",
+      workspaceId,
+      caption: "Facebook announcement",
+      mediaIds: [],
+      platforms: ["facebook"],
+      platformConnections: {
+        facebook: facebookConnectionId,
+      },
+    });
+
+    expect(adapter.publish).toHaveBeenCalledOnce();
+
+    expect(adapter.publish).toHaveBeenCalledWith({
+      postId: "post-facebook-routing",
+      workspaceId,
+      platform: "facebook",
+      connectionId: facebookConnectionId,
+      caption: "Facebook announcement",
+      mediaIds: [],
+    });
+
+    expect(result.results).toMatchObject([
+      {
+        platform: "facebook",
+        outcome: "simulated",
+      },
+    ]);
+  });
+
+  it("passes the selected LinkedIn account connection to LinkedIn", async () => {
+    const adapter = createRecordingAdapter();
+    const orchestrator = new PublishingOrchestrator(adapter);
+
+    await orchestrator.processPost({
+      _id: "post-linkedin-routing",
+      workspaceId,
+      caption: "LinkedIn announcement",
+      mediaIds: [],
+      platforms: ["linkedin"],
+      platformConnections: {
+        linkedin: linkedinConnectionId,
+      },
+    });
+
+    expect(adapter.publish).toHaveBeenCalledOnce();
+
+    expect(adapter.publish).toHaveBeenCalledWith({
+      postId: "post-linkedin-routing",
+      workspaceId,
+      platform: "linkedin",
+      connectionId: linkedinConnectionId,
+      caption: "LinkedIn announcement",
+      mediaIds: [],
+    });
+  });
+
+  it("isolates connection IDs across Facebook, LinkedIn, and Instagram", async () => {
+    const adapter = createRecordingAdapter();
+    const orchestrator = new PublishingOrchestrator(adapter);
+
+    const result = await orchestrator.processPost({
+      _id: "post-multiple-platforms",
+      workspaceId,
+      caption: "Multi-platform announcement",
+      mediaIds: [],
+      platforms: ["facebook", "linkedin", "instagram"],
+      platformConnections: {
+        facebook: facebookConnectionId,
+        linkedin: linkedinConnectionId,
+      },
+    });
+
+    expect(adapter.publish).toHaveBeenCalledTimes(3);
+
+    const calls = adapter.publish.mock.calls.map(([input]) => input);
+
+    expect(calls).toEqual([
+      {
+        postId: "post-multiple-platforms",
+        workspaceId,
+        platform: "facebook",
+        connectionId: facebookConnectionId,
+        caption: "Multi-platform announcement",
+        mediaIds: [],
+      },
+      {
+        postId: "post-multiple-platforms",
+        workspaceId,
+        platform: "linkedin",
+        connectionId: linkedinConnectionId,
+        caption: "Multi-platform announcement",
+        mediaIds: [],
+      },
+      {
+        postId: "post-multiple-platforms",
+        workspaceId,
+        platform: "instagram",
+        caption: "Multi-platform announcement",
+        mediaIds: [],
+      },
+    ]);
+
+    expect(
+      result.results.map((item) => ({
+        platform: item.platform,
+        outcome: item.outcome,
+      })),
+    ).toEqual([
+      { platform: "facebook", outcome: "simulated" },
+      { platform: "linkedin", outcome: "simulated" },
+      { platform: "instagram", outcome: "simulated" },
+    ]);
+  });
+
+  it("preserves Facebook dry-run behavior without a connection ID", async () => {
+    const adapter = createRecordingAdapter();
+    const orchestrator = new PublishingOrchestrator(adapter);
+
+    const result = await orchestrator.processPost({
+      _id: "post-facebook-dry-run",
+      workspaceId,
+      caption: "Facebook dry-run test",
+      mediaIds: [],
+      platforms: ["facebook"],
+    });
+
+    expect(adapter.publish).toHaveBeenCalledWith({
+      postId: "post-facebook-dry-run",
+      workspaceId,
+      platform: "facebook",
+      caption: "Facebook dry-run test",
+      mediaIds: [],
+    });
+
+    expect(result.results).toMatchObject([
+      {
+        platform: "facebook",
+        outcome: "simulated",
+      },
+    ]);
+  });
+
+  it("rejects LinkedIn publishing without a selected account", async () => {
+    const adapter = createRecordingAdapter();
+    const orchestrator = new PublishingOrchestrator(adapter);
+
+    const result = await orchestrator.processPost({
+      _id: "post-linkedin-no-account",
+      workspaceId,
+      caption: "LinkedIn missing account",
+      mediaIds: [],
+      platforms: ["linkedin"],
+      platformConnections: {
+        facebook: facebookConnectionId,
+      },
+    });
+
+    expect(adapter.publish).not.toHaveBeenCalled();
+
+    expect(result.results).toEqual([
+      {
+        outcome: "failed",
+        postId: "post-linkedin-no-account",
+        platform: "linkedin",
+        message: "No LinkedIn account was selected for this post.",
+      },
+    ]);
+
+    expect(updateMock).toHaveBeenCalledWith(
+      "post-linkedin-no-account",
+      expect.objectContaining({
+        platform: "linkedin",
+        status: "failed",
+        lastError: "No LinkedIn account was selected for this post.",
+      }),
+    );
+  });
+});

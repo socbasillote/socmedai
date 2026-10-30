@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   postFindOneAndUpdate: vi.fn(),
   postCountDocuments: vi.fn(),
   validateLinkedInSelection: vi.fn(),
+  facebookFindOne: vi.fn(),
 }));
 
 vi.mock("../models/UserProfile.js", () => ({
@@ -51,6 +52,12 @@ vi.mock(
     };
   },
 );
+
+vi.mock("../models/FacebookConnection.js", () => ({
+  default: {
+    findOne: mocks.facebookFindOne,
+  },
+}));
 
 import {
   createWorkspacePost,
@@ -755,12 +762,15 @@ describe("updateWorkspaceDraft", () => {
         status: "draft",
         __v: 0,
       }),
-      {
+      expect.objectContaining({
         $set: updateInput,
+        $unset: {
+          "platformConnections.facebook": "",
+        },
         $inc: {
           __v: 1,
         },
-      },
+      }),
       expect.objectContaining({
         new: true,
         runValidators: true,
@@ -854,6 +864,9 @@ describe("updateWorkspaceDraft", () => {
         $set: {
           "platformConnections.linkedin": newConnectionId,
         },
+        $unset: {
+          "platformConnections.facebook": "",
+        },
         $inc: {
           __v: 1,
         },
@@ -905,6 +918,9 @@ describe("updateWorkspaceDraft", () => {
       {
         $set: {
           caption: "Updated LinkedIn caption",
+        },
+        $unset: {
+          "platformConnections.facebook": "",
         },
         $inc: {
           __v: 1,
@@ -1050,5 +1066,284 @@ describe("updateWorkspaceDraft", () => {
 
     expect(mocks.validateLinkedInSelection).not.toHaveBeenCalled();
     expect(mocks.postFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("Facebook Page selection in postService", () => {
+  const facebookConnectionId = "507f1f77bcf86cd799439013";
+  const postId = "507f1f77bcf86cd799439014";
+
+  const validCreateInput = {
+    workspaceId,
+    caption: "Storm Facebook announcement",
+    mediaIds: [],
+    platforms: ["facebook"] as Array<"facebook" | "instagram" | "linkedin">,
+    platformConnections: {
+      facebook: facebookConnectionId,
+    },
+  };
+
+  function mockFacebookConnection(
+    connection: unknown = {
+      _id: facebookConnectionId,
+      status: "connected",
+      tasks: ["CREATE_CONTENT", "MANAGE"],
+    },
+  ) {
+    const lean = vi.fn().mockResolvedValue(connection);
+    const select = vi.fn().mockReturnValue({ lean });
+
+    mocks.facebookFindOne.mockReturnValue({ select });
+
+    return { select, lean };
+  }
+
+  function mockDraft(overrides: Record<string, unknown> = {}) {
+    mocks.postFindOne.mockReturnValue({
+      select: vi.fn().mockResolvedValue({
+        _id: postId,
+        workspaceId,
+        createdByUserId: profileId,
+        status: "draft",
+        __v: 0,
+        platforms: ["facebook"],
+        platformConnections: {
+          facebook: facebookConnectionId,
+        },
+        ...overrides,
+      }),
+    });
+
+    mocks.postFindOneAndUpdate.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue({
+          _id: postId,
+          workspaceId,
+          status: "draft",
+        }),
+      }),
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    mockAuthorizedWorkspace();
+    mockFacebookConnection();
+
+    mocks.postCreate.mockImplementation(async (data) => ({
+      toObject: () => data,
+    }));
+
+    mockDraft();
+  });
+
+  it("saves an authorized Facebook Page on a new post", async () => {
+    const result = await createWorkspacePost(authUser, validCreateInput);
+
+    expect(mocks.facebookFindOne).toHaveBeenCalledWith({
+      _id: facebookConnectionId,
+      workspaceId,
+    });
+
+    expect(mocks.postCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platforms: ["facebook"],
+        platformConnections: {
+          facebook: facebookConnectionId,
+        },
+      }),
+    );
+
+    expect(result.platformConnections).toEqual({
+      facebook: facebookConnectionId,
+    });
+  });
+
+  it("queries only safe connection fields", async () => {
+    const query = mockFacebookConnection();
+
+    await createWorkspacePost(authUser, validCreateInput);
+
+    expect(query.select).toHaveBeenCalledWith("_id status tasks");
+
+    expect(query.lean).toHaveBeenCalledOnce();
+
+    // The post service must not retrieve encrypted tokens.
+    expect(query.select.mock.calls[0]?.[0]).not.toContain(
+      "pageAccessTokenEncrypted",
+    );
+  });
+
+  it("rejects a Page outside the authorized workspace", async () => {
+    mockFacebookConnection(null);
+
+    await expect(
+      createWorkspacePost(authUser, validCreateInput),
+    ).rejects.toMatchObject({
+      name: "PostServiceError",
+      statusCode: 404,
+      message: "Facebook Page connection not found in this workspace.",
+    });
+
+    expect(mocks.facebookFindOne).toHaveBeenCalledWith({
+      _id: facebookConnectionId,
+      workspaceId,
+    });
+
+    expect(mocks.postCreate).not.toHaveBeenCalled();
+  });
+
+  it.each(["expired", "revoked"])(
+    "rejects a Facebook Page with status %s",
+    async (status) => {
+      mockFacebookConnection({
+        _id: facebookConnectionId,
+        status,
+        tasks: ["CREATE_CONTENT"],
+      });
+
+      await expect(
+        createWorkspacePost(authUser, validCreateInput),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        message: "Facebook Page connection is not active. Reconnect the Page.",
+      });
+
+      expect(mocks.postCreate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a Page without CREATE_CONTENT", async () => {
+    mockFacebookConnection({
+      _id: facebookConnectionId,
+      status: "connected",
+      tasks: ["MANAGE"],
+    });
+
+    await expect(
+      createWorkspacePost(authUser, validCreateInput),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Facebook Page publishing permission is unavailable.",
+    });
+
+    expect(mocks.postCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects Page selection when Facebook is not a platform", async () => {
+    await expect(
+      createWorkspacePost(authUser, {
+        ...validCreateInput,
+        platforms: ["instagram"],
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message:
+        "A Facebook Page can only be selected when Facebook is a publishing platform.",
+    });
+
+    expect(mocks.facebookFindOne).not.toHaveBeenCalled();
+    expect(mocks.postCreate).not.toHaveBeenCalled();
+  });
+
+  it("updates the selected Facebook Page on a draft", async () => {
+    const newConnectionId = "507f1f77bcf86cd799439015";
+
+    mockFacebookConnection({
+      _id: newConnectionId,
+      status: "connected",
+      tasks: ["CREATE_CONTENT"],
+    });
+
+    await updateWorkspaceDraft(authUser, postId, {
+      platformConnections: {
+        facebook: newConnectionId,
+      },
+    });
+
+    expect(mocks.facebookFindOne).toHaveBeenCalledWith({
+      _id: newConnectionId,
+      workspaceId,
+    });
+
+    expect(mocks.postFindOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: postId,
+        workspaceId,
+        status: "draft",
+        __v: 0,
+      }),
+      expect.objectContaining({
+        $set: {
+          "platformConnections.facebook": newConnectionId,
+        },
+        $inc: {
+          __v: 1,
+        },
+      }),
+      expect.objectContaining({
+        new: true,
+        runValidators: true,
+      }),
+    );
+  });
+
+  it("clears Facebook selection when Facebook is removed", async () => {
+    await updateWorkspaceDraft(authUser, postId, {
+      platforms: ["instagram"],
+    });
+
+    expect(mocks.postFindOneAndUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        $set: {
+          platforms: ["instagram"],
+        },
+        $unset: expect.objectContaining({
+          "platformConnections.facebook": "",
+        }),
+        $inc: {
+          __v: 1,
+        },
+      }),
+      expect.anything(),
+    );
+
+    expect(mocks.facebookFindOne).not.toHaveBeenCalled();
+  });
+
+  it("preserves the Facebook Page during unrelated edits", async () => {
+    await updateWorkspaceDraft(authUser, postId, {
+      title: "Updated campaign title",
+    });
+
+    const update = mocks.postFindOneAndUpdate.mock.calls[0]?.[1] as {
+      $set: Record<string, unknown>;
+      $unset?: Record<string, unknown>;
+    };
+
+    expect(update.$set.title).toBe("Updated campaign title");
+
+    expect(update.$set["platformConnections.facebook"]).toBeUndefined();
+
+    expect(update.$unset?.["platformConnections.facebook"]).toBeUndefined();
+
+    expect(mocks.facebookFindOne).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unauthorized workspace before selecting a Page", async () => {
+    mocks.workspaceFindOne.mockReturnValue({
+      select: vi.fn().mockResolvedValue(null),
+    });
+
+    await expect(
+      createWorkspacePost(authUser, validCreateInput),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+    });
+
+    expect(mocks.facebookFindOne).not.toHaveBeenCalled();
+    expect(mocks.postCreate).not.toHaveBeenCalled();
   });
 });

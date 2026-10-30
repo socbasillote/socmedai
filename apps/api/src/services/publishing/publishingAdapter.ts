@@ -14,7 +14,7 @@ export type PublishingInput =
     })
   | (BasePublishingInput & {
       platform: "facebook" | "instagram";
-      connectionId?: never;
+      connectionId?: string;
     });
 
 export type PublishingResult =

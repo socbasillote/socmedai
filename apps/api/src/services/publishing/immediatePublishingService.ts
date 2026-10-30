@@ -1,8 +1,8 @@
 import Post from "../../models/Post.js";
 
 import type { AuthenticatedUser } from "../userProfileService.js";
-import { LinkedInPublishingAdapter } from "./linkedinPublishingAdapter.js";
 import { PublishingOrchestrator } from "./publishingOrchestrator.js";
+import { createPublishingAdapter } from "./publishingAdapterFactory.js";
 
 import {
   authorizePublishing,
@@ -101,9 +101,9 @@ export async function publishImmediatePost(input: ClaimImmediatePostInput) {
   const post = await claimImmediatePost(input);
 
   try {
-    const adapter = new LinkedInPublishingAdapter(input.authUser);
-
-    const orchestrator = new PublishingOrchestrator(adapter);
+    const orchestrator = new PublishingOrchestrator(
+      createPublishingAdapter(input.authUser),
+    );
 
     return await orchestrator.processPost(post);
   } catch (error) {

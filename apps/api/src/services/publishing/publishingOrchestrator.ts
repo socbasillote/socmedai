@@ -21,6 +21,7 @@ export type OrchestratorPost = {
 
   platformConnections?: {
     linkedin?: string | { toString(): string };
+    facebook?: string | { toString(): string };
   };
 };
 export type OrchestrationResult = {
@@ -52,8 +53,15 @@ export class PublishingOrchestrator {
 
       const attemptCount = claimed.attemptCount;
 
-      const connectionId = post.platformConnections?.linkedin
-        ? String(post.platformConnections.linkedin)
+      const selectedConnection =
+        platform === "linkedin"
+          ? post.platformConnections?.linkedin
+          : platform === "facebook"
+            ? post.platformConnections?.facebook
+            : undefined;
+
+      const connectionId = selectedConnection
+        ? String(selectedConnection)
         : undefined;
 
       let result: PublishingResult;
@@ -81,6 +89,11 @@ export class PublishingOrchestrator {
                   postId,
                   workspaceId: String(post.workspaceId),
                   platform,
+
+                  ...(platform === "facebook" && connectionId
+                    ? { connectionId }
+                    : {}),
+
                   caption,
                   mediaIds,
                 };

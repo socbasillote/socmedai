@@ -72,6 +72,11 @@ const postSchema = new Schema(
         ref: "LinkedInConnection",
         default: undefined,
       },
+
+      facebook: {
+        type: Schema.Types.ObjectId,
+        ref: "FacebookConnection",
+      },
     },
     status: {
       type: String,

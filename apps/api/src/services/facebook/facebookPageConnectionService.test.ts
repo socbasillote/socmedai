@@ -952,6 +952,7 @@ describe("Facebook Page connection persistence", () => {
       facebookUserId: "facebook-user-123",
       pageName: "Storm Official",
       pageAccessTokenEncrypted: "new-encrypted-facebook-page-token",
+      tasks: ["CREATE_CONTENT", "MANAGE"],
       status: "connected",
     });
   });
@@ -965,9 +966,12 @@ describe("Facebook Page connection persistence", () => {
       scopes: [],
     });
 
+    // OAuth scopes and Page tasks are separate concepts.
+    // We do not overwrite scopes using Page tasks.
     expect(update.$set.scopes).toBeUndefined();
 
-    expect(update.$set.tasks).toBeUndefined();
+    // Page-level tasks must be saved for publishing authorization.
+    expect(update.$set.tasks).toEqual(["CREATE_CONTENT", "MANAGE"]);
   });
 
   it("uses upsert to support new connections and reconnections", async () => {

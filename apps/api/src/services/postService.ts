@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 import Post from "../models/Post.js";
+import FacebookConnection from "../models/FacebookConnection.js";
 import UserProfile from "../models/UserProfile.js";
 import Workspace from "../models/Workspace.js";
 import type { AuthenticatedUser } from "./userProfileService.js";
@@ -81,6 +82,68 @@ async function validatePostLinkedInSelection(
   }
 }
 
+async function validatePostFacebookSelection(
+  workspaceId: string,
+  platforms: readonly string[],
+  connectionId?: string,
+): Promise<string | undefined> {
+  // No automatic Page selection.
+  if (connectionId === undefined) {
+    return undefined;
+  }
+
+  // A Page can only be selected for Facebook posts.
+  if (!platforms.includes("facebook")) {
+    throw new PostServiceError(
+      "A Facebook Page can only be selected when Facebook is a publishing platform.",
+      400,
+    );
+  }
+
+  // Validate both identifiers.
+  if (
+    !mongoose.isObjectIdOrHexString(workspaceId) ||
+    !mongoose.isObjectIdOrHexString(connectionId)
+  ) {
+    throw new PostServiceError("A valid Facebook connection is required.", 400);
+  }
+
+  // The workspace must already be authorized by the caller.
+  // Never query the connection by its ID alone.
+  const connection = await FacebookConnection.findOne({
+    _id: connectionId,
+    workspaceId,
+  })
+    .select("_id status tasks")
+    .lean();
+
+  if (!connection) {
+    throw new PostServiceError(
+      "Facebook Page connection not found in this workspace.",
+      404,
+    );
+  }
+
+  if (connection.status !== "connected") {
+    throw new PostServiceError(
+      "Facebook Page connection is not active. Reconnect the Page.",
+      409,
+    );
+  }
+
+  if (
+    !Array.isArray(connection.tasks) ||
+    !connection.tasks.includes("CREATE_CONTENT")
+  ) {
+    throw new PostServiceError(
+      "Facebook Page publishing permission is unavailable.",
+      403,
+    );
+  }
+
+  return String(connection._id);
+}
+
 export async function createWorkspacePost(
   authUser: AuthenticatedUser,
   input: CreatePostInput,
@@ -104,6 +167,12 @@ export async function createWorkspacePost(
     input.platformConnections?.linkedin,
   );
 
+  const facebookConnectionId = await validatePostFacebookSelection(
+    String(authorization.workspace._id),
+    input.platforms,
+    input.platformConnections?.facebook,
+  );
+
   const post = await Post.create({
     workspaceId: authorization.workspace._id,
     createdByUserId: authorization.profile._id,
@@ -114,10 +183,12 @@ export async function createWorkspacePost(
     mediaIds: [],
     platforms: input.platforms,
 
-    ...(linkedinConnectionId
+    ...(linkedinConnectionId || facebookConnectionId
       ? {
           platformConnections: {
-            linkedin: linkedinConnectionId,
+            ...(linkedinConnectionId ? { linkedin: linkedinConnectionId } : {}),
+
+            ...(facebookConnectionId ? { facebook: facebookConnectionId } : {}),
           },
         }
       : {}),
@@ -398,6 +469,16 @@ export async function updateWorkspaceDraft(
 
   const linkedinIsSelected = finalPlatforms.includes("linkedin");
 
+  const facebookIsSelected = finalPlatforms.includes("facebook");
+
+  const requestedFacebookConnection = input.platformConnections?.facebook;
+
+  const validatedFacebookConnection = await validatePostFacebookSelection(
+    String(workspace._id),
+    finalPlatforms,
+    requestedFacebookConnection,
+  );
+
   const requestedLinkedInConnection = input.platformConnections?.linkedin;
 
   if (requestedLinkedInConnection && !linkedinIsSelected) {
@@ -422,6 +503,7 @@ export async function updateWorkspaceDraft(
     caption?: string;
     platforms?: UpdateDraftPostInput["platforms"];
     "platformConnections.linkedin"?: string;
+    "platformConnections.facebook"?: string;
   } = {};
 
   const unset: Record<string, ""> = {};
@@ -442,6 +524,12 @@ export async function updateWorkspaceDraft(
     unset["platformConnections.linkedin"] = "";
   } else if (validatedLinkedInConnection) {
     update["platformConnections.linkedin"] = validatedLinkedInConnection;
+  }
+
+  if (!facebookIsSelected) {
+    unset["platformConnections.facebook"] = "";
+  } else if (validatedFacebookConnection) {
+    update["platformConnections.facebook"] = validatedFacebookConnection;
   }
 
   const mongoUpdate: {

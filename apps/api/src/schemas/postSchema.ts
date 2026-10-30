@@ -4,6 +4,13 @@ import { POST_PLATFORMS } from "../models/Post.js";
 
 const platformConnectionsSchema = z
   .object({
+    facebook: z
+      .string()
+      .regex(/^[a-fA-F0-9]{24}$/, {
+        message: "A valid Facebook connection ID is required.",
+      })
+      .optional(),
+
     linkedin: z
       .string()
       .regex(/^[a-f\d]{24}$/i, {

@@ -492,6 +492,7 @@ export async function persistFacebookPageConnection({
         facebookUserId,
         pageName: page.pageName,
         pageAccessTokenEncrypted,
+        tasks: [...page.tasks],
         status: "connected",
       },
       $setOnInsert: {

@@ -49,6 +49,23 @@ const facebookConnectionSchema = new Schema(
       default: [],
     },
 
+    /**
+     * Facebook Page-level tasks returned by
+     * the Meta Graph API.
+     *
+     * Examples:
+     * - CREATE_CONTENT
+     * - MANAGE
+     * - MODERATE
+     *
+     * Required by the publishing authorization
+     * service to verify Page publishing access.
+     */
+    tasks: {
+      type: [String],
+      default: [],
+    },
+
     status: {
       type: String,
       enum: ["connected", "expired", "revoked"],
