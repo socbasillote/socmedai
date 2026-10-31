@@ -3,6 +3,7 @@ import Post from "../../models/Post.js";
 import type { AuthenticatedUser } from "../userProfileService.js";
 import { PublishingOrchestrator } from "./publishingOrchestrator.js";
 import { createPublishingAdapter } from "./publishingAdapterFactory.js";
+import { FacebookPublishingAdapter } from "./facebookPublishingAdapter.js";
 
 import {
   authorizePublishing,
@@ -25,6 +26,8 @@ type ClaimImmediatePostInput = {
   postId: string;
 };
 
+type ImmediatePlatform = "facebook" | "linkedin";
+
 export async function claimImmediatePost({
   authUser,
   workspaceId,
@@ -46,25 +49,56 @@ export async function claimImmediatePost({
 
   const now = new Date();
 
+  // An atomic claim ensures that the same draft cannot be
+  // claimed twice for immediate publishing.
   const post = await Post.findOneAndUpdate(
     {
       _id: postId,
       workspaceId,
       status: "draft",
-      platforms: ["linkedin"],
-      "platformConnections.linkedin": { $exists: true, $ne: null },
-      mediaIds: { $size: 0 },
+
+      // Exactly one supported platform must be selected.
       $or: [
-        { platformResults: { $size: 0 } },
         {
-          platformResults: {
-            $elemMatch: {
-              platform: "linkedin",
-              status: "pending",
-            },
+          platforms: ["linkedin"],
+          "platformConnections.linkedin": {
+            $exists: true,
+            $ne: null,
           },
+          $or: [
+            { platformResults: { $size: 0 } },
+            {
+              platformResults: {
+                $elemMatch: {
+                  platform: "linkedin",
+                  status: "pending",
+                },
+              },
+            },
+          ],
+        },
+        {
+          platforms: ["facebook"],
+          "platformConnections.facebook": {
+            $exists: true,
+            $ne: null,
+          },
+          $or: [
+            { platformResults: { $size: 0 } },
+            {
+              platformResults: {
+                $elemMatch: {
+                  platform: "facebook",
+                  status: "pending",
+                },
+              },
+            },
+          ],
         },
       ],
+
+      // Immediate publishing remains text-only.
+      mediaIds: { $size: 0 },
     },
     {
       $set: {
@@ -76,7 +110,7 @@ export async function claimImmediatePost({
       },
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     },
   )
@@ -87,9 +121,9 @@ export async function claimImmediatePost({
 
   if (!post) {
     throw new ImmediatePublishingError(
-      "This post is not eligible for immediate LinkedIn publishing. " +
-        "It must be a LinkedIn-only text draft with a selected LinkedIn account " +
-        "and no previous publishing attempt.",
+      "This post is not eligible for immediate publishing. " +
+        "It must be a Facebook-only or LinkedIn-only text draft " +
+        "with a selected publishing connection and no previous publishing attempt.",
       409,
     );
   }
@@ -100,17 +134,26 @@ export async function claimImmediatePost({
 export async function publishImmediatePost(input: ClaimImmediatePostInput) {
   const post = await claimImmediatePost(input);
 
+  const platform = post.platforms[0] as ImmediatePlatform;
+
+  const platformLabel = platform === "facebook" ? "Facebook" : "LinkedIn";
+
   try {
     const orchestrator = new PublishingOrchestrator(
-      createPublishingAdapter(input.authUser),
+      createPublishingAdapter(input.authUser, {
+        facebook: {
+          enabled: process.env.FACEBOOK_PUBLISHING_ENABLED === "true",
+          adapter: new FacebookPublishingAdapter(input.authUser, fetch),
+        },
+      }),
     );
 
     return await orchestrator.processPost(post);
   } catch (error) {
     const message =
       "Publishing execution was interrupted. " +
-      "The LinkedIn publishing outcome may be unknown. " +
-      "Check LinkedIn before attempting to publish again.";
+      `The ${platformLabel} publishing outcome may be unknown. ` +
+      `Check ${platformLabel} before attempting to publish again.`;
 
     try {
       await Post.updateOne(

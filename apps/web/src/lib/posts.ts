@@ -33,6 +33,11 @@ export type Post = {
 
   platformResults?: PostPlatformResult[];
 
+  platformConnections?: {
+    facebook?: string;
+    linkedin?: string;
+  };
+
   createdAt: string;
   updatedAt: string;
 };
@@ -45,6 +50,7 @@ export type CreatePostInput = {
   platforms: PostPlatform[];
   scheduledAt?: string;
   platformConnections?: {
+    facebook?: string;
     linkedin?: string;
   };
 };
@@ -54,6 +60,7 @@ export type UpdateDraftPostInput = {
   caption?: string;
   platforms?: PostPlatform[];
   platformConnections?: {
+    facebook?: string;
     linkedin?: string;
   };
 };

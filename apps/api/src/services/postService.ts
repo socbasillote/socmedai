@@ -353,7 +353,7 @@ export async function getWorkspacePostById(
     workspaceId: authorization.workspace._id,
   })
     .select(
-      "_id workspaceId createdByUserId title caption mediaIds platforms status scheduledAt publishedAt lastError createdAt updatedAt",
+      "_id workspaceId createdByUserId title caption mediaIds platforms platformConnections status scheduledAt publishedAt lastError createdAt updatedAt",
     )
     .lean();
 

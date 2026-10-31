@@ -5,6 +5,10 @@ import { PostEditorPage } from "@/components/PostEditorPage";
 import { PostEditorForm } from "@/components/PostEditorForm";
 import { PostPreview } from "@/components/PostPreview";
 
+import type { FacebookPageConnectionOption } from "@/components/FacebookPageConnectionSelect";
+
+import { getFacebookPageConnections } from "@/lib/facebookConnections";
+
 import { useWorkspaces } from "@/hooks/useWorkspaces";
 import { useLinkedInConnection } from "@/hooks/useLinkedInConnection";
 
@@ -46,6 +50,20 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     connectionId: linkedInConnectionId,
     statusError: linkedInStatusError,
   } = useLinkedInConnection(selectedWorkspaceId, () => {});
+
+  const [facebookConnections, setFacebookConnections] = useState<
+    FacebookPageConnectionOption[]
+  >([]);
+
+  const [selectedFacebookConnectionId, setSelectedFacebookConnectionId] =
+    useState<string | null>(null);
+
+  const [facebookConnectionsLoading, setFacebookConnectionsLoading] =
+    useState(false);
+
+  const [facebookConnectionsError, setFacebookConnectionsError] = useState<
+    string | null
+  >(null);
 
   // Editor content
   const [title, setTitle] = useState("");
@@ -117,6 +135,9 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         setTitle(post.title ?? "");
         setCaption(post.caption);
         setSelectedPlatforms(post.platforms);
+        setSelectedFacebookConnectionId(
+          post.platformConnections?.facebook ?? null,
+        );
 
         // Track whether the existing draft contains media.
         // Immediate LinkedIn publishing currently supports text-only posts.
@@ -147,6 +168,50 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     };
   }, [mode, postId]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    setFacebookConnections([]);
+    setFacebookConnectionsError(null);
+
+    if (!selectedWorkspaceId) {
+      setFacebookConnectionsLoading(false);
+      return;
+    }
+
+    setFacebookConnectionsLoading(true);
+
+    async function loadConnections() {
+      try {
+        const connections = await getFacebookPageConnections(
+          selectedWorkspaceId!,
+        );
+
+        if (!cancelled) {
+          setFacebookConnections(connections);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setFacebookConnectionsError(
+            err instanceof Error
+              ? err.message
+              : "Unable to load Facebook Pages.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setFacebookConnectionsLoading(false);
+        }
+      }
+    }
+
+    void loadConnections();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWorkspaceId]);
+
   async function handleSave() {
     if (saving || showPublishConfirmation) {
       return;
@@ -168,6 +233,26 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     if (selectedPlatforms.length === 0) {
       setError("Select at least one publishing platform.");
       return;
+    }
+
+    if (selectedPlatforms.includes("facebook")) {
+      const validSelection = facebookConnections.some(
+        (connection) =>
+          connection.id === selectedFacebookConnectionId &&
+          connection.status === "connected" &&
+          connection.canPublish,
+      );
+
+      if (
+        facebookConnectionsLoading ||
+        facebookConnectionsError ||
+        !validSelection
+      ) {
+        setError(
+          "Select a connected Facebook Page with publishing permission.",
+        );
+        return;
+      }
     }
 
     if (mode === "create") {
@@ -228,9 +313,16 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           caption: trimmedCaption,
           platforms: selectedPlatforms,
           scheduledAt: scheduledAtIso,
-          platformConnections: selectedPlatforms.includes("linkedin")
-            ? { linkedin: linkedInConnectionId }
-            : undefined,
+          platformConnections: {
+            ...(selectedPlatforms.includes("linkedin") && linkedInConnectionId
+              ? { linkedin: linkedInConnectionId }
+              : {}),
+
+            ...(selectedPlatforms.includes("facebook") &&
+            selectedFacebookConnectionId
+              ? { facebook: selectedFacebookConnectionId }
+              : {}),
+          },
         });
 
         navigate("/posts");
@@ -266,6 +358,15 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         title: trimmedTitle,
         caption: trimmedCaption,
         platforms: selectedPlatforms,
+
+        ...(selectedPlatforms.includes("facebook") &&
+        selectedFacebookConnectionId
+          ? {
+              platformConnections: {
+                facebook: selectedFacebookConnectionId,
+              },
+            }
+          : {}),
       });
 
       navigate("/posts");
@@ -283,43 +384,65 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       return;
     }
 
-    // Never submit another publishing attempt for a draft
-    // already created by this workflow.
     if (savedPublishingPostId) {
       setShowPublishConfirmation(false);
-
       setPublishingOutcome("unknown");
-
       setPublishingMessage(
         "A publishing attempt has already been started for this post. " +
-          "Open your Posts page and check LinkedIn before taking further action.",
+          "Check your Posts page and selected social account before retrying.",
       );
-
       return;
     }
 
-    // Revalidate the publishing requirements at confirmation time.
+    const platform = selectedPlatforms[0];
+
+    const validFacebookConnection = facebookConnections.some(
+      (connection) =>
+        connection.id === selectedFacebookConnectionId &&
+        connection.status === "connected" &&
+        connection.canPublish,
+    );
+
+    const connectionId =
+      platform === "facebook"
+        ? selectedFacebookConnectionId
+        : platform === "linkedin"
+          ? linkedInConnectionId
+          : null;
+
+    const validConnection =
+      platform === "facebook"
+        ? !facebookConnectionsLoading &&
+          !facebookConnectionsError &&
+          validFacebookConnection
+        : platform === "linkedin"
+          ? linkedInStatus === "connected" && Boolean(linkedInConnectionId)
+          : false;
+
     if (
       (mode === "edit" && (!postId || existingDraftHasMedia)) ||
       !selectedWorkspace ||
       !caption.trim() ||
       selectedPlatforms.length !== 1 ||
-      selectedPlatforms[0] !== "linkedin" ||
-      linkedInStatus !== "connected" ||
-      !linkedInConnectionId
+      !validConnection ||
+      !connectionId
     ) {
       setShowPublishConfirmation(false);
-
       setError(
         "Publishing requirements changed. Review your workspace, " +
-          "caption, selected platform, and LinkedIn connection.",
+          "caption, selected platform, and publishing connection.",
       );
-
       return;
     }
 
-    // Synchronous lock prevents repeated clicks before React
-    // has rendered the disabled button.
+    const publishingPlatform = platform as "facebook" | "linkedin";
+    const platformLabel =
+      publishingPlatform === "facebook" ? "Facebook" : "LinkedIn";
+
+    const platformConnections = {
+      [publishingPlatform]: connectionId,
+    };
+
     publishingLockRef.current = true;
 
     setPublishing(true);
@@ -332,141 +455,103 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     let publishRequestStarted = false;
 
     try {
-      // Phase 1: Save the post before publishing.
       let targetPostId: string;
 
       if (mode === "edit") {
-        if (!postId) {
-          throw new Error("Post ID is missing.");
-        }
-
-        if (!linkedInConnectionId) {
-          throw new Error("A connected LinkedIn account is required.");
-        }
-
-        // Update the original draft and associate the selected
-        // LinkedIn account before publishing.
-        await updateDraftPost(postId, {
+        await updateDraftPost(postId!, {
           title: title.trim(),
           caption: caption.trim(),
-          platforms: ["linkedin"],
-          platformConnections: {
-            linkedin: linkedInConnectionId,
-          },
+          platforms: [publishingPlatform],
+          platformConnections,
         });
 
-        targetPostId = postId;
+        targetPostId = postId!;
         savedPostId = targetPostId;
       } else {
-        // New posts must first be persisted as drafts.
         const draft = await createPost({
           workspaceId: selectedWorkspace._id,
           title: title.trim(),
           caption: caption.trim(),
-          platforms: ["linkedin"],
+          platforms: [publishingPlatform],
           mediaIds: [],
-          platformConnections: {
-            linkedin: linkedInConnectionId,
-          },
+          platformConnections,
         });
 
         targetPostId = draft._id;
         savedPostId = targetPostId;
       }
 
-      // Prevent another attempt for this saved post.
       setSavedPublishingPostId(targetPostId);
 
-      // Phase 2: Submit the saved draft for real publishing.
       publishRequestStarted = true;
 
       const response = await publishPostNow(targetPostId);
 
-      const linkedInResult = response.result.results.find(
-        (result) => result.platform === "linkedin",
+      const platformResult = response.result.results.find(
+        (result) => result.platform === publishingPlatform,
       );
 
       const confirmedPublished =
-        linkedInResult?.outcome === "published" &&
+        platformResult?.outcome === "published" &&
         response.post.status === "published";
 
       if (confirmedPublished) {
         setPublishingOutcome("published");
-
         setPublishingMessage(
-          "Your post was successfully published to LinkedIn.",
+          `Your post was successfully published to ${platformLabel}.`,
         );
-
         setShowPublishConfirmation(false);
-
         return;
       }
 
-      if (
-        linkedInResult?.outcome === "failed" &&
-        response.post.status === "failed"
-      ) {
+      const confirmedFailed =
+        platformResult?.outcome === "failed" &&
+        response.post.status === "failed";
+
+      if (confirmedFailed) {
         setPublishingOutcome("failed");
-
         setPublishingMessage(
-          linkedInResult.message ||
+          platformResult.message ||
             response.post.lastError ||
-            "LinkedIn publishing failed. Your post was saved in Storm.",
+            `${platformLabel} publishing failed. Your post was saved in Storm.`,
         );
-
         setShowPublishConfirmation(false);
-
         return;
       }
 
-      // A response that is neither definitively published nor
-      // definitively failed must be treated conservatively.
       setPublishingOutcome("unknown");
-
       setPublishingMessage(
-        "Storm could not confirm whether LinkedIn published this post. " +
-          "Check your LinkedIn account before taking further action.",
+        `Storm could not confirm whether ${platformLabel} published this post. ` +
+          `Check your ${platformLabel} account and Posts page before taking further action.`,
       );
-
       setShowPublishConfirmation(false);
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "An unexpected error occurred.";
 
       if (publishRequestStarted) {
-        // A network timeout or lost response does not prove that
-        // LinkedIn rejected the post.
         setPublishingOutcome("unknown");
-
         setPublishingMessage(
-          "Storm could not confirm the publishing outcome. " +
-            "Check LinkedIn and your Posts page before taking further action. " +
+          `Storm could not confirm the ${platformLabel} publishing outcome. ` +
+            `Check your ${platformLabel} account and Posts page before retrying. ` +
             errorMessage,
         );
       } else if (savedPostId) {
-        // The draft exists, but the publishing request was not sent.
         setPublishingOutcome("failed");
-
         setPublishingMessage(
           "The publishing request was not started. " +
-            "Your existing or newly saved draft remains in Storm. " +
+            "Your saved draft remains in Storm. " +
             errorMessage,
         );
       } else {
-        // The draft save request did not complete successfully.
-        // For existing drafts, a lost response may mean the
-        // update succeeded even though the client cannot confirm it.
         setPublishingOutcome("failed");
-
         setPublishingMessage(
           mode === "edit"
             ? "Storm could not confirm that your draft changes were saved. " +
-                "No LinkedIn publishing request was started by this workflow. " +
-                "Check your draft in Posts before trying again. " +
+                "No publishing request was started. Check Posts before retrying. " +
                 errorMessage
             : "Storm could not confirm that your draft was created. " +
-                "No LinkedIn publishing request was started by this workflow. " +
-                "Check your Posts page before trying again. " +
+                "No publishing request was started. Check Posts before retrying. " +
                 errorMessage,
         );
       }
@@ -476,10 +561,6 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       setPublishing(false);
       setSaving(false);
 
-      // Intentionally retain the lock after the publishing request
-      // begins, even if the outcome is unknown.
-      //
-      // This prevents another submission from this editor session.
       if (!publishRequestStarted && !savedPostId) {
         publishingLockRef.current = false;
       }
@@ -500,13 +581,11 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
             "Check your Posts page before taking further action.",
         );
       }
-
       return;
     }
 
     setError("");
 
-    // Existing drafts must have a valid post ID.
     if (mode === "edit" && !postId) {
       setError("Post ID is missing.");
       return;
@@ -514,10 +593,9 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
     if (mode === "edit" && existingDraftHasMedia) {
       setError(
-        "This draft contains media. Publish Now currently supports " +
-          "LinkedIn text-only posts. Remove the media before publishing.",
+        "Publish Now currently supports text-only posts. " +
+          "Remove the media before publishing.",
       );
-
       return;
     }
 
@@ -536,17 +614,41 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       return;
     }
 
-    if (selectedPlatforms.length !== 1 || selectedPlatforms[0] !== "linkedin") {
-      setError("Publish Now currently supports LinkedIn only.");
+    if (selectedPlatforms.length !== 1) {
+      setError("Select exactly one platform for Publish Now.");
       return;
     }
 
-    if (linkedInStatus !== "connected" || !linkedInConnectionId) {
-      setError("Connect a LinkedIn account before publishing.");
+    const platform = selectedPlatforms[0];
+
+    if (platform === "linkedin") {
+      if (linkedInStatus !== "connected" || !linkedInConnectionId) {
+        setError("Connect a LinkedIn account before publishing.");
+        return;
+      }
+    } else if (platform === "facebook") {
+      const validSelection = facebookConnections.some(
+        (connection) =>
+          connection.id === selectedFacebookConnectionId &&
+          connection.status === "connected" &&
+          connection.canPublish,
+      );
+
+      if (
+        facebookConnectionsLoading ||
+        facebookConnectionsError ||
+        !validSelection
+      ) {
+        setError(
+          "Select a connected Facebook Page with publishing permission.",
+        );
+        return;
+      }
+    } else {
+      setError("Publish Now does not support this platform yet.");
       return;
     }
 
-    // Both new posts and existing drafts can now enter review.
     setShowPublishConfirmation(true);
   }
 
@@ -557,6 +659,18 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
     navigate("/posts");
   }
+
+  const publishingPlatformLabel =
+    selectedPlatforms[0] === "facebook" ? "Facebook" : "LinkedIn";
+
+  const selectedFacebookPage = facebookConnections.find(
+    (connection) => connection.id === selectedFacebookConnectionId,
+  );
+
+  const publishingAccountName =
+    selectedPlatforms[0] === "facebook"
+      ? selectedFacebookPage?.pageName || "Connected Facebook Page"
+      : linkedInDisplayName || "Connected LinkedIn account";
 
   const editorContent = loadingPost ? (
     <div
@@ -617,6 +731,23 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       }}
       onScheduledAtChange={(value) => {
         setScheduledAt(value);
+        setError("");
+      }}
+      facebookConnections={facebookConnections}
+      selectedFacebookConnectionId={
+        facebookConnections.some(
+          (connection) =>
+            connection.id === selectedFacebookConnectionId &&
+            connection.canPublish &&
+            connection.status === "connected",
+        )
+          ? selectedFacebookConnectionId
+          : null
+      }
+      facebookConnectionsLoading={facebookConnectionsLoading}
+      facebookConnectionsError={facebookConnectionsError}
+      onFacebookConnectionChange={(connectionId) => {
+        setSelectedFacebookConnectionId(connectionId);
         setError("");
       }}
       onSave={handleSave}
@@ -689,7 +820,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
                 <div>
                   <p className="text-sm font-semibold text-violet-900">
-                    Publishing to LinkedIn...
+                    Publishing to {publishingPlatformLabel}...
                   </p>
 
                   <p className="mt-1 text-xs text-violet-700">
@@ -753,15 +884,15 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
               id="publish-confirmation-title"
               className="text-xl font-bold text-slate-900"
             >
-              Publish to LinkedIn?
+              Publish to {publishingPlatformLabel}?
             </h2>
 
             <p
               id="publish-confirmation-description"
               className="mt-3 text-sm leading-6 text-slate-600"
             >
-              This will immediately publish your post to your connected LinkedIn
-              account.
+              This will immediately publish your post to your selected{" "}
+              {publishingPlatformLabel} destination.
             </p>
 
             <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -783,8 +914,9 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
             </div>
 
             <p className="mt-4 text-xs leading-5 text-amber-700">
-              Once published, this post may be visible to other LinkedIn users.
-              Publishing cannot be undone from Storm.
+              Once published, this post may be visible to other{" "}
+              {publishingPlatformLabel} users. Publishing cannot be undone from
+              Storm.
             </p>
 
             <div className="mt-6 flex justify-end gap-3">

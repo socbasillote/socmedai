@@ -3,6 +3,11 @@ import { ImagePlus, Video } from "lucide-react";
 
 import type { PostPlatform } from "@/lib/posts";
 
+import {
+  FacebookPageConnectionSelect,
+  type FacebookPageConnectionOption,
+} from "@/components/FacebookPageConnectionSelect";
+
 type PostMode = "draft" | "scheduled" | "immediate";
 
 type PostEditorFormProps = {
@@ -22,6 +27,12 @@ type PostEditorFormProps = {
   linkedInConnectionId: string | null;
   linkedInDisplayName: string | null;
   linkedInStatus: string;
+
+  facebookConnections: FacebookPageConnectionOption[];
+  selectedFacebookConnectionId: string | null;
+  facebookConnectionsLoading: boolean;
+  facebookConnectionsError: string | null;
+  onFacebookConnectionChange: (connectionId: string | null) => void;
 
   onTitleChange: (value: string) => void;
   onCaptionChange: (value: string) => void;
@@ -59,6 +70,11 @@ export function PostEditorForm({
   linkedInConnectionId,
   linkedInDisplayName,
   linkedInStatus,
+  facebookConnections,
+  selectedFacebookConnectionId,
+  facebookConnectionsLoading,
+  facebookConnectionsError,
+  onFacebookConnectionChange,
   onTitleChange,
   onCaptionChange,
   onPlatformsChange,
@@ -174,6 +190,25 @@ export function PostEditorForm({
           ))}
         </div>
       </fieldset>
+
+      {/* Facebook Page selection */}
+      {selectedPlatforms.includes("facebook") && (
+        <section className="rounded-xl border border-slate-200 p-4">
+          <FacebookPageConnectionSelect
+            connections={facebookConnections}
+            selectedConnectionId={selectedFacebookConnectionId}
+            loading={facebookConnectionsLoading}
+            disabled={saving || locked}
+            error={facebookConnectionsError}
+            onChange={onFacebookConnectionChange}
+          />
+
+          <p className="mt-3 text-xs text-slate-500">
+            Facebook publishing is not enabled yet. You can select a Page and
+            save this post as a draft.
+          </p>
+        </section>
+      )}
 
       {/* LinkedIn connection */}
       {selectedPlatforms.includes("linkedin") && (

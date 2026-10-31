@@ -141,12 +141,14 @@ describe("getFacebookConnectionsController", () => {
         facebookPageId: "123456789",
         pageName: "Storm Business",
         status: "connected" as const,
+        canPublish: true,
       },
       {
         id: "507f1f77bcf86cd799439014",
         facebookPageId: "987654321",
         pageName: "Storm Community",
         status: "expired" as const,
+        canPublish: false,
       },
     ];
 

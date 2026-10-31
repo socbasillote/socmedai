@@ -66,12 +66,18 @@ export class PublishingOrchestrator {
 
       let result: PublishingResult;
 
-      if (platform === "linkedin" && !connectionId) {
+      if (
+        (platform === "linkedin" || platform === "facebook") &&
+        !connectionId
+      ) {
         result = {
           outcome: "failed",
           postId,
           platform,
-          message: "No LinkedIn account was selected for this post.",
+          message:
+            platform === "facebook"
+              ? "No Facebook Page was selected for this post."
+              : "No LinkedIn account was selected for this post.",
         };
       } else {
         try {

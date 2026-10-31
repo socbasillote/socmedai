@@ -160,10 +160,7 @@ export class FacebookPublishingAdapter implements PublishingAdapter {
     // it must match the connection persisted on the post.
     //
     // The persisted post remains the source of truth.
-    if (
-      input.connectionId !== undefined &&
-      input.connectionId !== connectionId
-    ) {
+    if (!input.connectionId || input.connectionId !== connectionId) {
       return failed("The selected Facebook Page does not match this post.");
     }
 

@@ -144,7 +144,7 @@ describe("listFacebookConnections", () => {
     await listFacebookConnections(AUTH_USER, WORKSPACE_ID);
 
     expect(mocks.select).toHaveBeenCalledWith(
-      "_id facebookPageId pageName status",
+      "_id facebookPageId pageName status tasks",
     );
 
     expect(mocks.sort).toHaveBeenCalledWith({
@@ -166,6 +166,7 @@ describe("listFacebookConnections", () => {
         facebookPageId: "123456789",
         pageName: "Storm Business",
         status: "connected",
+        tasks: ["CREATE_CONTENT", "MANAGE"],
 
         // Simulated sensitive fields.
         // These must never appear in the response.
@@ -178,6 +179,7 @@ describe("listFacebookConnections", () => {
         facebookPageId: "987654321",
         pageName: "Storm Community",
         status: "expired",
+        tasks: ["CREATE_CONTENT"],
       },
     ]);
 
@@ -189,12 +191,14 @@ describe("listFacebookConnections", () => {
         facebookPageId: "123456789",
         pageName: "Storm Business",
         status: "connected",
+        canPublish: true,
       },
       {
         id: "507f1f77bcf86cd799439014",
         facebookPageId: "987654321",
         pageName: "Storm Community",
         status: "expired",
+        canPublish: false,
       },
     ]);
 
@@ -207,6 +211,26 @@ describe("listFacebookConnections", () => {
     expect(serialized).not.toContain("facebookUserId");
 
     expect(serialized).not.toContain("private-user-id");
+  });
+
+  it.each([
+    { status: "connected", tasks: ["MANAGE"] },
+    { status: "connected", tasks: [] },
+    { status: "connected", tasks: undefined },
+    { status: "revoked", tasks: ["CREATE_CONTENT"] },
+  ])("denies publishing for an ineligible connection: %j", async (eligibility) => {
+    mocks.lean.mockResolvedValue([
+      {
+        _id: "507f1f77bcf86cd799439013",
+        facebookPageId: "123456789",
+        pageName: "Storm Business",
+        ...eligibility,
+      },
+    ]);
+
+    const connections = await listFacebookConnections(AUTH_USER, WORKSPACE_ID);
+
+    expect(connections[0]?.canPublish).toBe(false);
   });
 
   /**

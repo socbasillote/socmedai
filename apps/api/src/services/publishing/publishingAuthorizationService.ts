@@ -28,20 +28,24 @@ export async function authorizePublishing({
   workspaceId,
   postId,
 }: AuthorizePublishingInput): Promise<void> {
-  if (!authUser.id.trim()) {
+  // 1. Verify authentication.
+  if (!authUser || typeof authUser.id !== "string" || !authUser.id.trim()) {
     throw new PublishingAuthorizationError("Authentication is required.", 401);
   }
 
+  // 2. Validate identifiers.
   if (!isValidWorkspaceId(workspaceId) || !isValidWorkspaceId(postId)) {
     throw new PublishingAuthorizationError("Post or workspace not found.", 404);
   }
 
+  // 3. Verify workspace access.
   const workspace = await getUserWorkspaceById(authUser, workspaceId);
 
   if (!workspace) {
     throw new PublishingAuthorizationError("Workspace not found.", 404);
   }
 
+  // 4. Load the post from the authorized workspace.
   const post = await Post.findOne({
     _id: postId,
     workspaceId: workspace._id,
@@ -56,9 +60,20 @@ export async function authorizePublishing({
     );
   }
 
-  if (!post.platforms.includes("linkedin")) {
+  // 5. Immediate publishing supports exactly one platform.
+  if (!Array.isArray(post.platforms) || post.platforms.length !== 1) {
     throw new PublishingAuthorizationError(
-      "This post is not configured for LinkedIn publishing.",
+      "Immediate publishing requires exactly one platform.",
+      409,
+    );
+  }
+
+  // 6. Allow Facebook and LinkedIn only.
+  const platform = post.platforms[0];
+
+  if (platform !== "facebook" && platform !== "linkedin") {
+    throw new PublishingAuthorizationError(
+      "Immediate publishing supports Facebook and LinkedIn only.",
       409,
     );
   }

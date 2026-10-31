@@ -22,6 +22,7 @@ export type FacebookConnectionSummary = {
   facebookPageId: string;
   pageName: string;
   status: "connected" | "expired" | "revoked";
+  canPublish: boolean;
 };
 
 /**
@@ -56,7 +57,7 @@ export async function listFacebookConnections(
   const connections = await FacebookConnection.find({
     workspaceId,
   })
-    .select("_id facebookPageId pageName status")
+    .select("_id facebookPageId pageName status tasks")
     .sort({ pageName: 1 })
     .lean();
 
@@ -66,5 +67,9 @@ export async function listFacebookConnections(
     facebookPageId: connection.facebookPageId,
     pageName: connection.pageName,
     status: connection.status,
+    canPublish:
+      connection.status === "connected" &&
+      Array.isArray(connection.tasks) &&
+      connection.tasks.includes("CREATE_CONTENT"),
   }));
 }
