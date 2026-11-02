@@ -96,6 +96,19 @@ const postSchema = new Schema(
       default: 0,
       min: 0,
     },
+
+    scheduledClaimId: {
+      type: String,
+      default: null,
+      select: false,
+    },
+
+    scheduledLeaseExpiresAt: {
+      type: Date,
+      default: null,
+      select: false,
+    },
+
     lastError: {
       type: String,
       maxlength: 2000,

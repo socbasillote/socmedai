@@ -10,6 +10,8 @@ import type {
   PublishingResult,
 } from "./publishingAdapter.js";
 
+import type { ScheduledClaimContext } from "./platformResultService.js";
+
 import { reconcilePostStatus } from "./postStatusReconciliationService.js";
 
 export type OrchestratorPost = {
@@ -23,6 +25,8 @@ export type OrchestratorPost = {
     linkedin?: string | { toString(): string };
     facebook?: string | { toString(): string };
   };
+  scheduledClaimId?: string | null;
+  scheduledLeaseExpiresAt?: Date | null;
 };
 export type OrchestrationResult = {
   postId: string;
@@ -32,20 +36,41 @@ export type OrchestrationResult = {
 export class PublishingOrchestrator {
   constructor(private readonly adapter: PublishingAdapter) {}
 
-  async processPost(post: OrchestratorPost): Promise<OrchestrationResult> {
+  async processPost(
+    post: OrchestratorPost,
+    claimContext?: ScheduledClaimContext,
+  ): Promise<OrchestrationResult> {
     const postId = String(post._id);
     const caption = post.caption ?? "";
     const mediaIds = post.mediaIds.map((id) => String(id));
 
+    // Scheduled publishing must provide its claim context.
+    // Immediate publishing posts do not have a scheduled claim ID.
+    if (post.scheduledClaimId) {
+      if (
+        !claimContext ||
+        claimContext.scheduledClaimId !== post.scheduledClaimId
+      ) {
+        throw new Error(
+          "Scheduled publishing requires a matching claim owner.",
+        );
+      }
+    } else if (claimContext) {
+      throw new Error(
+        "A scheduled claim was supplied for a post without claim ownership.",
+      );
+    }
+
     const initializedPost = await initializePlatformResults(
       postId,
       post.platforms,
+      claimContext,
     );
 
     const results: PublishingResult[] = [];
 
     for (const platform of post.platforms) {
-      const claimed = await claimPlatformResult(postId, platform);
+      const claimed = await claimPlatformResult(postId, platform, claimContext);
 
       if (!claimed) {
         continue;
@@ -140,22 +165,30 @@ export class PublishingOrchestrator {
       }
       switch (result.outcome) {
         case "published":
-          await updatePlatformResult(postId, {
-            platform,
-            status: "published",
-            externalPostId: result.externalPostId,
-            publishedAt: result.publishedAt,
-            attemptCount,
-          });
+          await updatePlatformResult(
+            postId,
+            {
+              platform,
+              status: "published",
+              externalPostId: result.externalPostId,
+              publishedAt: result.publishedAt,
+              attemptCount,
+            },
+            claimContext,
+          );
           break;
 
         case "failed":
-          await updatePlatformResult(postId, {
-            platform,
-            status: "failed",
-            lastError: result.message,
-            attemptCount,
-          });
+          await updatePlatformResult(
+            postId,
+            {
+              platform,
+              status: "failed",
+              lastError: result.message,
+              attemptCount,
+            },
+            claimContext,
+          );
           break;
 
         case "unknown":
@@ -180,7 +213,7 @@ export class PublishingOrchestrator {
       results.push(result);
     }
 
-    await reconcilePostStatus(postId);
+    await reconcilePostStatus(postId, claimContext);
 
     return { postId, results };
   }

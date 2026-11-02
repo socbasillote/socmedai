@@ -1,61 +1,38 @@
-import { recoverStalePublishingPosts } from "./scheduledPostWorker.js";
+import {
+  claimNextDuePost,
+  recoverStalePublishingPosts,
+} from "./scheduledPostWorker.js";
 
-const POLL_INTERVAL_MS = 5_000;
+import { dispatchScheduledPost } from "../services/publishing/scheduledPublishingDispatcher.js";
 
-let interval: ReturnType<typeof setInterval> | undefined;
-let running = false;
-let stopped = false;
+import { withScheduledPublishingHeartbeat } from "../services/publishing/scheduledPublishingHeartbeat.js";
 
-async function pollDuePosts(): Promise<void> {
-  if (running || stopped) {
-    return;
-  }
+import { createScheduledPostWorkerRuntime } from "../workers/scheduledPostWorkerRuntime.js";
 
-  running = true;
+const AUTOMATIC_PUBLISHING_ENABLED =
+  process.env.SCHEDULED_PUBLISHING_ENABLED === "true";
 
-  try {
-    const result = await recoverStalePublishingPosts();
+const runtime = createScheduledPostWorkerRuntime(
+  {
+    recoverStalePublishingPosts,
 
-    if (result.modifiedCount > 0) {
-      console.warn(
-        `[scheduled-post-worker] Marked ${result.modifiedCount} stale publishing post(s) as failed.`,
-      );
-    }
-  } catch (error) {
-    console.error("[scheduled-post-worker] Recovery poll failed:", error);
-  } finally {
-    running = false;
-  }
-}
+    claimNextDuePost,
+
+    dispatchScheduledPost,
+
+    withHeartbeat: withScheduledPublishingHeartbeat,
+  },
+  {
+    automaticPublishingEnabled: AUTOMATIC_PUBLISHING_ENABLED,
+
+    pollIntervalMs: 5_000,
+  },
+);
 
 export function startScheduledPostWorker(): void {
-  if (interval || stopped) {
-    return;
-  }
-
-  console.info(
-    "[scheduled-post-worker] Started; stale-claim recovery is enabled, automatic claiming is disabled.",
-  );
-
-  interval = setInterval(() => {
-    void pollDuePosts();
-  }, POLL_INTERVAL_MS);
-
-  void pollDuePosts();
+  runtime.start();
 }
 
 export async function stopScheduledPostWorker(): Promise<void> {
-  stopped = true;
-
-  if (interval) {
-    clearInterval(interval);
-    interval = undefined;
-  }
-
-  // Wait for an in-progress recovery operation before MongoDB disconnects.
-  while (running) {
-    await new Promise<void>((resolve) => setTimeout(resolve, 25));
-  }
-
-  console.info("[scheduled-post-worker] Stopped.");
+  await runtime.stop();
 }

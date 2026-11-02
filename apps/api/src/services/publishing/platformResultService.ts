@@ -28,6 +28,7 @@ export class PlatformResultServiceError extends Error {
 export async function initializePlatformResults(
   postId: string,
   platforms: PostPlatform[],
+  claimContext?: ScheduledClaimContext,
 ) {
   const uniquePlatforms = [...new Set(platforms)];
 
@@ -52,7 +53,11 @@ export async function initializePlatformResults(
   }));
 
   const post = await Post.findOneAndUpdate(
-    { _id: postId },
+    {
+      _id: postId,
+      status: "publishing",
+      ...buildScheduledClaimFilter(claimContext),
+    },
     [
       {
         $set: {
@@ -103,6 +108,7 @@ export async function initializePlatformResults(
 export async function updatePlatformResult(
   postId: string,
   update: PlatformResultUpdate,
+  claimContext?: ScheduledClaimContext,
 ) {
   if (!POST_PLATFORMS.includes(update.platform)) {
     throw new PlatformResultServiceError(
@@ -148,6 +154,8 @@ export async function updatePlatformResult(
   const post = await Post.findOneAndUpdate(
     {
       _id: postId,
+      status: "publishing",
+      ...buildScheduledClaimFilter(claimContext),
       platformResults: {
         $elemMatch: {
           platform: update.platform,
@@ -217,6 +225,7 @@ export async function updatePlatformResult(
 export async function claimPlatformResult(
   postId: string,
   platform: PostPlatform,
+  claimContext?: ScheduledClaimContext,
 ) {
   if (!POST_PLATFORMS.includes(platform)) {
     throw new PlatformResultServiceError(
@@ -228,6 +237,9 @@ export async function claimPlatformResult(
   const post = await Post.findOneAndUpdate(
     {
       _id: postId,
+      status: "publishing",
+
+      ...buildScheduledClaimFilter(claimContext),
       platformResults: {
         $elemMatch: {
           platform,
@@ -283,5 +295,62 @@ export async function claimPlatformResult(
   return {
     post,
     attemptCount: claimedResult.attemptCount,
+  };
+}
+
+/**
+ * Ownership context for scheduled publishing.
+ *
+ * Immediate publishing can continue without
+ * a scheduled claim context.
+ *
+ * Scheduled publishing must supply the claim ID
+ * obtained from the atomic scheduled claim.
+ */
+export type ScheduledClaimContext = {
+  scheduledClaimId: string;
+};
+
+/**
+ * Build the MongoDB ownership conditions.
+ *
+ * Returns an empty filter for existing immediate
+ * publishing operations.
+ */
+function buildScheduledClaimFilter(
+  context?: ScheduledClaimContext,
+): Record<string, unknown> {
+  // Immediate publishing has no scheduled claim.
+  // It must not bypass ownership checks on scheduled posts.
+  if (!context) {
+    return {
+      scheduledClaimId: null,
+      scheduledAt: null,
+    };
+  }
+
+  if (
+    typeof context.scheduledClaimId !== "string" ||
+    !context.scheduledClaimId.trim()
+  ) {
+    throw new PlatformResultServiceError(
+      "A valid scheduled claim ID is required.",
+      400,
+    );
+  }
+
+  return {
+    scheduledClaimId: context.scheduledClaimId,
+
+    // Scheduled claims must belong to scheduled posts.
+    scheduledAt: {
+      $type: "date",
+    },
+
+    // Reject missing or expired leases.
+    scheduledLeaseExpiresAt: {
+      $type: "date",
+      $gt: new Date(),
+    },
   };
 }
