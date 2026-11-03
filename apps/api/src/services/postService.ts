@@ -157,6 +157,59 @@ export async function createWorkspacePost(
     throw new PostServiceError("Workspace not found.", 404);
   }
 
+  // Validate scheduled publishing separately from drafts.
+  const isScheduled = input.scheduledAt !== undefined;
+
+  const scheduledAt = isScheduled ? new Date(input.scheduledAt!) : undefined;
+
+  if (isScheduled) {
+    // 1. Require a valid future date.
+    if (
+      !scheduledAt ||
+      !Number.isFinite(scheduledAt.getTime()) ||
+      scheduledAt.getTime() <= Date.now()
+    ) {
+      throw new PostServiceError(
+        "Scheduled publishing requires a valid future date.",
+        400,
+      );
+    }
+
+    // 2. Allow exactly one supported destination.
+    if (
+      input.platforms.length !== 1 ||
+      !["facebook", "linkedin"].includes(input.platforms[0])
+    ) {
+      throw new PostServiceError(
+        "Scheduled publishing requires exactly one Facebook or LinkedIn platform.",
+        400,
+      );
+    }
+
+    // 3. Require a nonempty caption.
+    if (typeof input.caption !== "string" || !input.caption.trim()) {
+      throw new PostServiceError(
+        "Scheduled publishing requires a caption.",
+        400,
+      );
+    }
+
+    // 4. Require an explicitly selected connection.
+    const platform = input.platforms[0];
+
+    const selectedConnection =
+      platform === "facebook"
+        ? input.platformConnections?.facebook
+        : input.platformConnections?.linkedin;
+
+    if (typeof selectedConnection !== "string" || !selectedConnection.trim()) {
+      throw new PostServiceError(
+        `Select a ${platform === "facebook" ? "Facebook Page" : "LinkedIn account"} before scheduling.`,
+        400,
+      );
+    }
+  }
+
   if (input.mediaIds.length > 0) {
     throw new PostServiceError("Media attachments are not available yet.", 400);
   }
@@ -172,6 +225,20 @@ export async function createWorkspacePost(
     input.platforms,
     input.platformConnections?.facebook,
   );
+
+  if (isScheduled) {
+    const platform = input.platforms[0];
+
+    const validatedConnectionId =
+      platform === "facebook" ? facebookConnectionId : linkedinConnectionId;
+
+    if (!validatedConnectionId) {
+      throw new PostServiceError(
+        "Scheduled publishing requires a valid, authorized publishing connection.",
+        400,
+      );
+    }
+  }
 
   const post = await Post.create({
     workspaceId: authorization.workspace._id,
@@ -193,9 +260,11 @@ export async function createWorkspacePost(
         }
       : {}),
 
-    status: input.scheduledAt ? "scheduled" : "draft",
+    status: isScheduled ? "scheduled" : "draft",
 
-    ...(input.scheduledAt ? { scheduledAt: new Date(input.scheduledAt) } : {}),
+    attemptCount: 0,
+
+    ...(scheduledAt ? { scheduledAt } : {}),
   });
 
   return post.toObject();

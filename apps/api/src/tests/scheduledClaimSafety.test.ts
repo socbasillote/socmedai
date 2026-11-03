@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { beforeEach, after, before, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { withScheduledPublishingHeartbeat } from "../services/publishing/scheduledPublishingHeartbeat.js";
+import {
+  withScheduledPublishingHeartbeat,
+  ScheduledLeaseLostError,
+} from "../services/publishing/scheduledPublishingHeartbeat.js";
 
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
@@ -1062,4 +1065,125 @@ test("heartbeat stops after publishing operation throws", async () => {
     expirationAfterFailure,
     "Lease must not continue renewing after operation failure.",
   );
+});
+
+test("heartbeat signals ownership loss to the active operation", async () => {
+  const now = new Date();
+
+  const post = await Post.create({
+    workspaceId: new mongoose.Types.ObjectId(),
+    createdByUserId: new mongoose.Types.ObjectId(),
+    title: "Lease Loss Signal Test",
+    caption: "Isolated ownership-loss verification.",
+    platforms: ["facebook"],
+    platformConnections: {
+      facebook: new mongoose.Types.ObjectId(),
+    },
+    mediaIds: [],
+    status: "scheduled",
+    scheduledAt: new Date(now.getTime() - 60_000),
+    attemptCount: 0,
+  });
+
+  const claimed = await claimNextDuePost(now);
+  assert.ok(claimed);
+
+  let operationStarted = false;
+  let externalOperationStarted = false;
+
+  await withScheduledPublishingHeartbeat(
+    {
+      postId: String(claimed._id),
+      scheduledClaimId: claimed.scheduledClaimId!,
+      intervalMs: 20,
+    },
+    async (lease) => {
+      operationStarted = true;
+
+      // Simulate loss of claim ownership.
+      await Post.updateOne(
+        { _id: claimed._id },
+        {
+          $set: {
+            scheduledClaimId: "different-owner",
+          },
+        },
+      );
+
+      // Allow a heartbeat to discover the mismatch.
+      await new Promise<void>((resolve, reject) => {
+        let elapsed = 0;
+
+        const check = setInterval(() => {
+          elapsed += 10;
+
+          if (lease.ownershipLost) {
+            clearInterval(check);
+            resolve();
+          } else if (elapsed >= 2000) {
+            clearInterval(check);
+            reject(new Error("Lease loss was not signaled."));
+          }
+        }, 10);
+      });
+
+      assert.equal(lease.ownershipLost, true);
+      assert.equal(lease.lossReason, "ownership-rejected");
+
+      // A cooperative dispatcher checks ownership before
+      // initiating another external operation.
+      assert.throws(() => lease.assertOwnership(), ScheduledLeaseLostError);
+
+      // This must never be reached.
+      lease.assertOwnership();
+      externalOperationStarted = true;
+    },
+  ).catch((error: unknown) => {
+    assert.ok(error instanceof ScheduledLeaseLostError);
+  });
+
+  assert.equal(operationStarted, true);
+  assert.equal(externalOperationStarted, false);
+});
+
+test("healthy heartbeat signal permits an active operation", async () => {
+  const now = new Date();
+
+  const post = await Post.create({
+    workspaceId: new mongoose.Types.ObjectId(),
+    createdByUserId: new mongoose.Types.ObjectId(),
+    title: "Healthy Lease Signal Test",
+    caption: "Checking valid ownership signaling.",
+    platforms: ["facebook"],
+    platformConnections: {
+      facebook: new mongoose.Types.ObjectId(),
+    },
+    mediaIds: [],
+    status: "scheduled",
+    scheduledAt: new Date(now.getTime() - 60_000),
+    attemptCount: 0,
+  });
+
+  const claimed = await claimNextDuePost(now);
+  assert.ok(claimed);
+
+  let operationStarted = false;
+
+  await withScheduledPublishingHeartbeat(
+    {
+      postId: String(claimed._id),
+      scheduledClaimId: claimed.scheduledClaimId!,
+      intervalMs: 20,
+    },
+    async (lease) => {
+      lease.assertOwnership();
+
+      assert.equal(lease.ownershipLost, false);
+      assert.equal(lease.lossReason, null);
+
+      operationStarted = true;
+    },
+  );
+
+  assert.equal(operationStarted, true);
 });

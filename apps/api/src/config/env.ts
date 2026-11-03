@@ -59,6 +59,9 @@ const envSchema = z.object({
       .regex(/^v\d+\.\d+$/, "Must be a Graph API version such as v25.0.")
       .optional(),
   ),
+  FACEBOOK_PUBLISHING_ENABLED: z.enum(["true", "false"]).default("false"),
+
+  SCHEDULED_PUBLISHING_ENABLED: z.enum(["true", "false"]).default("false"),
 });
 
 const result = envSchema.safeParse(process.env);

@@ -64,6 +64,17 @@ export const createPostSchema = z
           "A LinkedIn account can only be selected when LinkedIn is a publishing platform.",
       });
     }
+    if (
+      data.platformConnections?.facebook &&
+      !data.platforms.includes("facebook")
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["platformConnections", "facebook"],
+        message:
+          "A Facebook Page can only be selected when Facebook is a publishing platform.",
+      });
+    }
     if (data.scheduledAt) {
       const scheduledTime = new Date(data.scheduledAt).getTime();
 
@@ -72,6 +83,50 @@ export const createPostSchema = z
           code: "custom",
           path: ["scheduledAt"],
           message: "Scheduled time must be in the future.",
+        });
+      }
+    }
+    if (data.scheduledAt !== undefined) {
+      // Scheduled publishing currently supports one destination.
+      if (
+        data.platforms.length !== 1 ||
+        !["facebook", "linkedin"].includes(data.platforms[0])
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["platforms"],
+          message:
+            "Scheduled publishing requires exactly one Facebook or LinkedIn platform.",
+        });
+      }
+
+      const selectedPlatform = data.platforms[0];
+
+      if (selectedPlatform === "facebook") {
+        if (!data.platformConnections?.facebook) {
+          context.addIssue({
+            code: "custom",
+            path: ["platformConnections", "facebook"],
+            message: "Select a Facebook Page before scheduling.",
+          });
+        }
+      }
+
+      if (selectedPlatform === "linkedin") {
+        if (!data.platformConnections?.linkedin) {
+          context.addIssue({
+            code: "custom",
+            path: ["platformConnections", "linkedin"],
+            message: "Select a LinkedIn account before scheduling.",
+          });
+        }
+      }
+
+      if (data.mediaIds.length > 0) {
+        context.addIssue({
+          code: "custom",
+          path: ["mediaIds"],
+          message: "Scheduled media publishing is not supported yet.",
         });
       }
     }

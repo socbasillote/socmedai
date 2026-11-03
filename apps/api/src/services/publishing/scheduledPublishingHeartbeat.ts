@@ -18,6 +18,47 @@ type HeartbeatOptions = {
   intervalMs?: number;
 };
 
+export type ScheduledLeaseLossReason = "ownership-rejected" | "renewal-error";
+
+export class ScheduledLeaseSignal {
+  private lost = false;
+  private reasonValue: ScheduledLeaseLossReason | null = null;
+
+  get ownershipLost(): boolean {
+    return this.lost;
+  }
+
+  get lossReason(): ScheduledLeaseLossReason | null {
+    return this.reasonValue;
+  }
+
+  /**
+   * Called by the heartbeat when ownership can no
+   * longer be confirmed.
+   */
+  markLost(reason: ScheduledLeaseLossReason): void {
+    if (this.lost) {
+      return;
+    }
+
+    this.lost = true;
+    this.reasonValue = reason;
+  }
+
+  /**
+   * Synchronous cooperative cancellation check.
+   *
+   * Call before starting a new external operation.
+   */
+  assertOwnership(): void {
+    if (this.lost) {
+      throw new ScheduledLeaseLostError(
+        `Scheduled publishing lease ownership lost: ${this.reasonValue}.`,
+      );
+    }
+  }
+}
+
 /**
  * Runs one scheduled publishing operation while periodically
  * renewing the associated MongoDB lease.
@@ -26,13 +67,15 @@ type HeartbeatOptions = {
  */
 export async function withScheduledPublishingHeartbeat<T>(
   options: HeartbeatOptions,
-  operation: () => Promise<T>,
+  operation: (lease: ScheduledLeaseSignal) => Promise<T>,
 ): Promise<T> {
   const {
     postId,
     scheduledClaimId,
     intervalMs = SCHEDULED_HEARTBEAT_INTERVAL_MS,
   } = options;
+
+  const leaseSignal = new ScheduledLeaseSignal();
 
   if (
     !Number.isSafeInteger(intervalMs) ||
@@ -67,6 +110,7 @@ export async function withScheduledPublishingHeartbeat<T>(
 
       if (!renewed) {
         ownershipLost = true;
+        leaseSignal.markLost("ownership-rejected");
 
         console.error("[scheduled-post-worker] Lease renewal rejected.", {
           postId,
@@ -76,6 +120,7 @@ export async function withScheduledPublishingHeartbeat<T>(
       // A database error means ownership cannot be confirmed.
       // Do not automatically retry the external publication.
       ownershipLost = true;
+      leaseSignal.markLost("renewal-error");
 
       console.error("[scheduled-post-worker] Lease renewal failed.", {
         postId,
@@ -100,7 +145,9 @@ export async function withScheduledPublishingHeartbeat<T>(
   }, intervalMs);
 
   try {
-    const result = await operation();
+    leaseSignal.assertOwnership();
+
+    const result = await operation(leaseSignal);
 
     if (ownershipLost) {
       // The external publishing outcome may already be known

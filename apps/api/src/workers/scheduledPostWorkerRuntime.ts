@@ -1,3 +1,5 @@
+import type { ScheduledLeaseSignal } from "../services/publishing/scheduledPublishingHeartbeat.js";
+
 export type ClaimedScheduledPost = {
   _id: {
     toString(): string;
@@ -12,14 +14,17 @@ export type WorkerDependencies = {
 
   claimNextDuePost: () => Promise<ClaimedScheduledPost | null>;
 
-  dispatchScheduledPost: (postId: string) => Promise<unknown>;
+  dispatchScheduledPost: (
+    postId: string,
+    lease: ScheduledLeaseSignal,
+  ) => Promise<unknown>;
 
   withHeartbeat: (
     options: {
       postId: string;
       scheduledClaimId: string;
     },
-    operation: () => Promise<unknown>,
+    operation: (lease: ScheduledLeaseSignal) => Promise<unknown>,
   ) => Promise<unknown>;
 };
 
@@ -96,7 +101,11 @@ export function createScheduledPostWorkerRuntime(
               postId,
               scheduledClaimId: claimId,
             },
-            () => dependencies.dispatchScheduledPost(postId),
+            async (lease) => {
+              lease.assertOwnership();
+
+              return dependencies.dispatchScheduledPost(postId, lease);
+            },
           );
 
           console.info(`[scheduled-post-worker] Finished post ${postId}.`);

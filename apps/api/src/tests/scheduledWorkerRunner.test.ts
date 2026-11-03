@@ -6,6 +6,8 @@ import {
   type WorkerDependencies,
 } from "../workers/scheduledPostWorkerRuntime.js";
 
+import { ScheduledLeaseSignal } from "../services/publishing/scheduledPublishingHeartbeat.js";
+
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
 
@@ -31,7 +33,10 @@ function createDependencies(
 
     dispatchScheduledPost: async () => undefined,
 
-    withHeartbeat: async (_options, operation) => operation(),
+    withHeartbeat: async (_options, operation) => {
+      const lease = new ScheduledLeaseSignal();
+      return operation(lease);
+    },
 
     ...overrides,
   };
@@ -55,7 +60,7 @@ test("worker dispatches a claimed post exactly once", async () => {
 
         assert.equal(options.scheduledClaimId, "test-claim-id");
 
-        return operation();
+        return operation(new ScheduledLeaseSignal());
       },
     }),
     {
@@ -162,4 +167,73 @@ test("shutdown waits for dispatch and prevents new work", async () => {
   await runtime.poll();
 
   assert.equal(dispatchCalls, 1);
+});
+
+test("worker forwards heartbeat ownership signal to dispatcher", async () => {
+  let heartbeatSignal: ScheduledLeaseSignal | null = null;
+  let dispatcherSignal: ScheduledLeaseSignal | null = null;
+  let dispatchCalls = 0;
+
+  const runtime = createScheduledPostWorkerRuntime(
+    createDependencies({
+      withHeartbeat: async (_options, operation) => {
+        const lease = new ScheduledLeaseSignal();
+
+        heartbeatSignal = lease;
+
+        return operation(lease);
+      },
+
+      dispatchScheduledPost: async (_postId, lease) => {
+        dispatchCalls += 1;
+        dispatcherSignal = lease;
+
+        lease.assertOwnership();
+      },
+    }),
+    {
+      automaticPublishingEnabled: true,
+    },
+  );
+
+  await runtime.poll();
+  await runtime.stop();
+
+  assert.equal(dispatchCalls, 1);
+  assert.ok(heartbeatSignal);
+  assert.equal(dispatcherSignal, heartbeatSignal);
+});
+
+test("worker never invokes dispatcher after known lease loss", async () => {
+  let dispatchCalls = 0;
+
+  const runtime = createScheduledPostWorkerRuntime(
+    createDependencies({
+      withHeartbeat: async (_options, operation) => {
+        const lease = new ScheduledLeaseSignal();
+
+        // Simulate heartbeat detecting invalid ownership
+        // before the dispatch callback starts.
+        lease.markLost("ownership-rejected");
+
+        return operation(lease);
+      },
+
+      dispatchScheduledPost: async () => {
+        dispatchCalls += 1;
+      },
+    }),
+    {
+      automaticPublishingEnabled: true,
+    },
+  );
+
+  await runtime.poll();
+  await runtime.stop();
+
+  assert.equal(
+    dispatchCalls,
+    0,
+    "Dispatcher must not start after ownership loss.",
+  );
 });

@@ -14,6 +14,9 @@ import type { ScheduledClaimContext } from "./platformResultService.js";
 
 import { reconcilePostStatus } from "./postStatusReconciliationService.js";
 
+import type { ScheduledLeaseSignal } from "./scheduledPublishingHeartbeat.js";
+import { ScheduledLeaseLostError } from "./scheduledPublishingHeartbeat.js";
+
 export type OrchestratorPost = {
   _id: string | { toString(): string };
   workspaceId: string | { toString(): string };
@@ -39,27 +42,35 @@ export class PublishingOrchestrator {
   async processPost(
     post: OrchestratorPost,
     claimContext?: ScheduledClaimContext,
+    lease?: ScheduledLeaseSignal,
   ): Promise<OrchestrationResult> {
     const postId = String(post._id);
     const caption = post.caption ?? "";
     const mediaIds = post.mediaIds.map((id) => String(id));
 
-    // Scheduled publishing must provide its claim context.
-    // Immediate publishing posts do not have a scheduled claim ID.
-    if (post.scheduledClaimId) {
+    const isScheduledPublishing =
+      typeof post.scheduledClaimId === "string" &&
+      post.scheduledClaimId.trim().length > 0;
+
+    if (isScheduledPublishing) {
       if (
         !claimContext ||
-        claimContext.scheduledClaimId !== post.scheduledClaimId
+        claimContext.scheduledClaimId !== post.scheduledClaimId ||
+        !lease
       ) {
         throw new Error(
-          "Scheduled publishing requires a matching claim owner.",
+          "Scheduled publishing requires matching claim ownership and an active lease signal.",
         );
       }
-    } else if (claimContext) {
+    } else if (claimContext || lease) {
       throw new Error(
-        "A scheduled claim was supplied for a post without claim ownership.",
+        "Immediate publishing must not supply scheduled claim ownership.",
       );
     }
+
+    // Reject a scheduled operation if heartbeat has already
+    // reported that ownership was lost.
+    lease?.assertOwnership();
 
     const initializedPost = await initializePlatformResults(
       postId,
@@ -70,6 +81,7 @@ export class PublishingOrchestrator {
     const results: PublishingResult[] = [];
 
     for (const platform of post.platforms) {
+      lease?.assertOwnership();
       const claimed = await claimPlatformResult(postId, platform, claimContext);
 
       if (!claimed) {
@@ -129,6 +141,9 @@ export class PublishingOrchestrator {
                   mediaIds,
                 };
 
+          // Last cooperative cancellation point before external publishing.
+          lease?.assertOwnership();
+
           result = await this.adapter.publish(input);
 
           if (result.postId !== postId || result.platform !== platform) {
@@ -154,7 +169,10 @@ export class PublishingOrchestrator {
                 "Publishing adapter returned an invalid publication confirmation; external outcome is unknown.",
             };
           }
-        } catch {
+        } catch (error) {
+          if (error instanceof ScheduledLeaseLostError) {
+            throw error;
+          }
           result = {
             outcome: "unknown",
             postId,
@@ -163,6 +181,9 @@ export class PublishingOrchestrator {
           };
         }
       }
+
+      lease?.assertOwnership();
+
       switch (result.outcome) {
         case "published":
           await updatePlatformResult(
@@ -192,21 +213,29 @@ export class PublishingOrchestrator {
           break;
 
         case "unknown":
-          await updatePlatformResult(postId, {
-            platform,
-            status: "unknown",
-            lastError: result.message,
-            attemptCount,
-          });
+          await updatePlatformResult(
+            postId,
+            {
+              platform,
+              status: "unknown",
+              lastError: result.message,
+              attemptCount,
+            },
+            claimContext,
+          );
           break;
 
         case "simulated":
-          await updatePlatformResult(postId, {
-            platform,
-            status: "simulated",
-            lastError: result.message,
-            attemptCount,
-          });
+          await updatePlatformResult(
+            postId,
+            {
+              platform,
+              status: "simulated",
+              lastError: result.message,
+              attemptCount,
+            },
+            claimContext,
+          );
           break;
       }
 

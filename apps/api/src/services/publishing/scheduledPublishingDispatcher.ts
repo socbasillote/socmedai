@@ -10,6 +10,13 @@ import { createPublishingAdapter } from "./publishingAdapterFactory.js";
 
 import { FacebookPublishingAdapter } from "./facebookPublishingAdapter.js";
 
+import type { ScheduledLeaseSignal } from "./scheduledPublishingHeartbeat.js";
+
+import {
+  recordScheduledPreDispatchFailure,
+  recordScheduledInterruptedPublishing,
+} from "./scheduledPublishingFailureService.js";
+
 export class ScheduledPublishingError extends Error {
   constructor(message: string) {
     super(message);
@@ -63,10 +70,15 @@ async function recordPreDispatchFailure(
  * - Retry external publishing
  * - Bypass workspace authorization
  */
-export async function dispatchScheduledPost(postId: string) {
+export async function dispatchScheduledPost(
+  postId: string,
+  lease: ScheduledLeaseSignal,
+) {
   let externalPublishingMayHaveStarted = false;
+  let verifiedClaimId: string | null = null;
 
   try {
+    lease.assertOwnership();
     // 1. Load the claimed post.
     const post = await Post.findById(postId)
       .select(
@@ -92,6 +104,8 @@ export async function dispatchScheduledPost(postId: string) {
       throw new ScheduledPublishingError("Scheduled post not found.");
     }
 
+    lease.assertOwnership();
+
     if (
       post.status !== "publishing" ||
       !post.scheduledAt ||
@@ -102,6 +116,8 @@ export async function dispatchScheduledPost(postId: string) {
         "Post is not eligible for scheduled publishing dispatch.",
       );
     }
+
+    lease.assertOwnership();
 
     if (
       typeof post.scheduledClaimId !== "string" ||
@@ -114,6 +130,8 @@ export async function dispatchScheduledPost(postId: string) {
         "Scheduled publishing claim ownership is missing or expired.",
       );
     }
+
+    verifiedClaimId = post.scheduledClaimId;
 
     // 2. Validate publishing platform.
     if (
@@ -166,6 +184,8 @@ export async function dispatchScheduledPost(postId: string) {
       );
     }
 
+    lease.assertOwnership();
+
     // 7. Build the platform adapter.
     const adapter = createPublishingAdapter(authUser, {
       facebook: {
@@ -175,27 +195,69 @@ export async function dispatchScheduledPost(postId: string) {
     });
 
     const orchestrator = new PublishingOrchestrator(adapter);
+    lease.assertOwnership();
 
     // From this point onward, do not classify an
     // unexpected exception as a definite failure.
     externalPublishingMayHaveStarted = true;
 
-    return await orchestrator.processPost(post, {
-      scheduledClaimId: post.scheduledClaimId,
-    });
+    return await orchestrator.processPost(
+      post,
+      {
+        scheduledClaimId: post.scheduledClaimId,
+      },
+      lease,
+    );
   } catch (error) {
+    if (lease.ownershipLost) {
+      console.error(
+        "[scheduled-post-worker] Dispatch stopped after lease ownership loss.",
+        {
+          postId,
+          reason: lease.lossReason,
+        },
+      );
+
+      // Do not change status, reset the claim,
+      // or start another publication attempt.
+      // Lease-aware recovery handles unresolved claims.
+      throw error;
+    }
+
     if (!externalPublishingMayHaveStarted) {
       const message =
         error instanceof ScheduledPublishingError
           ? error.message
           : "Scheduled publishing could not be prepared safely.";
 
-      try {
-        await recordPreDispatchFailure(postId, message);
-      } catch (persistenceError) {
-        console.error(
-          "[scheduled-publishing] Failed to record pre-dispatch failure:",
-          persistenceError,
+      if (verifiedClaimId) {
+        try {
+          const recorded = await recordScheduledPreDispatchFailure(
+            {
+              postId,
+              scheduledClaimId: verifiedClaimId,
+            },
+            message,
+          );
+
+          if (!recorded) {
+            console.warn(
+              "[scheduled-publishing] Pre-dispatch failure was not recorded; " +
+                "claim ownership may have changed or expired.",
+              { postId },
+            );
+          }
+        } catch (persistenceError) {
+          console.error(
+            "[scheduled-publishing] Failed to persist pre-dispatch failure:",
+            persistenceError,
+          );
+        }
+      } else {
+        console.warn(
+          "[scheduled-publishing] No verified scheduled claim. " +
+            "Failure requires recovery or manual investigation.",
+          { postId },
         );
       }
 
@@ -210,26 +272,26 @@ export async function dispatchScheduledPost(postId: string) {
       error,
     );
 
-    try {
-      await Post.updateOne(
-        {
-          _id: postId,
-          status: "publishing",
-        },
-        {
-          $set: {
-            lastError:
-              "Scheduled publishing was interrupted. " +
-              "The external publishing outcome may be unknown. " +
-              "Do not retry automatically.",
-          },
-        },
-      );
-    } catch (persistenceError) {
-      console.error(
-        "[scheduled-publishing] Failed to record interrupted publishing:",
-        persistenceError,
-      );
+    if (verifiedClaimId) {
+      try {
+        const recorded = await recordScheduledInterruptedPublishing({
+          postId,
+          scheduledClaimId: verifiedClaimId,
+        });
+
+        if (!recorded) {
+          console.warn(
+            "[scheduled-publishing] Interrupted outcome could not be recorded " +
+              "because claim ownership changed or expired.",
+            { postId },
+          );
+        }
+      } catch (persistenceError) {
+        console.error(
+          "[scheduled-publishing] Failed to record interrupted publishing:",
+          persistenceError,
+        );
+      }
     }
 
     throw new ScheduledPublishingError(
