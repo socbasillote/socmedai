@@ -87,3 +87,27 @@ export async function generateCaptionVariations(
 
   return response.variations;
 }
+
+export type GeneratePlatformCaptionsInput = Omit<
+  GenerateCaptionInput,
+  "platform"
+>;
+
+export type PlatformCaptionsResponse = {
+  captions: {
+    facebook: string;
+    linkedin: string;
+  };
+};
+
+export async function generatePlatformCaptions(
+  input: GeneratePlatformCaptionsInput,
+): Promise<PlatformCaptionsResponse> {
+  return apiFetch<PlatformCaptionsResponse>(
+    "/api/ai/generate-platform-captions",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}

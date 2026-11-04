@@ -108,3 +108,69 @@ export type GenerateCaptionVariationsInput = z.infer<
 export type CaptionVariationsResponse = z.infer<
   typeof captionVariationsResponseSchema
 >;
+
+/**
+ * Step 9.2.1
+ *
+ * Generate platform-specific captions for
+ * Facebook and LinkedIn from one campaign brief.
+ *
+ * Both platforms are required for the MVP.
+ * Additional platforms can be introduced later
+ * without changing the existing AI endpoints.
+ */
+export const generatePlatformCaptionsSchema = generateCaptionSchema
+  .omit({
+    platform: true,
+  })
+  .strict();
+
+export type GeneratePlatformCaptionsInput = z.infer<
+  typeof generatePlatformCaptionsSchema
+>;
+
+/**
+ * Response contract:
+ *
+ * {
+ *   captions: {
+ *     facebook: "...",
+ *     linkedin: "..."
+ *   }
+ * }
+ *
+ * Each platform has an independent editable caption.
+ */
+const platformCaptionSchema = z
+  .string()
+  .trim()
+  .min(1, "A generated caption cannot be empty.")
+  .max(10000, "A generated caption is too long.");
+
+export const platformCaptionsResponseSchema = z
+  .object({
+    captions: z
+      .object({
+        facebook: platformCaptionSchema,
+        linkedin: platformCaptionSchema,
+      })
+      .strict(),
+  })
+  .strict()
+  .superRefine((data, context) => {
+    const facebookCaption = data.captions.facebook.trim().toLowerCase();
+
+    const linkedinCaption = data.captions.linkedin.trim().toLowerCase();
+
+    if (facebookCaption === linkedinCaption) {
+      context.addIssue({
+        code: "custom",
+        path: ["captions"],
+        message: "Facebook and LinkedIn captions must be different.",
+      });
+    }
+  });
+
+export type PlatformCaptionsResponse = z.infer<
+  typeof platformCaptionsResponseSchema
+>;

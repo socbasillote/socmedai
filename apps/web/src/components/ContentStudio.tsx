@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import {
   generateCaption,
   generateCaptionVariations,
+  generatePlatformCaptions,
   reviseCaption,
   type CaptionVariation,
   type CaptionVariationStyle,
@@ -59,6 +60,19 @@ type ContentStudioProps = {
 
 type PostSaveMode = "draft" | "scheduled";
 
+type DualPlatform = "facebook" | "linkedin";
+
+type DualPlatformCaptions = Record<DualPlatform, string>;
+
+type DualPlatformSaved = Record<DualPlatform, boolean>;
+
+const dualPlatformLabels: Record<DualPlatform, string> = {
+  facebook: "Facebook",
+  linkedin: "LinkedIn",
+};
+
+const dualPlatforms: DualPlatform[] = ["facebook", "linkedin"];
+
 export function ContentStudio({
   selectedWorkspaceId,
   linkedInConnectionId,
@@ -92,9 +106,55 @@ export function ContentStudio({
   const [selectedVariationStyle, setSelectedVariationStyle] =
     useState<CaptionVariationStyle | null>(null);
 
+  const [platformCaptions, setPlatformCaptions] =
+    useState<DualPlatformCaptions | null>(null);
+
+  const [generatingPlatformCaptions, setGeneratingPlatformCaptions] =
+    useState(false);
+
+  const [savingPlatformDraft, setSavingPlatformDraft] =
+    useState<DualPlatform | null>(null);
+
+  const [platformDraftSaved, setPlatformDraftSaved] =
+    useState<DualPlatformSaved>({
+      facebook: false,
+      linkedin: false,
+    });
+
+  const [platformCaptionError, setPlatformCaptionError] = useState("");
+
+  const [platformCaptionNotice, setPlatformCaptionNotice] = useState("");
+
+  // Prevents an outdated AI response from replacing
+  // captions generated for newer campaign settings.
+  const platformRequestId = useRef(0);
+
+  // Prevents concurrent draft-save requests.
+  const platformSaveLock = useRef(false);
+
   // Invalidates an unfinished request when the user
   // changes generation settings or starts another request.
   const variationRequestId = useRef(0);
+
+  const [platformRevisionInstructions, setPlatformRevisionInstructions] =
+    useState<Record<DualPlatform, string>>({
+      facebook: "",
+      linkedin: "",
+    });
+
+  const [revisingPlatform, setRevisingPlatform] = useState<DualPlatform | null>(
+    null,
+  );
+
+  // Tracks changes to each caption independently.
+  // Used to reject revision responses for outdated text.
+  const platformCaptionVersions = useRef<Record<DualPlatform, number>>({
+    facebook: 0,
+    linkedin: 0,
+  });
+
+  // Prevent concurrent revision requests.
+  const platformRevisionLock = useRef(false);
 
   async function handleGenerate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -185,6 +245,272 @@ export function ContentStudio({
       );
     } finally {
       setGeneratingVariations(false);
+    }
+  }
+
+  async function handleGeneratePlatformCaptions(): Promise<void> {
+    if (brief.trim().length < 3) {
+      setPlatformCaptionError(
+        "Enter a campaign brief with at least 3 characters.",
+      );
+      return;
+    }
+
+    if (
+      generating ||
+      generatingVariations ||
+      generatingPlatformCaptions ||
+      revising ||
+      savingDraft ||
+      platformSaveLock.current
+    ) {
+      return;
+    }
+
+    const requestId = ++platformRequestId.current;
+
+    setGeneratingPlatformCaptions(true);
+    setPlatformCaptionError("");
+    setPlatformCaptionNotice("");
+
+    try {
+      const result = await generatePlatformCaptions({
+        brief: brief.trim(),
+        tone,
+        audience: audience.trim() || "General audience",
+        callToAction: callToAction.trim(),
+        length,
+      });
+
+      if (platformRequestId.current !== requestId) {
+        return;
+      }
+
+      platformCaptionVersions.current.facebook += 1;
+      platformCaptionVersions.current.linkedin += 1;
+
+      setPlatformCaptions({
+        facebook: result.captions.facebook,
+        linkedin: result.captions.linkedin,
+      });
+
+      setPlatformDraftSaved({
+        facebook: false,
+        linkedin: false,
+      });
+
+      setPlatformCaptionNotice(
+        "Facebook and LinkedIn captions generated. " +
+          "Review each caption before saving.",
+      );
+    } catch (error) {
+      if (platformRequestId.current !== requestId) {
+        return;
+      }
+
+      setPlatformCaptionError(
+        error instanceof Error
+          ? error.message
+          : "Unable to generate platform captions.",
+      );
+    } finally {
+      setGeneratingPlatformCaptions(false);
+    }
+  }
+
+  function handlePlatformCaptionChange(
+    platform: DualPlatform,
+    value: string,
+  ): void {
+    // Invalidate any outstanding AI revision
+    // for this particular platform.
+    platformCaptionVersions.current[platform] += 1;
+
+    setPlatformCaptions((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [platform]: value,
+      };
+    });
+
+    setPlatformDraftSaved((current) => ({
+      ...current,
+      [platform]: false,
+    }));
+
+    setPlatformCaptionError("");
+    setPlatformCaptionNotice("");
+  }
+  async function handleRevisePlatformCaption(
+    platform: DualPlatform,
+  ): Promise<void> {
+    if (platformRevisionLock.current) {
+      return;
+    }
+
+    const originalCaption = platformCaptions?.[platform]?.trim() ?? "";
+
+    const instruction = platformRevisionInstructions[platform].trim();
+
+    if (!originalCaption) {
+      setPlatformCaptionError(
+        `Enter a ${dualPlatformLabels[platform]} caption first.`,
+      );
+      return;
+    }
+
+    if (instruction.length < 3) {
+      setPlatformCaptionError("Describe how you want to revise the caption.");
+      return;
+    }
+
+    if (
+      generating ||
+      generatingVariations ||
+      generatingPlatformCaptions ||
+      revising ||
+      savingDraft ||
+      savingPlatformDraft !== null ||
+      platformSaveLock.current
+    ) {
+      return;
+    }
+
+    platformRevisionLock.current = true;
+
+    const version = platformCaptionVersions.current[platform];
+
+    setRevisingPlatform(platform);
+    setPlatformCaptionError("");
+    setPlatformCaptionNotice("");
+
+    try {
+      const revisedCaption = await reviseCaption({
+        caption: originalCaption,
+        instruction,
+        platform,
+      });
+
+      // Do not overwrite text that changed while
+      // this request was in progress.
+      if (platformCaptionVersions.current[platform] !== version) {
+        setPlatformCaptionNotice(
+          "Your caption changed during AI revision. " +
+            "The outdated result was not applied.",
+        );
+        return;
+      }
+
+      platformCaptionVersions.current[platform] += 1;
+
+      setPlatformCaptions((current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [platform]: revisedCaption,
+        };
+      });
+
+      setPlatformDraftSaved((current) => ({
+        ...current,
+        [platform]: false,
+      }));
+
+      setPlatformCaptionNotice(
+        `${dualPlatformLabels[platform]} caption revised. ` +
+          "Review the updated text before saving.",
+      );
+    } catch (error) {
+      setPlatformCaptionError(
+        error instanceof Error
+          ? error.message
+          : `Unable to revise the ${platform} caption.`,
+      );
+    } finally {
+      platformRevisionLock.current = false;
+      setRevisingPlatform(null);
+    }
+  }
+
+  async function handleSavePlatformDraft(
+    platform: DualPlatform,
+  ): Promise<void> {
+    if (platformSaveLock.current) {
+      return;
+    }
+
+    if (platformRevisionLock.current) {
+      return;
+    }
+
+    if (platformDraftSaved[platform]) {
+      return;
+    }
+
+    const currentCaptions = platformCaptions;
+    const captionToSave = currentCaptions?.[platform]?.trim() ?? "";
+
+    if (!selectedWorkspaceId) {
+      setPlatformCaptionError("Select a workspace before saving.");
+      return;
+    }
+
+    if (!captionToSave) {
+      setPlatformCaptionError(
+        `Enter a ${dualPlatformLabels[platform]} caption before saving.`,
+      );
+      return;
+    }
+
+    if (
+      generatingPlatformCaptions ||
+      savingDraft ||
+      generating ||
+      generatingVariations ||
+      revising
+    ) {
+      return;
+    }
+
+    platformSaveLock.current = true;
+    setSavingPlatformDraft(platform);
+
+    setPlatformCaptionError("");
+    setPlatformCaptionNotice("");
+
+    try {
+      const post = await createPost({
+        workspaceId: selectedWorkspaceId,
+        caption: captionToSave,
+        platforms: [platform],
+      });
+
+      onPostSaved(post);
+
+      setPlatformDraftSaved((current) => ({
+        ...current,
+        [platform]: true,
+      }));
+
+      setPlatformCaptionNotice(
+        `${dualPlatformLabels[platform]} draft saved successfully.`,
+      );
+    } catch (error) {
+      setPlatformCaptionError(
+        error instanceof Error
+          ? error.message
+          : `Unable to save the ${platform} draft.`,
+      );
+    } finally {
+      platformSaveLock.current = false;
+      setSavingPlatformDraft(null);
     }
   }
 
@@ -331,6 +657,16 @@ export function ContentStudio({
     setSelectedVariationStyle(null);
   }
 
+  function clearPlatformCaptions(): void {
+    platformRequestId.current += 1;
+
+    // Preserve any captions the user has already generated
+    // and edited. Only invalidate the unfinished request.
+    //
+    // Existing captions remain visible and editable.
+    setPlatformCaptionNotice("");
+  }
+
   return (
     <section className="space-y-6">
       <header>
@@ -374,6 +710,7 @@ export function ContentStudio({
               onChange={(event) => {
                 setBrief(event.target.value);
                 clearCaptionVariations();
+                clearPlatformCaptions();
               }}
               maxLength={3000}
               rows={6}
@@ -400,6 +737,7 @@ export function ContentStudio({
               onChange={(event) => {
                 setPlatform(event.target.value as PostPlatform);
                 clearCaptionVariations();
+                clearPlatformCaptions();
               }}
               className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
             >
@@ -457,6 +795,7 @@ export function ContentStudio({
               onChange={(event) => {
                 setTone(event.target.value as CaptionTone);
                 clearCaptionVariations();
+                clearPlatformCaptions();
               }}
               className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
             >
@@ -481,6 +820,7 @@ export function ContentStudio({
               onChange={(event) => {
                 setAudience(event.target.value);
                 clearCaptionVariations();
+                clearPlatformCaptions();
               }}
               maxLength={500}
               placeholder="e.g. Small business owners"
@@ -501,6 +841,7 @@ export function ContentStudio({
               onChange={(event) => {
                 setCallToAction(event.target.value);
                 clearCaptionVariations();
+                clearPlatformCaptions();
               }}
               maxLength={300}
               placeholder="e.g. Explore the collection"
@@ -521,6 +862,7 @@ export function ContentStudio({
               onChange={(event) => {
                 setLength(event.target.value as CaptionLength);
                 clearCaptionVariations();
+                clearPlatformCaptions();
               }}
               className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
             >
@@ -562,6 +904,27 @@ export function ContentStudio({
               ? "Generating 3 variations..."
               : "Generate 3 Variations"}
           </Button>
+
+          <Button
+            type="button"
+            disabled={
+              generating ||
+              generatingVariations ||
+              generatingPlatformCaptions ||
+              revising ||
+              savingDraft ||
+              savingPlatformDraft !== null ||
+              brief.trim().length < 3
+            }
+            onClick={() => void handleGeneratePlatformCaptions()}
+            className="w-full rounded-xl bg-slate-900 py-3 font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+          >
+            <Sparkles size={17} />
+
+            {generatingPlatformCaptions
+              ? "Generating Facebook + LinkedIn..."
+              : "Generate Facebook + LinkedIn"}
+          </Button>
         </section>
 
         <section className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
@@ -582,6 +945,169 @@ export function ContentStudio({
               {tone}
             </span>
           </div>
+
+          {platformCaptions && (
+            <section
+              aria-label="Facebook and LinkedIn captions"
+              className="mb-6 space-y-4 border-b border-slate-200 pb-6"
+            >
+              <div>
+                <h4 className="text-lg font-semibold text-slate-900">
+                  Platform-Specific Captions
+                </h4>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  Edit and save each platform caption independently. Saving
+                  creates a draft, not a published post.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {dualPlatforms.map((targetPlatform) => (
+                  <article
+                    key={targetPlatform}
+                    className="rounded-xl border border-slate-200 bg-white p-4"
+                  >
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <h5 className="text-sm font-semibold text-slate-900">
+                        {dualPlatformLabels[targetPlatform]}
+                      </h5>
+
+                      {platformDraftSaved[targetPlatform] && (
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                          Draft saved
+                        </span>
+                      )}
+                    </div>
+
+                    <label
+                      htmlFor={`studio-${targetPlatform}-caption`}
+                      className="mb-2 block text-sm font-medium text-slate-700"
+                    >
+                      {dualPlatformLabels[targetPlatform]} caption
+                    </label>
+
+                    <textarea
+                      id={`studio-${targetPlatform}-caption`}
+                      value={platformCaptions[targetPlatform]}
+                      onChange={(event) =>
+                        handlePlatformCaptionChange(
+                          targetPlatform,
+                          event.target.value,
+                        )
+                      }
+                      maxLength={10000}
+                      rows={8}
+                      className="w-full resize-y rounded-xl border border-slate-200 p-3 text-sm leading-6 outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
+                    />
+
+                    <p className="mt-1 text-right text-xs text-slate-400">
+                      {platformCaptions[targetPlatform].length}
+                      /10000 characters
+                    </p>
+
+                    <div className="mt-4 space-y-2">
+                      <label
+                        htmlFor={`studio-${targetPlatform}-revision`}
+                        className="block text-sm font-medium text-slate-700"
+                      >
+                        Revise {dualPlatformLabels[targetPlatform]} caption
+                      </label>
+
+                      <textarea
+                        id={`studio-${targetPlatform}-revision`}
+                        value={platformRevisionInstructions[targetPlatform]}
+                        onChange={(event) => {
+                          const value = event.target.value;
+
+                          setPlatformRevisionInstructions((current) => ({
+                            ...current,
+                            [targetPlatform]: value,
+                          }));
+                        }}
+                        maxLength={500}
+                        rows={3}
+                        placeholder={
+                          targetPlatform === "facebook"
+                            ? "e.g. Make it friendlier and end with a question."
+                            : "e.g. Make it more professional and highlight business value."
+                        }
+                        className="w-full resize-y rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
+                      />
+
+                      <Button
+                        type="button"
+                        disabled={
+                          revisingPlatform !== null ||
+                          generating ||
+                          generatingVariations ||
+                          generatingPlatformCaptions ||
+                          revising ||
+                          savingDraft ||
+                          savingPlatformDraft !== null ||
+                          !platformCaptions[targetPlatform].trim() ||
+                          platformRevisionInstructions[targetPlatform].trim()
+                            .length < 3
+                        }
+                        onClick={() =>
+                          void handleRevisePlatformCaption(targetPlatform)
+                        }
+                        className="w-full rounded-xl border border-violet-200 bg-violet-50 py-3 font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                      >
+                        {revisingPlatform === targetPlatform
+                          ? "Revising caption..."
+                          : `Revise ${dualPlatformLabels[targetPlatform]} Caption`}
+                      </Button>
+                    </div>
+
+                    <Button
+                      type="button"
+                      disabled={
+                        revisingPlatform !== null ||
+                        savingPlatformDraft !== null ||
+                        savingDraft ||
+                        generating ||
+                        generatingVariations ||
+                        generatingPlatformCaptions ||
+                        revising ||
+                        !platformCaptions[targetPlatform].trim() ||
+                        platformDraftSaved[targetPlatform] ||
+                        !selectedWorkspaceId
+                      }
+                      onClick={() =>
+                        void handleSavePlatformDraft(targetPlatform)
+                      }
+                      className="mt-3 w-full rounded-xl bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
+                    >
+                      {savingPlatformDraft === targetPlatform
+                        ? "Saving draft..."
+                        : platformDraftSaved[targetPlatform]
+                          ? "Draft Saved"
+                          : `Save ${dualPlatformLabels[targetPlatform]} Draft`}
+                    </Button>
+                  </article>
+                ))}
+              </div>
+
+              {platformCaptionError && (
+                <p
+                  role="alert"
+                  className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700"
+                >
+                  {platformCaptionError}
+                </p>
+              )}
+
+              {platformCaptionNotice && (
+                <p
+                  role="status"
+                  className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700"
+                >
+                  {platformCaptionNotice}
+                </p>
+              )}
+            </section>
+          )}
 
           {variations.length > 0 && (
             <section
