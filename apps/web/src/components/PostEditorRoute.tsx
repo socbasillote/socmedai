@@ -20,6 +20,12 @@ import {
   type PostPlatform,
 } from "@/lib/posts";
 
+import {
+  parseLocalScheduleDate,
+  toScheduledAtISOString,
+  toLocalDateTimeInputValue,
+} from "@/shared/utils/schedulingDate";
+
 type PostMode = "draft" | "scheduled" | "immediate";
 
 type PostEditorRouteProps = {
@@ -28,11 +34,7 @@ type PostEditorRouteProps = {
 };
 
 function getLocalDateTime(): string {
-  const now = new Date();
-
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-
-  return now.toISOString().slice(0, 16);
+  return toLocalDateTimeInputValue(new Date());
 }
 
 export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
@@ -279,9 +281,9 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           return;
         }
 
-        const scheduledDate = new Date(scheduledAt);
+        const scheduledDate = parseLocalScheduleDate(scheduledAt);
 
-        if (Number.isNaN(scheduledDate.getTime())) {
+        if (!scheduledDate) {
           setError("Enter a valid scheduling date and time.");
           return;
         }
@@ -291,7 +293,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           return;
         }
 
-        scheduledAtIso = scheduledDate.toISOString();
+        scheduledAtIso = toScheduledAtISOString(scheduledDate);
       }
 
       // LinkedIn requires a connected account.

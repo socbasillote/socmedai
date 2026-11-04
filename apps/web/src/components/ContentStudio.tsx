@@ -12,7 +12,18 @@ import {
   type CaptionLength,
   type CaptionTone,
 } from "@/lib/aiContent";
-import { createPost, type Post, type PostPlatform } from "@/lib/posts";
+
+import {
+  createPost,
+  updateDraftPost,
+  type Post,
+  type PostPlatform,
+} from "@/lib/posts";
+
+import {
+  parseLocalScheduleDate,
+  toScheduledAtISOString,
+} from "@/shared/utils/schedulingDate";
 
 const platformOptions: { value: PostPlatform; label: string }[] = [
   { value: "facebook", label: "Facebook" },
@@ -72,6 +83,19 @@ const dualPlatformLabels: Record<DualPlatform, string> = {
 };
 
 const dualPlatforms: DualPlatform[] = ["facebook", "linkedin"];
+
+type SavedPlatformDraft = {
+  postId: string;
+  workspaceId: string;
+  savedCaption: string;
+};
+
+type SavedPlatformDrafts = Record<DualPlatform, SavedPlatformDraft | null>;
+
+const emptySavedPlatformDrafts = (): SavedPlatformDrafts => ({
+  facebook: null,
+  linkedin: null,
+});
 
 export function ContentStudio({
   selectedWorkspaceId,
@@ -155,6 +179,18 @@ export function ContentStudio({
 
   // Prevent concurrent revision requests.
   const platformRevisionLock = useRef(false);
+
+  const [savedPlatformDrafts, setSavedPlatformDrafts] =
+    useState<SavedPlatformDrafts>(emptySavedPlatformDrafts);
+
+  // Synchronously tracks the newest editor text.
+  const latestPlatformCaptionsRef = useRef<DualPlatformCaptions | null>(null);
+
+  // Captures the current workspace even when an
+  // asynchronous save is still running.
+  const activeWorkspaceIdRef = useRef(selectedWorkspaceId);
+
+  activeWorkspaceIdRef.current = selectedWorkspaceId;
 
   async function handleGenerate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -286,13 +322,19 @@ export function ContentStudio({
         return;
       }
 
+      const nextCaptions: DualPlatformCaptions = {
+        facebook: result.captions.facebook,
+        linkedin: result.captions.linkedin,
+      };
+
+      // Replacing generated content invalidates older
+      // revision responses.
       platformCaptionVersions.current.facebook += 1;
       platformCaptionVersions.current.linkedin += 1;
 
-      setPlatformCaptions({
-        facebook: result.captions.facebook,
-        linkedin: result.captions.linkedin,
-      });
+      latestPlatformCaptionsRef.current = nextCaptions;
+
+      setPlatformCaptions(nextCaptions);
 
       setPlatformDraftSaved({
         facebook: false,
@@ -326,6 +368,13 @@ export function ContentStudio({
     // for this particular platform.
     platformCaptionVersions.current[platform] += 1;
 
+    if (latestPlatformCaptionsRef.current) {
+      latestPlatformCaptionsRef.current = {
+        ...latestPlatformCaptionsRef.current,
+        [platform]: value,
+      };
+    }
+
     setPlatformCaptions((current) => {
       if (!current) {
         return current;
@@ -345,6 +394,7 @@ export function ContentStudio({
     setPlatformCaptionError("");
     setPlatformCaptionNotice("");
   }
+
   async function handleRevisePlatformCaption(
     platform: DualPlatform,
   ): Promise<void> {
@@ -407,6 +457,13 @@ export function ContentStudio({
 
       platformCaptionVersions.current[platform] += 1;
 
+      if (latestPlatformCaptionsRef.current) {
+        latestPlatformCaptionsRef.current = {
+          ...latestPlatformCaptionsRef.current,
+          [platform]: revisedCaption,
+        };
+      }
+
       setPlatformCaptions((current) => {
         if (!current) {
           return current;
@@ -442,6 +499,7 @@ export function ContentStudio({
   async function handleSavePlatformDraft(
     platform: DualPlatform,
   ): Promise<void> {
+    // Prevent two saves from starting together.
     if (platformSaveLock.current) {
       return;
     }
@@ -450,57 +508,124 @@ export function ContentStudio({
       return;
     }
 
-    if (platformDraftSaved[platform]) {
-      return;
-    }
+    const workspaceId = selectedWorkspaceId;
 
-    const currentCaptions = platformCaptions;
-    const captionToSave = currentCaptions?.[platform]?.trim() ?? "";
+    const captionToSave = platformCaptions?.[platform]?.trim() ?? "";
 
-    if (!selectedWorkspaceId) {
+    const existingDraft = savedPlatformDrafts[platform];
+
+    if (!workspaceId) {
       setPlatformCaptionError("Select a workspace before saving.");
       return;
     }
 
     if (!captionToSave) {
       setPlatformCaptionError(
-        `Enter a ${dualPlatformLabels[platform]} caption before saving.`,
+        `Enter a ${dualPlatformLabels[platform]} caption.`,
+      );
+      return;
+    }
+
+    if (existingDraft && existingDraft.workspaceId !== workspaceId) {
+      setPlatformCaptionError(
+        "This draft belongs to another workspace. " +
+          "Switch back before saving.",
+      );
+      return;
+    }
+
+    // No API request when content is unchanged.
+    if (existingDraft && existingDraft.savedCaption === captionToSave) {
+      setPlatformCaptionNotice(
+        `${dualPlatformLabels[platform]} is already saved.`,
       );
       return;
     }
 
     if (
-      generatingPlatformCaptions ||
-      savingDraft ||
       generating ||
       generatingVariations ||
-      revising
+      generatingPlatformCaptions ||
+      revising ||
+      revisingPlatform !== null ||
+      savingDraft ||
+      savingPlatformDraft !== null
     ) {
       return;
     }
 
+    // Synchronous lock prevents double-click races.
     platformSaveLock.current = true;
     setSavingPlatformDraft(platform);
 
     setPlatformCaptionError("");
     setPlatformCaptionNotice("");
 
-    try {
-      const post = await createPost({
-        workspaceId: selectedWorkspaceId,
-        caption: captionToSave,
-        platforms: [platform],
-      });
+    // Remember the exact editor version submitted.
+    const versionAtSave = platformCaptionVersions.current[platform];
 
-      onPostSaved(post);
+    try {
+      let savedPost: Post;
+
+      if (existingDraft) {
+        // UPDATE: preserve the existing MongoDB _id.
+        savedPost = await updateDraftPost(existingDraft.postId, {
+          caption: captionToSave,
+        });
+      } else {
+        // CREATE: only on the first save.
+        savedPost = await createPost({
+          workspaceId,
+          caption: captionToSave,
+          platforms: [platform],
+        });
+      }
+
+      // A workspace switch must not make an old
+      // response appear saved in the new workspace.
+      if (activeWorkspaceIdRef.current !== workspaceId) {
+        return;
+      }
+
+      setSavedPlatformDrafts((current) => ({
+        ...current,
+        [platform]: {
+          postId: savedPost._id,
+          workspaceId,
+          savedCaption: captionToSave,
+        },
+      }));
+
+      // Only show "Saved" if the current editor text
+      // still matches what was submitted.
+      const currentCaption =
+        latestPlatformCaptionsRef.current?.[platform]?.trim() ?? "";
+
+      const editorIsUnchanged =
+        platformCaptionVersions.current[platform] === versionAtSave &&
+        currentCaption === captionToSave;
 
       setPlatformDraftSaved((current) => ({
         ...current,
-        [platform]: true,
+        [platform]: editorIsUnchanged,
       }));
 
+      // The parent callback is needed for new posts.
+      // Its current behavior may append records,
+      // so don't call it for updates until the parent
+      // supports replacing posts by _id.
+      if (!existingDraft) {
+        onPostSaved(savedPost);
+      }
+
       setPlatformCaptionNotice(
-        `${dualPlatformLabels[platform]} draft saved successfully.`,
+        editorIsUnchanged
+          ? `${dualPlatformLabels[platform]} draft ${
+              existingDraft ? "updated" : "created"
+            } successfully.`
+          : `${dualPlatformLabels[platform]} draft saved, ` +
+              "but the editor has newer changes. " +
+              "Save again to include them.",
       );
     } catch (error) {
       setPlatformCaptionError(
@@ -594,17 +719,14 @@ export function ContentStudio({
         return;
       }
 
-      const scheduledDate = new Date(scheduledAt);
+      const scheduledDate = parseLocalScheduleDate(scheduledAt);
 
-      if (
-        Number.isNaN(scheduledDate.getTime()) ||
-        scheduledDate.getTime() <= Date.now()
-      ) {
+      if (!scheduledDate || scheduledDate.getTime() <= Date.now()) {
         setError("Select a valid future publishing date and time.");
         return;
       }
 
-      scheduledAtISO = scheduledDate.toISOString();
+      scheduledAtISO = toScheduledAtISOString(scheduledDate);
     }
 
     setSavingDraft(true);
@@ -1063,8 +1185,8 @@ export function ContentStudio({
                     <Button
                       type="button"
                       disabled={
-                        revisingPlatform !== null ||
                         savingPlatformDraft !== null ||
+                        revisingPlatform !== null ||
                         savingDraft ||
                         generating ||
                         generatingVariations ||
@@ -1072,7 +1194,10 @@ export function ContentStudio({
                         revising ||
                         !platformCaptions[targetPlatform].trim() ||
                         platformDraftSaved[targetPlatform] ||
-                        !selectedWorkspaceId
+                        !selectedWorkspaceId ||
+                        (savedPlatformDrafts[targetPlatform] !== null &&
+                          savedPlatformDrafts[targetPlatform]?.workspaceId !==
+                            selectedWorkspaceId)
                       }
                       onClick={() =>
                         void handleSavePlatformDraft(targetPlatform)
@@ -1083,7 +1208,9 @@ export function ContentStudio({
                         ? "Saving draft..."
                         : platformDraftSaved[targetPlatform]
                           ? "Draft Saved"
-                          : `Save ${dualPlatformLabels[targetPlatform]} Draft`}
+                          : savedPlatformDrafts[targetPlatform]
+                            ? `Update ${dualPlatformLabels[targetPlatform]} Draft`
+                            : `Save ${dualPlatformLabels[targetPlatform]} Draft`}
                     </Button>
                   </article>
                 ))}
