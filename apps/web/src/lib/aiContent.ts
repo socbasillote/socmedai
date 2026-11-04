@@ -30,6 +30,17 @@ type GenerateCaptionResponse = {
   caption: string;
 };
 
+export type CaptionVariationStyle = "engaging" | "informative" | "concise";
+
+export type CaptionVariation = {
+  style: CaptionVariationStyle;
+  caption: string;
+};
+
+export type CaptionVariationsResponse = {
+  variations: CaptionVariation[];
+};
+
 export async function generateCaption(
   input: GenerateCaptionInput,
 ): Promise<string> {
@@ -56,4 +67,23 @@ export async function reviseCaption(
   );
 
   return response.caption;
+}
+
+/**
+ * Requests three AI caption alternatives.
+ *
+ * Uses the existing authenticated apiFetch client.
+ */
+export async function generateCaptionVariations(
+  input: GenerateCaptionInput,
+): Promise<CaptionVariation[]> {
+  const response = await apiFetch<CaptionVariationsResponse>(
+    "/api/ai/generate-caption-variations",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+
+  return response.variations;
 }

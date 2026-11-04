@@ -662,7 +662,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
   const publishingPlatformLabel =
     selectedPlatforms[0] === "facebook" ? "Facebook" : "LinkedIn";
-
+  /* 
   const selectedFacebookPage = facebookConnections.find(
     (connection) => connection.id === selectedFacebookConnectionId,
   );
@@ -670,7 +670,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   const publishingAccountName =
     selectedPlatforms[0] === "facebook"
       ? selectedFacebookPage?.pageName || "Connected Facebook Page"
-      : linkedInDisplayName || "Connected LinkedIn account";
+      : linkedInDisplayName || "Connected LinkedIn account"; */
 
   const editorContent = loadingPost ? (
     <div

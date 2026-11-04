@@ -1,10 +1,13 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Sparkles, WandSparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
   generateCaption,
+  generateCaptionVariations,
   reviseCaption,
+  type CaptionVariation,
+  type CaptionVariationStyle,
   type CaptionLength,
   type CaptionTone,
 } from "@/lib/aiContent";
@@ -30,6 +33,19 @@ const lengthOptions: { value: CaptionLength; label: string }[] = [
   { value: "medium", label: "Medium" },
   { value: "long", label: "Long" },
 ];
+
+const variationLabels: Record<CaptionVariationStyle, string> = {
+  engaging: "Engaging",
+  informative: "Informative",
+  concise: "Concise",
+};
+
+const variationDescriptions: Record<CaptionVariationStyle, string> = {
+  engaging: "Designed to start conversations and encourage interaction.",
+  informative:
+    "Focused on clarity, useful details, and explaining your message.",
+  concise: "A shorter, direct approach with a memorable message.",
+};
 
 type ContentStudioProps = {
   selectedWorkspaceId: string;
@@ -69,6 +85,17 @@ export function ContentStudio({
 
   const [scheduledAt, setScheduledAt] = useState("");
 
+  const [variations, setVariations] = useState<CaptionVariation[]>([]);
+
+  const [generatingVariations, setGeneratingVariations] = useState(false);
+
+  const [selectedVariationStyle, setSelectedVariationStyle] =
+    useState<CaptionVariationStyle | null>(null);
+
+  // Invalidates an unfinished request when the user
+  // changes generation settings or starts another request.
+  const variationRequestId = useRef(0);
+
   async function handleGenerate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -76,6 +103,8 @@ export function ContentStudio({
       setError("Enter a brief with at least 3 characters.");
       return;
     }
+
+    clearCaptionVariations();
 
     setGenerating(true);
     setError("");
@@ -102,6 +131,76 @@ export function ContentStudio({
     } finally {
       setGenerating(false);
     }
+  }
+
+  async function handleGenerateVariations(): Promise<void> {
+    if (brief.trim().length < 3) {
+      setError("Enter a brief with at least 3 characters.");
+      return;
+    }
+
+    if (generating || generatingVariations || revising) {
+      return;
+    }
+
+    const requestId = ++variationRequestId.current;
+
+    setGeneratingVariations(true);
+    setVariations([]);
+    setSelectedVariationStyle(null);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await generateCaptionVariations({
+        brief: brief.trim(),
+        platform,
+        tone,
+        audience: audience.trim() || "General audience",
+        callToAction: callToAction.trim(),
+        length,
+      });
+
+      // Ignore a response if settings changed
+      // while the request was in progress.
+      if (variationRequestId.current !== requestId) {
+        return;
+      }
+
+      setVariations(result);
+
+      setNotice(
+        "Three caption suggestions generated. " +
+          "Choose one to use in the editor.",
+      );
+    } catch (err) {
+      if (variationRequestId.current !== requestId) {
+        return;
+      }
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to generate caption variations.",
+      );
+    } finally {
+      setGeneratingVariations(false);
+    }
+  }
+
+  function handleUseVariation(variation: CaptionVariation): void {
+    if (generating || generatingVariations || revising) {
+      return;
+    }
+
+    setCaption(variation.caption);
+    setSelectedVariationStyle(variation.style);
+
+    setError("");
+    setNotice(
+      `${variationLabels[variation.style]} caption selected. ` +
+        "Review and edit it before saving.",
+    );
   }
 
   async function handleReviseCaption() {
@@ -226,6 +325,12 @@ export function ContentStudio({
     }
   }
 
+  function clearCaptionVariations(): void {
+    variationRequestId.current += 1;
+    setVariations([]);
+    setSelectedVariationStyle(null);
+  }
+
   return (
     <section className="space-y-6">
       <header>
@@ -266,7 +371,10 @@ export function ContentStudio({
             <textarea
               id="studio-brief"
               value={brief}
-              onChange={(event) => setBrief(event.target.value)}
+              onChange={(event) => {
+                setBrief(event.target.value);
+                clearCaptionVariations();
+              }}
               maxLength={3000}
               rows={6}
               required
@@ -289,9 +397,10 @@ export function ContentStudio({
             <select
               id="studio-platform"
               value={platform}
-              onChange={(event) =>
-                setPlatform(event.target.value as PostPlatform)
-              }
+              onChange={(event) => {
+                setPlatform(event.target.value as PostPlatform);
+                clearCaptionVariations();
+              }}
               className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
             >
               {platformOptions.map((option) => (
@@ -345,7 +454,10 @@ export function ContentStudio({
             <select
               id="studio-tone"
               value={tone}
-              onChange={(event) => setTone(event.target.value as CaptionTone)}
+              onChange={(event) => {
+                setTone(event.target.value as CaptionTone);
+                clearCaptionVariations();
+              }}
               className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
             >
               {toneOptions.map((option) => (
@@ -366,7 +478,10 @@ export function ContentStudio({
             <input
               id="studio-audience"
               value={audience}
-              onChange={(event) => setAudience(event.target.value)}
+              onChange={(event) => {
+                setAudience(event.target.value);
+                clearCaptionVariations();
+              }}
               maxLength={500}
               placeholder="e.g. Small business owners"
               className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
@@ -383,7 +498,10 @@ export function ContentStudio({
             <input
               id="studio-cta"
               value={callToAction}
-              onChange={(event) => setCallToAction(event.target.value)}
+              onChange={(event) => {
+                setCallToAction(event.target.value);
+                clearCaptionVariations();
+              }}
               maxLength={300}
               placeholder="e.g. Explore the collection"
               className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
@@ -400,9 +518,10 @@ export function ContentStudio({
             <select
               id="studio-length"
               value={length}
-              onChange={(event) =>
-                setLength(event.target.value as CaptionLength)
-              }
+              onChange={(event) => {
+                setLength(event.target.value as CaptionLength);
+                clearCaptionVariations();
+              }}
               className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
             >
               {lengthOptions.map((option) => (
@@ -415,11 +534,33 @@ export function ContentStudio({
 
           <Button
             type="submit"
-            disabled={generating || brief.trim().length < 3}
+            disabled={
+              generating ||
+              generatingVariations ||
+              revising ||
+              brief.trim().length < 3
+            }
             className="w-full rounded-xl bg-violet-600 py-3 font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
           >
             <WandSparkles size={17} />
             {generating ? "Generating caption..." : "Generate caption"}
+          </Button>
+
+          <Button
+            type="button"
+            disabled={
+              generating ||
+              generatingVariations ||
+              revising ||
+              brief.trim().length < 3
+            }
+            onClick={() => void handleGenerateVariations()}
+            className="w-full rounded-xl border border-violet-200 bg-violet-50 py-3 font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+          >
+            <Sparkles size={17} />
+            {generatingVariations
+              ? "Generating 3 variations..."
+              : "Generate 3 Variations"}
           </Button>
         </section>
 
@@ -442,6 +583,77 @@ export function ContentStudio({
             </span>
           </div>
 
+          {variations.length > 0 && (
+            <section
+              aria-label="AI caption suggestions"
+              className="mb-6 space-y-3"
+            >
+              <div>
+                <h4 className="text-sm font-semibold text-slate-900">
+                  AI Caption Suggestions
+                </h4>
+
+                <p className="mt-1 text-xs text-slate-500">
+                  Review the alternatives and select one to edit. Selecting a
+                  caption will replace the current editor text.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                {variations.map((variation) => {
+                  const selected = selectedVariationStyle === variation.style;
+
+                  return (
+                    <article
+                      key={variation.style}
+                      className={`rounded-xl border p-4 transition ${
+                        selected
+                          ? "border-violet-400 bg-violet-50"
+                          : "border-slate-200 bg-white"
+                      }`}
+                    >
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <h5 className="text-sm font-semibold text-slate-900">
+                          {variationLabels[variation.style]}
+                        </h5>
+
+                        {selected && (
+                          <span className="rounded-full bg-violet-100 px-2 py-1 text-xs font-semibold text-violet-700">
+                            Selected
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="mb-3 text-xs text-slate-500">
+                        {variationDescriptions[variation.style]}
+                      </p>
+
+                      <p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+                        {variation.caption}
+                      </p>
+
+                      <Button
+                        type="button"
+                        disabled={
+                          generating ||
+                          generatingVariations ||
+                          revising ||
+                          savingDraft
+                        }
+                        onClick={() => handleUseVariation(variation)}
+                        className="mt-4 w-full rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
+                      >
+                        {selected
+                          ? "Use This Caption Again"
+                          : "Use This Caption"}
+                      </Button>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
           <label
             htmlFor="studio-caption"
             className="mb-2 block text-sm font-medium text-slate-700"
@@ -453,6 +665,7 @@ export function ContentStudio({
             value={caption}
             onChange={(event) => {
               setCaption(event.target.value);
+              setSelectedVariationStyle(null);
               setNotice("");
             }}
             maxLength={10000}

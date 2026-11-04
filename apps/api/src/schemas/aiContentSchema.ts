@@ -56,3 +56,55 @@ export const reviseCaptionSchema = z
   .strict();
 
 export type ReviseCaptionInput = z.infer<typeof reviseCaptionSchema>;
+
+/**
+ * One response containing exactly three distinct
+ * AI-generated caption suggestions.
+ *
+ * Reuses the existing validated generation input.
+ */
+export const generateCaptionVariationsSchema = generateCaptionSchema;
+
+export const captionVariationsResponseSchema = z
+  .object({
+    variations: z
+      .array(
+        z
+          .object({
+            style: z.enum(["engaging", "informative", "concise"]),
+            caption: z.string().trim().min(1).max(10000),
+          })
+          .strict(),
+      )
+      .length(3),
+  })
+  .strict()
+  .superRefine((data, context) => {
+    const styles = data.variations.map((variation) => variation.style);
+
+    if (new Set(styles).size !== 3) {
+      context.addIssue({
+        code: "custom",
+        message: "Each caption style must be unique.",
+      });
+    }
+
+    const captions = data.variations.map((variation) =>
+      variation.caption.trim().toLowerCase(),
+    );
+
+    if (new Set(captions).size !== 3) {
+      context.addIssue({
+        code: "custom",
+        message: "Captions must not be identical.",
+      });
+    }
+  });
+
+export type GenerateCaptionVariationsInput = z.infer<
+  typeof generateCaptionVariationsSchema
+>;
+
+export type CaptionVariationsResponse = z.infer<
+  typeof captionVariationsResponseSchema
+>;
