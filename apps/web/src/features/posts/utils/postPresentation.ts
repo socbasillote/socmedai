@@ -2,6 +2,12 @@ import type { Post } from "@/lib/posts";
 
 import type { RecentPostItem } from "@/components/RecentPostsList";
 
+import { formatLocalDateTime } from "@/shared/utils/dateFormat";
+
+import {
+  getPostStatusLabel,
+  getPostStatusColor,
+} from "@/features/posts/utils/postStatusPresentation";
 /**
  * Pure presentation utility.
  *
@@ -15,25 +21,17 @@ export function toRecentPostItem(post: Post): RecentPostItem {
 
   const displayDate = isScheduled ? post.scheduledAt : post.createdAt;
 
-  const color =
-    post.status === "failed"
-      ? "bg-rose-100 text-rose-700"
-      : post.status === "published"
-        ? "bg-emerald-100 text-emerald-700"
-        : post.status === "scheduled"
-          ? "bg-blue-100 text-blue-700"
-          : "bg-violet-100 text-violet-700";
-
   return {
     id: post._id,
     title: post.title || post.caption,
     platform: post.platforms.join(", "),
     date: displayDate
-      ? new Date(displayDate).toLocaleString()
+      ? formatLocalDateTime(new Date(displayDate))
       : "Date unavailable",
-    status: post.status.charAt(0).toUpperCase() + post.status.slice(1),
+
+    status: getPostStatusLabel(post.status),
     lastError: post.lastError,
-    color,
+    color: getPostStatusColor(post.status),
     initials: "DR",
   };
 }

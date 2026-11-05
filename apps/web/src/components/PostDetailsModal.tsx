@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { X } from "lucide-react";
 
 import type { Post } from "@/lib/posts";
+import { formatLocalDateTime } from "@/shared/utils/dateFormat";
 
 type PostDetailsModalProps = {
   post: Post;
@@ -17,7 +18,7 @@ function formatDate(value?: string): string {
     return "Invalid date";
   }
 
-  return date.toLocaleString();
+  return formatLocalDateTime(date);
 }
 
 function formatStatus(status: Post["status"]): string {

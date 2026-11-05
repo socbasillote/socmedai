@@ -6,6 +6,8 @@ import { useFacebookOAuthCallback } from "@/features/connections/facebook/hooks/
 
 import { storeWorkspaceId } from "@/lib/workspaceSelection";
 
+import { ContentPlannerPage } from "@/pages/ContentPlannerPage";
+
 import { useDashboardFacebookConnection } from "@/features/connections/facebook/hooks/useDashboardFacebookConnection";
 import { useDashboardLinkedInConnection } from "@/features/connections/linkedin/hooks/useDashboardLinkedInConnection";
 import { useDashboardWorkspace } from "@/features/workspaces/hooks/useDashboardWorkspace";
@@ -231,6 +233,8 @@ export default function DashboardPage() {
               setNotice(`Selected post: ${postTitle}`);
             }}
           />
+        ) : activePage === "Content calendar" ? (
+          <ContentPlannerPage />
         ) : (
           <DashboardPlaceholderView
             activePage={activePage}
