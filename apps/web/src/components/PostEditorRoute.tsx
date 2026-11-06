@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+
+import { getPlannerSchedulePrefill } from "@/features/content-planner/utils/plannerDatePrefill";
 
 import { PostEditorPage } from "@/components/PostEditorPage";
 import { PostEditorForm } from "@/components/PostEditorForm";
@@ -26,6 +28,8 @@ import {
   toLocalDateTimeInputValue,
 } from "@/shared/utils/schedulingDate";
 
+import { getPlannerReturnUrl } from "@/features/content-planner/utils/plannerNavigation";
+
 type PostMode = "draft" | "scheduled" | "immediate";
 
 type PostEditorRouteProps = {
@@ -39,6 +43,18 @@ function getLocalDateTime(): string {
 
 export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   const navigate = useNavigate();
+
+  const location = useLocation();
+
+  const plannerReturnUrl =
+    mode === "create" ? getPlannerReturnUrl(location.search) : null;
+
+  const plannerScheduledAt =
+    mode === "create"
+      ? getPlannerSchedulePrefill(
+          new URLSearchParams(location.search).get("date"),
+        )
+      : null;
 
   const { workspaces, selectedWorkspaceId, workspacesLoading, workspaceError } =
     useWorkspaces();
@@ -77,8 +93,13 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   ]);
 
   // Publishing options
-  const [postMode, setPostMode] = useState<PostMode>("draft");
-  const [scheduledAt, setScheduledAt] = useState("");
+  const [postMode, setPostMode] = useState<PostMode>(() =>
+    plannerScheduledAt ? "scheduled" : "draft",
+  );
+
+  const [scheduledAt, setScheduledAt] = useState<string>(
+    () => plannerScheduledAt ?? "",
+  );
 
   // Existing post loading
   const [loadingPost, setLoadingPost] = useState(mode === "edit");
@@ -327,7 +348,9 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           },
         });
 
-        navigate("/posts");
+        navigate(plannerReturnUrl ?? "/posts", {
+          replace: true,
+        });
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to create the draft.",
@@ -659,7 +682,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       return;
     }
 
-    navigate("/posts");
+    navigate(plannerReturnUrl ?? "/posts");
   }
 
   const publishingPlatformLabel =

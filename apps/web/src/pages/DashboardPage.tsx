@@ -234,7 +234,7 @@ export default function DashboardPage() {
             }}
           />
         ) : activePage === "Content calendar" ? (
-          <ContentPlannerPage />
+          <ContentPlannerPage workspaceId={selectedWorkspaceId} />
         ) : (
           <DashboardPlaceholderView
             activePage={activePage}

@@ -14,6 +14,10 @@ import {
   LinkedInConnectionSelectionError,
 } from "./linkedin/linkedinConnectionSelectionService.js";
 
+import { findAuthorizedCalendarPosts } from "./calendarPostService.js";
+
+import type { CalendarQuery } from "../schemas/calendarQuerySchema.js";
+
 export class PostServiceError extends Error {
   statusCode: number;
 
@@ -645,4 +649,26 @@ export async function updateWorkspaceDraft(
   }
 
   return updatedPost;
+}
+
+/**
+ * List calendar posts for an authorized workspace.
+ *
+ * Reuses Storm's existing workspace authorization.
+ */
+export async function listWorkspaceCalendarPosts(
+  authUser: AuthenticatedUser,
+  workspaceId: string,
+  range: CalendarQuery,
+) {
+  const authorization = await getAuthorizedWorkspace(authUser, workspaceId);
+
+  if (!authorization) {
+    throw new PostServiceError("Workspace not found.", 404);
+  }
+
+  return findAuthorizedCalendarPosts(
+    String(authorization.workspace._id),
+    range,
+  );
 }

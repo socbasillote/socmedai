@@ -1,9 +1,27 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
-import { CalendarDays, Clock3, FileText, List, Plus } from "lucide-react";
+import { CalendarDays, Clock3, List, Plus } from "lucide-react";
+
+import { useContentPlanner } from "@/features/content-planner/hooks/useContentPlanner";
+
+import { CalendarMonthView } from "@/features/content-planner/components/CalendarMonthView";
+import { PlannerPostListView } from "@/features/content-planner/components/PlannerPostListView";
+
+import type { Post } from "@/lib/posts";
+
+import { PostDetailsModal } from "@/components/PostDetailsModal";
+
+import {
+  buildPlannerCreatePostUrl,
+  parsePlannerMonth,
+} from "@/features/content-planner/utils/plannerNavigation";
 
 type PlannerView = "calendar" | "scheduled" | "all";
+
+type ContentPlannerPageProps = {
+  workspaceId: string;
+};
 
 const plannerViews: {
   id: PlannerView;
@@ -27,8 +45,35 @@ const plannerViews: {
   },
 ];
 
-export function ContentPlannerPage() {
+export function ContentPlannerPage({ workspaceId }: ContentPlannerPageProps) {
   const [view, setView] = useState<PlannerView>("calendar");
+
+  const location = useLocation();
+
+  const initialMonth = parsePlannerMonth(
+    new URLSearchParams(location.search).get("month"),
+  );
+
+  const planner = useContentPlanner(workspaceId, initialMonth);
+  const navigate = useNavigate();
+
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+
+  useEffect(() => {
+    setSelectedPost(null);
+  }, [workspaceId]);
+
+  const visibleSelectedPost =
+    selectedPost?.workspaceId === workspaceId ? selectedPost : null;
+
+  const plannerMonth = {
+    year: planner.year,
+    monthIndex: planner.monthIndex,
+  };
+
+  function handleCreateForDate(dateKey: string) {
+    navigate(buildPlannerCreatePostUrl(plannerMonth, dateKey));
+  }
 
   return (
     <main className="min-h-screen bg-slate-50 p-4 text-slate-900 sm:p-6">
@@ -50,14 +95,32 @@ export function ContentPlannerPage() {
             </div>
           </div>
 
-          <Link
-            to="/posts"
-            className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
-          >
-            <Plus size={17} />
-            Manage Posts
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/posts"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Manage Posts
+            </Link>
+
+            <Link
+              to={buildPlannerCreatePostUrl(plannerMonth)}
+              className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+            >
+              <Plus size={17} />
+              Create Post
+            </Link>
+          </div>
         </header>
+
+        {!workspaceId && (
+          <p
+            role="status"
+            className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"
+          >
+            Select a workspace to view its content calendar.
+          </p>
+        )}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <div
@@ -100,42 +163,52 @@ export function ContentPlannerPage() {
             className="min-h-[360px] py-8"
           >
             {view === "calendar" && (
-              <PlannerEmptyState
-                icon={CalendarDays}
-                title="Content Calendar"
-                description={
-                  "Your monthly and weekly publishing calendar will appear here."
-                }
+              <CalendarMonthView
+                year={planner.year}
+                monthIndex={planner.monthIndex}
+                posts={planner.posts}
+                loading={planner.loading}
+                error={planner.error}
+                onPreviousMonth={planner.goToPreviousMonth}
+                onNextMonth={planner.goToNextMonth}
+                onToday={planner.goToCurrentMonth}
+                onRetry={planner.refreshCalendar}
+                onViewPost={setSelectedPost}
+                onCreateForDate={handleCreateForDate}
               />
             )}
 
             {view === "scheduled" && (
-              <PlannerEmptyState
-                icon={Clock3}
-                title="Scheduled Posts"
-                description={
-                  "Review upcoming posts and publishing times in one place."
-                }
+              <PlannerPostListView
+                key={`${workspaceId}:scheduled`}
+                workspaceId={workspaceId}
+                mode="scheduled"
+                onViewPost={setSelectedPost}
               />
             )}
 
             {view === "all" && (
-              <PlannerEmptyState
-                icon={FileText}
-                title="All Posts"
-                description={
-                  "Browse drafts, scheduled posts, published posts, and failures."
-                }
+              <PlannerPostListView
+                key={`${workspaceId}:all`}
+                workspaceId={workspaceId}
+                mode="all"
+                onViewPost={setSelectedPost}
               />
             )}
           </div>
         </section>
+        {visibleSelectedPost && (
+          <PostDetailsModal
+            post={visibleSelectedPost}
+            onClose={() => setSelectedPost(null)}
+          />
+        )}
       </div>
     </main>
   );
 }
 
-type PlannerEmptyStateProps = {
+/* type PlannerEmptyStateProps = {
   icon: typeof CalendarDays;
   title: string;
   description: string;
@@ -164,3 +237,4 @@ function PlannerEmptyState({
     </div>
   );
 }
+ */

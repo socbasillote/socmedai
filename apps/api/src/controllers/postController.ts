@@ -21,6 +21,12 @@ import {
   PostServiceError,
 } from "../services/postService.js";
 
+import { calendarQuerySchema } from "../schemas/calendarQuerySchema.js";
+
+import { listWorkspaceCalendarPosts } from "../services/postService.js";
+
+import { CalendarPostServiceError } from "../services/calendarPostService.js";
+
 function getAuthenticatedUser(
   res: Parameters<RequestHandler>[1],
 ): AuthenticatedUser {
@@ -107,6 +113,61 @@ export const listPostsByWorkspace: RequestHandler = async (req, res, next) => {
           error.statusCode === 400
             ? "Invalid post cursor."
             : "Workspace not found",
+      });
+      return;
+    }
+
+    next(error);
+  }
+};
+
+export const listCalendarPostsByWorkspace: RequestHandler = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const workspaceId = req.params.workspaceId;
+
+    if (typeof workspaceId !== "string") {
+      res.status(404).json({
+        error: "Workspace not found",
+      });
+      return;
+    }
+
+    const parsed = calendarQuerySchema.safeParse(req.query);
+
+    if (!parsed.success) {
+      res.status(400).json({
+        error: "Invalid calendar parameters.",
+        details: parsed.error.issues,
+      });
+      return;
+    }
+
+    const authUser = getAuthenticatedUser(res);
+
+    const result = await listWorkspaceCalendarPosts(
+      authUser,
+      workspaceId,
+      parsed.data,
+    );
+
+    res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof PostServiceError) {
+      res.status(error.statusCode).json({
+        error: "Workspace not found",
+        message: error.message,
+      });
+      return;
+    }
+
+    if (error instanceof CalendarPostServiceError) {
+      res.status(error.statusCode).json({
+        error: "Calendar query failed",
+        message: error.message,
       });
       return;
     }
