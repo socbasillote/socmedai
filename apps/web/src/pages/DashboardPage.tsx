@@ -30,6 +30,8 @@ import { DashboardPostsView } from "@/features/posts/components/DashboardPostsVi
 
 import { DashboardOverlays } from "@/features/dashboard/components/DashboardOverlays";
 
+import { ImageStudio } from "@/features/image-studio/components/ImageStudio";
+
 export default function DashboardPage() {
   const navigate = useNavigate();
 
@@ -235,6 +237,11 @@ export default function DashboardPage() {
           />
         ) : activePage === "Content calendar" ? (
           <ContentPlannerPage workspaceId={selectedWorkspaceId} />
+        ) : activePage === "Media library" ? (
+          <ImageStudio
+            key={selectedWorkspaceId ?? "no-workspace"}
+            selectedWorkspaceId={selectedWorkspaceId}
+          />
         ) : (
           <DashboardPlaceholderView
             activePage={activePage}
