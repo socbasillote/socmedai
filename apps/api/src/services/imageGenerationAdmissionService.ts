@@ -20,7 +20,13 @@ import { fingerprintImageGeneration } from "./mediaGenerationClaimService.js";
 
 import type { AuthenticatedUser } from "./userProfileService.js";
 
+import CreditTransaction from "../models/CreditTransaction.js";
+
 export const IMAGE_CREDIT_COST = 1;
+
+export type ImageAdmissionFaultInjection = {
+  beforeDebitLedgerInsert?: () => void;
+};
 
 export class ImageAdmissionError extends Error {
   constructor(
@@ -45,6 +51,7 @@ type AdmissionInput = {
     dailyLimit: number;
     maxActive: number;
   };
+  faultInjection?: ImageAdmissionFaultInjection;
 };
 
 const KEY_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
@@ -179,8 +186,10 @@ export async function admitImageGeneration(input: AdmissionInput) {
    * Never retry a paid provider request here.
    */
   for (let attempt = 0; attempt < 5; attempt++) {
+    const session = await mongoose.startSession();
+
     try {
-      const result = await mongoose.connection.transaction(async (session) => {
+      const result = await session.withTransaction(async () => {
         const profile = await UserProfile.findOne({
           supabaseUserId: input.authUser.id,
         })
@@ -258,7 +267,7 @@ export async function admitImageGeneration(input: AdmissionInput) {
           { upsert: true, session },
         );
 
-        const charged = await UserCreditWallet.updateOne(
+        const charged = await UserCreditWallet.findOneAndUpdate(
           {
             userId: profile._id,
             balance: {
@@ -270,10 +279,14 @@ export async function admitImageGeneration(input: AdmissionInput) {
               balance: -IMAGE_CREDIT_COST,
             },
           },
-          { session },
+          {
+            returnDocument: "after",
+            session,
+            runValidators: true,
+          },
         );
 
-        if (charged.modifiedCount !== 1) {
+        if (!charged) {
           throw new ImageAdmissionError("Insufficient credits.", 402);
         }
 
@@ -354,6 +367,28 @@ export async function admitImageGeneration(input: AdmissionInput) {
           { session },
         );
 
+        input.faultInjection?.beforeDebitLedgerInsert?.();
+
+        await CreditTransaction.create(
+          [
+            {
+              userId: profile._id,
+              assetId: asset._id,
+
+              eventKey: `debit:${String(asset._id)}`,
+
+              type: "image_debit",
+
+              amount: -IMAGE_CREDIT_COST,
+
+              balanceAfter: charged.balance,
+
+              reason: "image_generation",
+            },
+          ],
+          { session },
+        );
+
         return {
           asset,
           created: true,
@@ -378,6 +413,8 @@ export async function admitImageGeneration(input: AdmissionInput) {
       }
 
       throw error;
+    } finally {
+      await session.endSession();
     }
   }
 

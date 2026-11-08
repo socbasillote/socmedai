@@ -4,16 +4,12 @@ import { imageGenerationCommandSchema } from "../schemas/imageGenerationCommandS
 
 import { getImageGenerationConfig } from "../config/imageGenerationConfig.js";
 
-import { createImageProvider } from "../services/media/providers/imageProviderFactory.js";
-
-import { submitImageGeneration } from "../services/imageGenerationOrchestrationService.js";
+import { enqueueImageGeneration } from "../services/imageGenerationQueueService.js";
 
 import {
   getImageGenerationCredits,
   getImageGenerationStatus,
 } from "../services/imageGenerationApiQueryService.js";
-
-import { getPrivateImageBucket } from "../services/media/supabaseImageStorage.js";
 
 import type { AuthenticatedUser } from "../services/userProfileService.js";
 
@@ -96,6 +92,8 @@ export const generateWorkspaceImageController: RequestHandler = async (
   try {
     const config = getImageGenerationConfig();
 
+    // Preserve the development-only HTTP gate
+    // from Step 12.2.5.
     assertMockHttpEnabled();
 
     if (config.IMAGE_GENERATION_PROVIDER !== "mock") {
@@ -105,20 +103,8 @@ export const generateWorkspaceImageController: RequestHandler = async (
       return;
     }
 
-    const parsed = imageGenerationCommandSchema.safeParse({
-      workspaceId: routeParam(req.params.workspaceId),
-      idempotencyKey: req.body?.idempotencyKey,
-      image: req.body?.image,
-    });
-
-    if (!parsed.success) {
-      res.status(400).json({
-        error: "Invalid image generation request.",
-      });
-      return;
-    }
-
-    // Strictly reject unexpected body fields.
+    // The request body may only contain
+    // idempotencyKey and image.
     if (
       !req.body ||
       typeof req.body !== "object" ||
@@ -133,23 +119,36 @@ export const generateWorkspaceImageController: RequestHandler = async (
       return;
     }
 
-    const provider = createImageProvider(config);
+    const parsed = imageGenerationCommandSchema.safeParse({
+      workspaceId: routeParam(req.params.workspaceId),
+      idempotencyKey: req.body.idempotencyKey,
+      image: req.body.image,
+    });
 
-    const generated = await submitImageGeneration({
+    if (!parsed.success) {
+      res.status(400).json({
+        error: "Invalid image generation request.",
+      });
+      return;
+    }
+
+    const queued = await enqueueImageGeneration({
       authUser: res.locals.authUser as AuthenticatedUser,
       command: parsed.data,
       config,
-      provider,
-      bucket: getPrivateImageBucket(),
     });
 
-    // Explicit public DTO:
-    // never spread the internal result.
-    res.status(generated.created ? 201 : 200).json({
-      assetId: generated.assetId,
-      status: generated.status,
-      created: generated.created,
-      creditsChargedNow: generated.creditsChargedNow,
+    // HTTP 202 means the operation has been
+    // accepted but is not necessarily complete.
+    //
+    // Identical retries return HTTP 200.
+    res.setHeader("Cache-Control", "no-store");
+
+    res.status(queued.created ? 202 : 200).json({
+      assetId: queued.assetId,
+      status: queued.status,
+      created: queued.created,
+      creditsChargedNow: queued.creditsChargedNow,
     });
   } catch (error) {
     respondError(error, res, next);

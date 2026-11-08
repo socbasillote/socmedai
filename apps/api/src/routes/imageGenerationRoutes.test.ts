@@ -5,8 +5,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 import imageGenerationRoutes from "./imageGenerationRoutes.js";
 
-import { submitImageGeneration } from "../services/imageGenerationOrchestrationService.js";
-
+import { enqueueImageGeneration } from "../services/imageGenerationQueueService.js";
 import {
   getImageGenerationCredits,
   getImageGenerationStatus,
@@ -37,10 +36,9 @@ vi.mock("../auth/requireAuth.js", () => ({
   },
 }));
 
-vi.mock("../services/imageGenerationOrchestrationService.js", () => ({
-  submitImageGeneration: vi.fn(),
+vi.mock("../services/imageGenerationQueueService.js", () => ({
+  enqueueImageGeneration: vi.fn(),
 }));
-
 vi.mock("../services/imageGenerationApiQueryService.js", () => ({
   getImageGenerationCredits: vi.fn(),
   getImageGenerationStatus: vi.fn(),
@@ -92,12 +90,11 @@ beforeEach(() => {
   process.env.IMAGE_GENERATION_LIVE_ENABLED = "false";
   process.env.IMAGE_GENERATION_HTTP_ENABLED = "true";
 
-  vi.mocked(submitImageGeneration).mockResolvedValue({
+  vi.mocked(enqueueImageGeneration).mockResolvedValue({
     assetId,
-    status: "ready",
+    status: "pending",
     created: true,
     creditsChargedNow: 1,
-    contentSha256: "a".repeat(64),
   });
 });
 
@@ -113,17 +110,17 @@ describe("Image generation HTTP routes", () => {
 
     expect(response.status).toBe(401);
 
-    expect(submitImageGeneration).not.toHaveBeenCalled();
+    expect(enqueueImageGeneration).not.toHaveBeenCalled();
   });
 
-  it("creates a mock generation with a safe response", async () => {
+  it("accepts a queued generation with a safe response", async () => {
     const response = await authorizedPost().send(validBody);
 
-    expect(response.status).toBe(201);
+    expect(response.status).toBe(202);
 
     expect(response.body).toEqual({
       assetId,
-      status: "ready",
+      status: "pending",
       created: true,
       creditsChargedNow: 1,
     });
@@ -134,11 +131,11 @@ describe("Image generation HTTP routes", () => {
 
     expect(response.body).not.toHaveProperty("storageKey");
 
-    expect(submitImageGeneration).toHaveBeenCalledOnce();
+    expect(enqueueImageGeneration).toHaveBeenCalledOnce();
   });
 
   it("returns 200 for an idempotent retry", async () => {
-    vi.mocked(submitImageGeneration).mockResolvedValueOnce({
+    vi.mocked(enqueueImageGeneration).mockResolvedValueOnce({
       assetId,
       status: "ready",
       created: false,
@@ -162,7 +159,7 @@ describe("Image generation HTTP routes", () => {
 
     expect(response.status).toBe(400);
 
-    expect(submitImageGeneration).not.toHaveBeenCalled();
+    expect(enqueueImageGeneration).not.toHaveBeenCalled();
   });
 
   it("rejects client-controlled provider fields", async () => {
@@ -173,7 +170,7 @@ describe("Image generation HTTP routes", () => {
 
     expect(response.status).toBe(400);
 
-    expect(submitImageGeneration).not.toHaveBeenCalled();
+    expect(enqueueImageGeneration).not.toHaveBeenCalled();
   });
 
   it("keeps generation disabled by default", async () => {
@@ -183,7 +180,7 @@ describe("Image generation HTTP routes", () => {
 
     expect(response.status).toBe(503);
 
-    expect(submitImageGeneration).not.toHaveBeenCalled();
+    expect(enqueueImageGeneration).not.toHaveBeenCalled();
   });
 
   it("rejects live provider configuration", async () => {
@@ -194,7 +191,7 @@ describe("Image generation HTTP routes", () => {
 
     expect(response.status).toBe(503);
 
-    expect(submitImageGeneration).not.toHaveBeenCalled();
+    expect(enqueueImageGeneration).not.toHaveBeenCalled();
   });
 
   it("returns the authenticated user's credit summary", async () => {
@@ -251,7 +248,7 @@ describe("Image generation HTTP routes", () => {
   });
 
   it("maps insufficient credits to HTTP 402", async () => {
-    vi.mocked(submitImageGeneration).mockRejectedValueOnce(
+    vi.mocked(enqueueImageGeneration).mockRejectedValueOnce(
       Object.assign(new Error("Internal credit check"), { statusCode: 402 }),
     );
 
@@ -263,7 +260,7 @@ describe("Image generation HTTP routes", () => {
   });
 
   it("maps generation quota failures to HTTP 429", async () => {
-    vi.mocked(submitImageGeneration).mockRejectedValueOnce(
+    vi.mocked(enqueueImageGeneration).mockRejectedValueOnce(
       Object.assign(new Error("Internal quota details"), { statusCode: 429 }),
     );
 
