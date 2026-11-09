@@ -13,6 +13,8 @@ import {
   type ImageGenerationDetails,
 } from "@/lib/imageGeneration";
 
+import { ImageHistoryGallery } from "./ImageHistoryGallery";
+
 type ImageStudioProps = {
   selectedWorkspaceId: string | null;
 };
@@ -568,6 +570,12 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
           ) : null}
         </section>
       </div>
+
+      <ImageHistoryGallery
+        key={selectedWorkspaceId ?? "no-workspace"}
+        selectedWorkspaceId={selectedWorkspaceId}
+        refreshKey={assetId}
+      />
     </main>
   );
 }

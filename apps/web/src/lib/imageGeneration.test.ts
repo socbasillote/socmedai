@@ -10,6 +10,7 @@ import {
   getWorkspaceImageUrl,
   imageGenerationPath,
   validateImagePrompt,
+  getWorkspaceImageHistory,
 } from "./imageGeneration";
 
 vi.mock("@/lib/api", () => ({
@@ -140,5 +141,74 @@ describe("Image Studio API client", () => {
     ).toThrow("Invalid image ID.");
 
     expect(apiFetch).not.toHaveBeenCalled();
+  });
+
+  it("requests the first page of workspace image history", async () => {
+    const page = {
+      images: [],
+      nextCursor: null,
+      hasMore: false,
+    };
+
+    vi.mocked(apiFetch).mockResolvedValueOnce(page);
+
+    const result = await getWorkspaceImageHistory(workspaceId, { limit: 12 });
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      `/api/ai/workspaces/${workspaceId}/images/history?limit=12`,
+    );
+
+    expect(result).toEqual(page);
+  });
+
+  it("encodes the history pagination cursor", async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce({
+      images: [],
+      nextCursor: null,
+      hasMore: false,
+    });
+
+    await getWorkspaceImageHistory(workspaceId, {
+      limit: 5,
+      cursor: "eyJ2IjoxfQ",
+    });
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      `/api/ai/workspaces/${workspaceId}/images/history?limit=5&cursor=eyJ2IjoxfQ`,
+    );
+  });
+
+  it("rejects invalid image history page sizes", () => {
+    expect(() => getWorkspaceImageHistory(workspaceId, { limit: 31 })).toThrow(
+      "Invalid history page size.",
+    );
+
+    expect(apiFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid history cursors before HTTP", () => {
+    expect(() =>
+      getWorkspaceImageHistory(workspaceId, { cursor: "not a valid cursor!" }),
+    ).toThrow("Invalid image history cursor.");
+
+    expect(apiFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not make a POST request for history retrieval", async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce({
+      images: [],
+      nextCursor: null,
+      hasMore: false,
+    });
+
+    await getWorkspaceImageHistory(workspaceId);
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      `/api/ai/workspaces/${workspaceId}/images/history`,
+    );
+
+    // History uses the read-only apiFetch(path)
+    // overload, without a request body or method.
+    expect(apiFetch).toHaveBeenCalledTimes(1);
   });
 });

@@ -58,6 +58,26 @@ export type GenerateImageCommand = {
   };
 };
 
+export type ImageHistoryItem = {
+  assetId: string;
+  status: "pending" | "ready" | "failed";
+  state: "processing" | "ready" | "failed" | "action_required";
+  createdAt: string;
+  updatedAt: string;
+  aspectRatio: "square" | "portrait" | "landscape";
+  image?: {
+    width: number;
+    height: number;
+    mimeType: "image/png";
+  };
+};
+
+export type ImageHistoryPage = {
+  images: ImageHistoryItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
 const WORKSPACE_ID_PATTERN = /^[a-fA-F0-9]{24}$/;
 
 export function imageGenerationPath(workspaceId: string): string {
@@ -119,5 +139,47 @@ export function getWorkspaceImageUrl(workspaceId: string, assetId: string) {
   return apiFetch<PrivateImageAccess>(
     `${imageGenerationPath(workspaceId)}/` +
       `${encodeURIComponent(assetId)}/url`,
+  );
+}
+
+export function getWorkspaceImageHistory(
+  workspaceId: string,
+  options: {
+    limit?: number;
+    cursor?: string;
+  } = {},
+): Promise<ImageHistoryPage> {
+  const path = imageGenerationPath(workspaceId);
+
+  if (
+    options.limit !== undefined &&
+    (!Number.isInteger(options.limit) ||
+      options.limit < 1 ||
+      options.limit > 30)
+  ) {
+    throw new Error("Invalid history page size.");
+  }
+
+  if (
+    options.cursor !== undefined &&
+    (!options.cursor || !/^[A-Za-z0-9_-]{1,256}$/.test(options.cursor))
+  ) {
+    throw new Error("Invalid image history cursor.");
+  }
+
+  const query = new URLSearchParams();
+
+  if (options.limit !== undefined) {
+    query.set("limit", String(options.limit));
+  }
+
+  if (options.cursor !== undefined) {
+    query.set("cursor", options.cursor);
+  }
+
+  const suffix = query.toString();
+
+  return apiFetch<ImageHistoryPage>(
+    `${path}/history${suffix ? `?${suffix}` : ""}`,
   );
 }
