@@ -20,6 +20,8 @@ import type { AuthenticatedUser } from "./userProfileService.js";
 
 import { enqueueImageGeneration } from "./imageGenerationQueueService.js";
 
+import { listWorkspaceImageHistory } from "./imageGenerationHistoryService.js";
+
 let mongo: MongoMemoryReplSet;
 
 let workspaceId: string;
@@ -232,5 +234,101 @@ describe("Durable image queue admission", () => {
     expect(await walletBalance()).toBe(2);
 
     expect(await ImageGenerationAdmission.countDocuments()).toBe(1);
+  });
+
+  it("lists previously admitted images without charging credits", async () => {
+    const queued = await enqueueImageGeneration(input());
+
+    const history = await listWorkspaceImageHistory({
+      authUser,
+      workspaceId,
+    });
+
+    expect(history.images).toHaveLength(1);
+
+    expect(history.images[0]).toMatchObject({
+      assetId: queued.assetId,
+      status: "pending",
+      state: "processing",
+      aspectRatio: "square",
+    });
+
+    expect(history.hasMore).toBe(false);
+    expect(history.nextCursor).toBeNull();
+
+    expect(await MediaAsset.countDocuments()).toBe(1);
+  });
+
+  it("paginates image history without duplicating records", async () => {
+    const first = await enqueueImageGeneration(
+      input("history-first-request-0001"),
+    );
+
+    const second = await enqueueImageGeneration(
+      input("history-second-request-0002"),
+    );
+
+    const page1 = await listWorkspaceImageHistory({
+      authUser,
+      workspaceId,
+      limit: 1,
+    });
+
+    expect(page1.images).toHaveLength(1);
+    expect(page1.hasMore).toBe(true);
+    expect(page1.nextCursor).toBeTruthy();
+
+    const page2 = await listWorkspaceImageHistory({
+      authUser,
+      workspaceId,
+      limit: 1,
+      cursor: page1.nextCursor!,
+    });
+
+    expect(page2.images).toHaveLength(1);
+    expect(page2.hasMore).toBe(false);
+
+    expect(
+      new Set([page1.images[0]?.assetId, page2.images[0]?.assetId]),
+    ).toEqual(new Set([first.assetId, second.assetId]));
+  });
+
+  it("rejects malformed history cursors", async () => {
+    await expect(
+      listWorkspaceImageHistory({
+        authUser,
+        workspaceId,
+        cursor: "invalid-cursor",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+    });
+  });
+
+  it("rejects invalid page sizes", async () => {
+    await expect(
+      listWorkspaceImageHistory({
+        authUser,
+        workspaceId,
+        limit: 1000,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+    });
+  });
+
+  it("does not expose another user's image history", async () => {
+    await enqueueImageGeneration(input());
+
+    await expect(
+      listWorkspaceImageHistory({
+        authUser: {
+          id: "another-user",
+        } as AuthenticatedUser,
+        workspaceId,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+    });
   });
 });

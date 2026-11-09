@@ -9,6 +9,8 @@ import {
   getWorkspaceImageUrlController,
 } from "../controllers/imageGenerationController.js";
 
+import { getWorkspaceImageHistoryController } from "../controllers/imageGenerationHistoryController.js";
+
 const imageGenerationRoutes = Router();
 
 // All three endpoints require authentication.
@@ -18,6 +20,12 @@ imageGenerationRoutes.use(requireAuth);
 imageGenerationRoutes.get(
   "/workspaces/:workspaceId/images/credits",
   getWorkspaceImageCreditsController,
+);
+
+imageGenerationRoutes.get(
+  "/workspaces/:workspaceId/images/history",
+  requireAuth,
+  getWorkspaceImageHistoryController,
 );
 
 imageGenerationRoutes.get(

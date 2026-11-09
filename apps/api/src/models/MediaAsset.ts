@@ -415,6 +415,22 @@ mediaAssetSchema.index({
   "generationExecution.leaseExpiresAt": 1,
 });
 
+mediaAssetSchema.index(
+  {
+    workspaceId: 1,
+    createdByUserId: 1,
+    createdAt: -1,
+    _id: -1,
+  },
+  {
+    name: "image_history_workspace_owner_order",
+    partialFilterExpression: {
+      type: "image",
+      source: "ai-generated",
+    },
+  },
+);
+
 const MediaAsset =
   mongoose.models.MediaAsset ?? mongoose.model("MediaAsset", mediaAssetSchema);
 
