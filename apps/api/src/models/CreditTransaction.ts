@@ -53,15 +53,9 @@ const creditTransactionSchema = new Schema(
       type: Number,
       required: true,
       min: 0,
-      immutable: true,
       validate: {
-        validator: function (this: { type: CreditEventType }, value: number) {
-          return (
-            Number.isSafeInteger(value) &&
-            (value !== 0 || this.type === "opening_balance")
-          );
-        },
-        message: "Invalid credit transaction amount.",
+        validator: (value: number) => Number.isSafeInteger(value) && value >= 0,
+        message: "Invalid credit transaction balance.",
       },
     },
 

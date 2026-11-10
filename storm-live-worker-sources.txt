@@ -1,0 +1,642 @@
+﻿# Storm Live Worker Integration Sources
+
+===== apps/api/src/services/imageGenerationWorkerService.ts =====
+import mongoose from "mongoose";
+
+import MediaAsset from "../models/MediaAsset.js";
+import UserProfile from "../models/UserProfile.js";
+
+import { ImageGenerationAdmission } from "../models/ImageGenerationAccounting.js";
+
+import type { AuthenticatedUser } from "./userProfileService.js";
+
+import {
+  claimImageGeneration,
+  beginImageProviderCall,
+} from "./mediaGenerationClaimService.js";
+
+import { releaseImageGenerationCapacity } from "./imageGenerationAdmissionService.js";
+
+import { withGenerationLeaseHeartbeat } from "./media/mediaGenerationLeaseService.js";
+
+import { completeClaimedImageGeneration } from "./media/mediaGenerationCompletionService.js";
+
+import {
+  getPrivateImageBucket,
+  type ImageStorageBucket,
+} from "./media/supabaseImageStorage.js";
+
+import { MockImageProvider } from "./media/providers/mockImageProvider.js";
+
+import {
+  ImageProviderError,
+  type ImageProvider,
+} from "./media/providers/imageProvider.js";
+
+export class ImageGenerationWorkerError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode = 500,
+  ) {
+    super(message);
+    this.name = "ImageGenerationWorkerError";
+  }
+}
+
+export type ImageWorkerOutcome =
+  | "idle"
+  | "completed"
+  | "rejected"
+  | "claim_lost"
+  | "recovery_required";
+
+export type ImageWorkerResult = {
+  outcome: ImageWorkerOutcome;
+  assetId?: string;
+};
+
+export type ImageWorkerDependencies = {
+  provider?: ImageProvider;
+  bucket?: ImageStorageBucket;
+};
+
+type EligibleJob = {
+  _id: mongoose.Types.ObjectId;
+  workspaceId: mongoose.Types.ObjectId;
+  createdByUserId: mongoose.Types.ObjectId;
+};
+
+/**
+ * Query only reserved generations that have
+ * a committed active credit admission.
+ *
+ * The lookup is performed in MongoDB, avoiding
+ * a provider call for legacy/unpaid assets.
+ */
+export async function discoverReservedImageJobs(
+  limit = 10,
+): Promise<EligibleJob[]> {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+    throw new ImageGenerationWorkerError("Invalid worker batch size.", 400);
+  }
+
+  return MediaAsset.aggregate<EligibleJob>([
+    {
+      $match: {
+        status: "pending",
+
+        idempotencyKey: { $type: "string" },
+        requestFingerprint: { $type: "string" },
+
+        "generation.provider": "mock",
+        "generation.model": "storm-mock-image-v1",
+
+        $or: [
+          {
+            "generationExecution.phase": "reserved",
+          },
+          {
+            "generationExecution.phase": "claimed",
+
+            "generationExecution.leaseExpiresAt": {
+              $lte: new Date(),
+            },
+
+            "generationExecution.providerStartedAt": {
+              $exists: false,
+            },
+          },
+        ],
+      },
+    },
+    { $sort: { createdAt: 1, _id: 1 } },
+    {
+      $lookup: {
+        from: ImageGenerationAdmission.collection.name,
+        let: {
+          assetId: "$_id",
+          workspaceId: "$workspaceId",
+          userId: "$createdByUserId",
+        },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$assetId", "$$assetId"] },
+                  {
+                    $eq: ["$workspaceId", "$$workspaceId"],
+                  },
+                  { $eq: ["$userId", "$$userId"] },
+                  { $eq: ["$state", "active"] },
+                  { $gt: ["$creditsCharged", 0] },
+                ],
+              },
+            },
+          },
+          { $limit: 1 },
+        ],
+        as: "admission",
+      },
+    },
+    {
+      $match: {
+        "admission.0": { $exists: true },
+      },
+    },
+    { $limit: limit },
+    {
+      $project: {
+        _id: 1,
+        workspaceId: 1,
+        createdByUserId: 1,
+      },
+    },
+  ]);
+}
+
+async function resolveWorkerIdentity(
+  userId: mongoose.Types.ObjectId,
+): Promise<AuthenticatedUser> {
+  const profile = await UserProfile.findById(userId)
+    .select("supabaseUserId")
+    .lean();
+
+  if (
+    !profile ||
+    typeof profile.supabaseUserId !== "string" ||
+    !profile.supabaseUserId
+  ) {
+    throw new ImageGenerationWorkerError(
+      "Generation owner is unavailable.",
+      409,
+    );
+  }
+
+  return {
+    id: profile.supabaseUserId,
+  } as AuthenticatedUser;
+}
+
+/**
+ * Mark only a definitively rejected provider
+ * request as failed.
+ *
+ * A stale or expired worker cannot finalize it.
+ */
+async function markProviderRejected(
+  workspaceId: string,
+  assetId: string,
+  claimToken: string,
+) {
+  const failed = await MediaAsset.findOneAndUpdate(
+    {
+      _id: assetId,
+      workspaceId,
+      status: "pending",
+      "generationExecution.phase": "provider_started",
+      "generationExecution.claimToken": claimToken,
+      "generationExecution.leaseExpiresAt": {
+        $gt: new Date(),
+      },
+    },
+    {
+      $set: {
+        status: "failed",
+        failureReason: "The image provider rejected this generation.",
+      },
+    },
+    {
+      returnDocument: "after",
+      runValidators: true,
+    },
+  );
+
+  if (!failed) {
+    throw new ImageGenerationWorkerError(
+      "Provider rejection could not be finalized safely.",
+      409,
+    );
+  }
+
+  return failed;
+}
+
+/**
+ * Execute one eligible reserved job.
+ *
+ * This function never retries the provider
+ * after the provider_started transition.
+ */
+export async function executeReservedImageJob(
+  job: EligibleJob,
+  dependencies: ImageWorkerDependencies = {},
+): Promise<ImageWorkerResult> {
+  const provider = dependencies.provider ?? new MockImageProvider();
+
+  // Strictly mock-only for Phase 12.3.2.
+  if (
+    provider.provider !== "mock" ||
+    provider.model !== "storm-mock-image-v1"
+  ) {
+    throw new ImageGenerationWorkerError(
+      "Live image generation is disabled.",
+      503,
+    );
+  }
+
+  const assetId = String(job._id);
+  const workspaceId = String(job.workspaceId);
+
+  const authUser = await resolveWorkerIdentity(job.createdByUserId);
+
+  const context = {
+    authUser,
+    workspaceId,
+    assetId,
+  };
+
+  let claimToken: string;
+
+  try {
+    const claimed = await claimImageGeneration(context);
+
+    claimToken = claimed.claimToken;
+  } catch (error) {
+    // Another worker may have won the claim
+    // between discovery and execution.
+    if (
+      error instanceof Error &&
+      "statusCode" in error &&
+      error.statusCode === 409
+    ) {
+      return {
+        outcome: "claim_lost",
+        assetId,
+      };
+    }
+
+    throw error;
+  }
+
+  const owned = {
+    ...context,
+    claimToken,
+  };
+
+  /**
+   * Persist provider_started before the
+   * provider is ever invoked.
+   *
+   * If this fails, no provider call happens.
+   */
+  await beginImageProviderCall(owned);
+
+  // Reload the owned asset to obtain immutable
+  // generation instructions.
+  const asset = await MediaAsset.findOne({
+    _id: job._id,
+    workspaceId: job.workspaceId,
+    status: "pending",
+    "generationExecution.phase": "provider_started",
+    "generationExecution.claimToken": claimToken,
+    "generationExecution.leaseExpiresAt": {
+      $gt: new Date(),
+    },
+  });
+
+  if (!asset) {
+    return {
+      outcome: "claim_lost",
+      assetId,
+    };
+  }
+
+  if (
+    asset.generation.provider !== provider.provider ||
+    asset.generation.model !== provider.model
+  ) {
+    // Do not invoke a different provider or
+    // model from the one originally reserved.
+    return {
+      outcome: "recovery_required",
+      assetId,
+    };
+  }
+
+  let generated: Awaited<ReturnType<ImageProvider["generate"]>>;
+
+  try {
+    generated = await withGenerationLeaseHeartbeat(owned, () =>
+      provider.generate({
+        prompt: asset.generation.prompt,
+        aspectRatio: asset.generation.aspectRatio,
+      }),
+    );
+  } catch (error) {
+    if (error instanceof ImageProviderError && error.outcome === "rejected") {
+      await markProviderRejected(workspaceId, assetId, claimToken);
+
+      await releaseImageGenerationCapacity(authUser, workspaceId, assetId);
+
+      return {
+        outcome: "rejected",
+        assetId,
+      };
+    }
+
+    // Unknown/ambiguous outcomes are never
+    // retried. Leave pending for reconciliation.
+    return {
+      outcome: "recovery_required",
+      assetId,
+    };
+  }
+
+  if (
+    generated.provider !== provider.provider ||
+    generated.model !== provider.model ||
+    generated.mimeType !== "image/png"
+  ) {
+    return {
+      outcome: "recovery_required",
+      assetId,
+    };
+  }
+
+  try {
+    await completeClaimedImageGeneration(
+      {
+        ...owned,
+        bytes: generated.bytes,
+      },
+      dependencies.bucket ?? getPrivateImageBucket(),
+    );
+  } catch {
+    // Storage may already contain an uploaded
+    // object. Do not regenerate or delete it.
+    return {
+      outcome: "recovery_required",
+      assetId,
+    };
+  }
+
+  // If release fails, preserve the ready asset.
+  // Step 12.3.3 will reconcile the active slot.
+  await releaseImageGenerationCapacity(authUser, workspaceId, assetId);
+
+  return {
+    outcome: "completed",
+    assetId,
+  };
+}
+
+/**
+ * Process one bounded batch.
+ *
+ * The worker processes sequentially inside
+ * each instance; multiple instances may race
+ * safely through MongoDB claim fencing.
+ */
+export async function runImageGenerationWorkerOnce(
+  dependencies: ImageWorkerDependencies = {},
+  limit = 10,
+): Promise<ImageWorkerResult[]> {
+  const jobs = await discoverReservedImageJobs(limit);
+
+  if (jobs.length === 0) {
+    return [{ outcome: "idle" }];
+  }
+
+  const results: ImageWorkerResult[] = [];
+
+  for (const job of jobs) {
+    try {
+      results.push(await executeReservedImageJob(job, dependencies));
+    } catch {
+      // The job remains durably persisted.
+      // Do not automatically repeat it here.
+      results.push({
+        outcome: "recovery_required",
+        assetId: String(job._id),
+      });
+    }
+  }
+
+  return results;
+}
+
+===== END =====
+
+===== apps/api/src/workers/imageGenerationWorkerMain.ts =====
+import "dotenv/config";
+
+import mongoose from "mongoose";
+
+import { getImageGenerationConfig } from "../config/imageGenerationConfig.js";
+
+import { startImageGenerationWorker } from "./imageGenerationWorkerRunner.js";
+
+async function main() {
+  if (process.env.IMAGE_GENERATION_WORKER_ENABLED !== "true") {
+    throw new Error("Image generation worker is disabled.");
+  }
+
+  const config = getImageGenerationConfig();
+
+  if (
+    config.IMAGE_GENERATION_PROVIDER !== "mock" ||
+    config.IMAGE_GENERATION_LIVE_ENABLED
+  ) {
+    throw new Error("This worker supports mock generation only.");
+  }
+
+  /**
+   * Use the SAME development MongoDB database
+   * as the API, including replica-set support.
+   *
+   * A separate env name prevents us from
+   * assuming the existing API's DB variable.
+   */
+  const mongoUri = process.env.IMAGE_WORKER_MONGODB_URI;
+
+  if (!mongoUri) {
+    throw new Error("IMAGE_WORKER_MONGODB_URI is required.");
+  }
+
+  await mongoose.connect(mongoUri);
+
+  console.info("Storm mock image worker connected.");
+
+  const stop = startImageGenerationWorker({
+    intervalMs: 5000,
+    batchSize: 5,
+
+    onError: () => {
+      // No prompts, image bytes, access tokens,
+      // or internal provider responses in logs.
+      console.error("Image worker batch failed.");
+    },
+  });
+
+  let shuttingDown = false;
+
+  async function shutdown() {
+    if (shuttingDown) return;
+
+    shuttingDown = true;
+
+    await stop();
+    await mongoose.disconnect();
+
+    console.info("Storm image worker stopped.");
+  }
+
+  process.once("SIGINT", () => {
+    void shutdown()
+      .then(() => {
+        process.exitCode = 0;
+      })
+      .catch(() => {
+        process.exitCode = 1;
+      });
+  });
+
+  process.once("SIGTERM", () => {
+    void shutdown()
+      .then(() => {
+        process.exitCode = 0;
+      })
+      .catch(() => {
+        process.exitCode = 1;
+      });
+  });
+}
+
+void main().catch(() => {
+  console.error("Storm image worker could not start.");
+
+  process.exitCode = 1;
+});
+
+===== END =====
+
+===== apps/api/src/services/imageGenerationQueueService.ts =====
+import {
+  imageGenerationCommandSchema,
+  type ImageGenerationCommand,
+} from "../schemas/imageGenerationCommandSchema.js";
+
+import type { AuthenticatedUser } from "./userProfileService.js";
+
+import type { ImageGenerationConfig } from "../config/imageGenerationConfig.js";
+
+import { admitImageGeneration } from "./imageGenerationAdmissionService.js";
+
+import { MockImageProvider } from "./media/providers/mockImageProvider.js";
+
+export class ImageGenerationQueueError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+  ) {
+    super(message);
+    this.name = "ImageGenerationQueueError";
+  }
+}
+
+type EnqueueInput = {
+  authUser: AuthenticatedUser;
+  command: ImageGenerationCommand;
+  config: ImageGenerationConfig;
+};
+
+export type EnqueuedImageGeneration = {
+  assetId: string;
+  status: "pending" | "ready" | "failed";
+  created: boolean;
+  creditsChargedNow: number;
+};
+
+/**
+ * Accept one image generation request.
+ *
+ * This service:
+ * - validates the command
+ * - enforces the mock-only release gate
+ * - performs atomic credit-aware admission
+ * - returns the persisted asset
+ *
+ * It never calls an image provider.
+ */
+export async function enqueueImageGeneration(
+  input: EnqueueInput,
+): Promise<EnqueuedImageGeneration> {
+  const parsed = imageGenerationCommandSchema.safeParse(input.command);
+
+  if (!parsed.success) {
+    throw new ImageGenerationQueueError(
+      "Invalid image generation command.",
+      400,
+    );
+  }
+
+  /**
+   * Phase 12.3.1 is mock-only.
+   *
+   * Even if a developer enables the live
+   * feature flag, paid provider execution
+   * is unavailable through this service.
+   */
+  if (input.config.IMAGE_GENERATION_PROVIDER !== "mock") {
+    throw new ImageGenerationQueueError(
+      "Live image generation is not enabled.",
+      503,
+    );
+  }
+
+  /**
+   * Provider identity comes from trusted
+   * backend code, never the HTTP body.
+   *
+   * Creating this provider does not generate
+   * an image or contact an external service.
+   */
+  const provider = new MockImageProvider();
+
+  const admitted = await admitImageGeneration({
+    authUser: input.authUser,
+    workspaceId: parsed.data.workspaceId,
+    idempotencyKey: parsed.data.idempotencyKey,
+    image: parsed.data.image,
+
+    generation: {
+      provider: provider.provider,
+      model: provider.model,
+    },
+
+    policy: {
+      dailyLimit: input.config.IMAGE_GENERATION_DAILY_WORKSPACE_LIMIT,
+
+      maxActive: input.config.IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE,
+    },
+  });
+
+  const status = admitted.asset.status;
+
+  if (status !== "pending" && status !== "ready" && status !== "failed") {
+    throw new ImageGenerationQueueError(
+      "Unexpected image generation status.",
+      500,
+    );
+  }
+
+  return {
+    assetId: String(admitted.asset._id),
+    status,
+    created: admitted.created,
+    creditsChargedNow: admitted.creditsChargedNow,
+  };
+}
+
+===== END =====

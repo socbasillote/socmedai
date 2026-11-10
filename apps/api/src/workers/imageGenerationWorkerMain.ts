@@ -5,6 +5,9 @@ import mongoose from "mongoose";
 import { getImageGenerationConfig } from "../config/imageGenerationConfig.js";
 
 import { startImageGenerationWorker } from "./imageGenerationWorkerRunner.js";
+import { parseLiveImageGateConfig } from "../services/imageGenerationLiveGate.js";
+import { LIVE_PAID_WORKER_ARMED } from "../services/imageGenerationWorkerProviderGate.js";
+import { evaluateLiveAdmissionReadiness } from "../services/imageGenerationLiveAdmissionReadiness.js";
 
 async function main() {
   if (process.env.IMAGE_GENERATION_WORKER_ENABLED !== "true") {
@@ -13,11 +16,20 @@ async function main() {
 
   const config = getImageGenerationConfig();
 
-  if (
-    config.IMAGE_GENERATION_PROVIDER !== "mock" ||
-    config.IMAGE_GENERATION_LIVE_ENABLED
-  ) {
-    throw new Error("This worker supports mock generation only.");
+  const liveMode = config.IMAGE_GENERATION_PROVIDER === "openai";
+  if (liveMode) {
+    const gate = parseLiveImageGateConfig(process.env);
+    if (
+      !LIVE_PAID_WORKER_ARMED ||
+      gate.workspaceAllowlist.size === 0 ||
+      ![...gate.workspaceAllowlist].every(
+        (id) => evaluateLiveAdmissionReadiness(gate, id).ready,
+      )
+    ) {
+      throw new Error("Live image worker is not armed or approved.");
+    }
+  } else if (config.IMAGE_GENERATION_LIVE_ENABLED) {
+    throw new Error("Mock worker refuses live-enabled configuration.");
   }
 
   /**
@@ -35,11 +47,15 @@ async function main() {
 
   await mongoose.connect(mongoUri);
 
-  console.info("Storm mock image worker connected.");
+  console.info(
+    liveMode
+      ? "Storm gated OpenAI image worker connected."
+      : "Storm mock image worker connected.",
+  );
 
   const stop = startImageGenerationWorker({
     intervalMs: 5000,
-    batchSize: 5,
+    batchSize: liveMode ? 1 : 5,
 
     onError: () => {
       // No prompts, image bytes, access tokens,
@@ -82,8 +98,29 @@ async function main() {
   });
 }
 
-void main().catch(() => {
-  console.error("Storm image worker could not start.");
+void main().catch((error: unknown) => {
+  const safeKnownMessages = [
+    "This worker supports mock generation only.",
+    "Live image generation is disabled.",
+    "IMAGE_GENERATION_WORKER_ENABLED",
+    "IMAGE_WORKER_MONGODB_URI",
+    "Invalid image generation provider.",
+    "Invalid live image rollout mode.",
+    "Invalid live image workspace allowlist.",
+    "Live image generation is unavailable.",
+  ];
+
+  const message = error instanceof Error ? error.message : "";
+
+  const safeMessage = safeKnownMessages.some((known) =>
+    message.startsWith(known),
+  )
+    ? message
+    : `Worker startup failed: ${
+        error instanceof Error ? error.name : "UnknownError"
+      }`;
+
+  console.error("[Storm Image Worker]", safeMessage);
 
   process.exitCode = 1;
 });

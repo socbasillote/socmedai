@@ -24,6 +24,16 @@ import {
 } from "./media/supabaseImageStorage.js";
 
 import { MockImageProvider } from "./media/providers/mockImageProvider.js";
+import { OpenAIImageProvider } from "./media/providers/openaiImageProvider.js";
+import { LIVE_PAID_WORKER_ARMED } from "./imageGenerationWorkerProviderGate.js";
+import {
+  parseLiveImageGateConfig,
+  evaluateLiveImageGate,
+} from "./imageGenerationLiveGate.js";
+import {
+  selectWorkerImageProvider,
+  WorkerProviderNotAllowedError,
+} from "./imageGenerationWorkerProviderGate.js";
 
 import {
   ImageProviderError,
@@ -77,6 +87,36 @@ export async function discoverReservedImageJobs(
     throw new ImageGenerationWorkerError("Invalid worker batch size.", 400);
   }
 
+  const liveConfig = parseLiveImageGateConfig(process.env);
+  const liveMode = liveConfig.provider === "openai";
+
+  // Do not even discover OpenAI jobs while the executable is unarmed.
+  // This must agree with the admission and startup gates.
+  if (liveMode && !LIVE_PAID_WORKER_ARMED) {
+    return [];
+  }
+
+  const approvedWorkspaces = liveMode
+    ? [...liveConfig.workspaceAllowlist]
+        .filter((id) => evaluateLiveImageGate(liveConfig, id).allowed)
+        .map((id) => new mongoose.Types.ObjectId(id))
+    : [];
+
+  if (liveMode && approvedWorkspaces.length === 0) {
+    return [];
+  }
+
+  const providerMatch = liveMode
+    ? {
+        "generation.provider": "openai",
+        "generation.model": "gpt-image-2",
+        workspaceId: { $in: approvedWorkspaces },
+      }
+    : {
+        "generation.provider": "mock",
+        "generation.model": "storm-mock-image-v1",
+      };
+
   return MediaAsset.aggregate<EligibleJob>([
     {
       $match: {
@@ -85,8 +125,7 @@ export async function discoverReservedImageJobs(
         idempotencyKey: { $type: "string" },
         requestFingerprint: { $type: "string" },
 
-        "generation.provider": "mock",
-        "generation.model": "storm-mock-image-v1",
+        ...providerMatch,
 
         $or: [
           {
@@ -126,7 +165,9 @@ export async function discoverReservedImageJobs(
                   },
                   { $eq: ["$userId", "$$userId"] },
                   { $eq: ["$state", "active"] },
-                  { $gt: ["$creditsCharged", 0] },
+                  liveMode
+                    ? { $eq: ["$creditsCharged", 1] }
+                    : { $gt: ["$creditsCharged", 0] },
                 ],
               },
             },
@@ -229,21 +270,73 @@ export async function executeReservedImageJob(
   job: EligibleJob,
   dependencies: ImageWorkerDependencies = {},
 ): Promise<ImageWorkerResult> {
-  const provider = dependencies.provider ?? new MockImageProvider();
+  const assetId = String(job._id);
+  const workspaceId = String(job.workspaceId);
 
-  // Strictly mock-only for Phase 12.3.2.
+  // PRE-CLAIM PREFLIGHT: check the actual persisted provider identity.
+  // Never claim a paid/unknown asset before it is supported by the worker.
+  // This read does not authorize execution: claim fencing and the re-read
+  // after provider_started below remain mandatory.
+  const persisted = await MediaAsset.findOne({
+    _id: job._id,
+    workspaceId: job.workspaceId,
+    createdByUserId: job.createdByUserId,
+    status: "pending",
+  })
+    .select("generation.provider generation.model")
+    .lean();
+
+  if (!persisted) {
+    return { outcome: "claim_lost", assetId };
+  }
+
+  // The existing provider gate is deliberately unarmed for paid calls.
+  // An OpenAI or unknown persisted job fails here BEFORE claim and BEFORE
+  // provider_started. Do not silently run a mock provider for that asset.
+  let selected;
+  try {
+    selected = selectWorkerImageProvider(
+      {
+        workspaceId,
+        provider: persisted.generation.provider,
+        model: persisted.generation.model,
+      },
+      parseLiveImageGateConfig(process.env),
+    );
+  } catch (error) {
+    if (error instanceof WorkerProviderNotAllowedError) {
+      throw new ImageGenerationWorkerError(
+        "Live image generation is disabled.",
+        503,
+      );
+    }
+    throw error;
+  }
+
+  // The provider-selection gate remains compile-time unarmed for paid calls.
+  // This branch cannot run until the explicit release-review switch is changed.
+  const provider: ImageProvider =
+    dependencies.provider ??
+    (selected.kind === "mock"
+      ? new MockImageProvider()
+      : new OpenAIImageProvider({
+          apiKey: process.env.OPENAI_API_KEY ?? "",
+          model: selected.model,
+          fetchImpl: fetch,
+        }));
+
   if (
-    provider.provider !== "mock" ||
-    provider.model !== "storm-mock-image-v1"
+    provider.provider !== persisted.generation.provider ||
+    provider.model !== persisted.generation.model ||
+    (selected.kind === "mock" &&
+      (provider.provider !== "mock" ||
+        provider.model !== "storm-mock-image-v1"))
   ) {
     throw new ImageGenerationWorkerError(
-      "Live image generation is disabled.",
+      "Persisted image provider does not match the worker.",
       503,
     );
   }
-
-  const assetId = String(job._id);
-  const workspaceId = String(job.workspaceId);
 
   const authUser = await resolveWorkerIdentity(job.createdByUserId);
 

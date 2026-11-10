@@ -10,6 +10,9 @@ import type { ImageGenerationConfig } from "../config/imageGenerationConfig.js";
 import { admitImageGeneration } from "./imageGenerationAdmissionService.js";
 
 import { MockImageProvider } from "./media/providers/mockImageProvider.js";
+import { IMAGE_CREDIT_COST } from "./imageGenerationAdmissionService.js";
+import { parseLiveImageGateConfig } from "./imageGenerationLiveGate.js";
+import { evaluateLiveAdmissionReadiness } from "./imageGenerationLiveAdmissionReadiness.js";
 
 export class ImageGenerationQueueError extends Error {
   constructor(
@@ -64,21 +67,46 @@ export async function enqueueImageGeneration(
    * feature flag, paid provider execution
    * is unavailable through this service.
    */
-  if (input.config.IMAGE_GENERATION_PROVIDER !== "mock") {
-    throw new ImageGenerationQueueError(
-      "Live image generation is not enabled.",
-      503,
-    );
-  }
+  // Trust only backend configuration; never accept provider/model
+  // selection from the HTTP command.
+  let generation: { provider: string; model: string };
+  let policy: { dailyLimit: number; maxActive: number };
 
-  /**
-   * Provider identity comes from trusted
-   * backend code, never the HTTP body.
-   *
-   * Creating this provider does not generate
-   * an image or contact an external service.
-   */
-  const provider = new MockImageProvider();
+  if (input.config.IMAGE_GENERATION_PROVIDER === "mock") {
+    const provider = new MockImageProvider();
+    generation = { provider: provider.provider, model: provider.model };
+    policy = {
+      dailyLimit: input.config.IMAGE_GENERATION_DAILY_WORKSPACE_LIMIT,
+      maxActive: input.config.IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE,
+    };
+  } else {
+    // Paid jobs remain blocked while LIVE_PAID_WORKER_ARMED=false.
+    // Readiness rejects nonallowlisted workspaces and billing mismatches.
+    const liveConfig = parseLiveImageGateConfig(process.env);
+    const readiness = evaluateLiveAdmissionReadiness(
+      liveConfig,
+      parsed.data.workspaceId,
+    );
+
+    if (!readiness.ready || readiness.creditCost !== IMAGE_CREDIT_COST) {
+      throw new ImageGenerationQueueError(
+        "Live image generation is not enabled.",
+        503,
+      );
+    }
+
+    generation = { provider: readiness.provider, model: readiness.model };
+    policy = {
+      dailyLimit: Math.min(
+        readiness.dailyLimit,
+        input.config.IMAGE_GENERATION_DAILY_WORKSPACE_LIMIT,
+      ),
+      maxActive: Math.min(
+        readiness.maxActive,
+        input.config.IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE,
+      ),
+    };
+  }
 
   const admitted = await admitImageGeneration({
     authUser: input.authUser,
@@ -86,16 +114,9 @@ export async function enqueueImageGeneration(
     idempotencyKey: parsed.data.idempotencyKey,
     image: parsed.data.image,
 
-    generation: {
-      provider: provider.provider,
-      model: provider.model,
-    },
+    generation,
 
-    policy: {
-      dailyLimit: input.config.IMAGE_GENERATION_DAILY_WORKSPACE_LIMIT,
-
-      maxActive: input.config.IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE,
-    },
+    policy,
   });
 
   const status = admitted.asset.status;

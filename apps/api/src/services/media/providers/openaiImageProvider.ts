@@ -45,6 +45,29 @@ function providerError(
 }
 
 /**
+ * Log only safe diagnostic metadata.
+ *
+ * Never log:
+ * - API keys
+ * - prompts
+ * - response bodies
+ * - generated images
+ * - authorization headers
+ */
+function logProviderFailure(
+  stage: string,
+  details: {
+    httpStatus?: number;
+    errorType?: string;
+  } = {},
+): void {
+  console.error("[OpenAI Image Provider]", {
+    stage,
+    ...details,
+  });
+}
+
+/**
  * Read a bounded response body.
  *
  * Rejecting oversized responses prevents a
@@ -90,28 +113,8 @@ async function readBoundedResponse(response: Response): Promise<string> {
 }
 
 function classifyHttpError(status: number): ImageProviderError {
-  /**
-   * These statuses indicate that the request
-   * was rejected rather than successfully
-   * returning an image.
-   *
-   * Unexpected statuses remain uncertain.
-   */
-  if (
-    status === 400 ||
-    status === 401 ||
-    status === 403 ||
-    status === 404 ||
-    status === 422
-  ) {
-    return providerError(
-      `Image provider rejected the request (HTTP ${status}).`,
-      "rejected",
-    );
-  }
-
   return providerError(
-    `Image provider outcome is uncertain (HTTP ${status}).`,
+    `Image provider request was not completed successfully (HTTP ${status}).`,
     "uncertain",
   );
 }
@@ -189,13 +192,20 @@ export class OpenAIImageProvider implements ImageProvider {
           model: this.model,
           prompt: parsed.data.prompt,
           size: expectedSize,
+          quality: "low",
           n: 1,
           output_format: "png",
         }),
         redirect: "error",
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
-    } catch {
+    } catch (error: unknown) {
+      const errorType = error instanceof Error ? error.name : "UnknownError";
+
+      logProviderFailure("transport", {
+        errorType,
+      });
+
       throw providerError(
         "Image provider request outcome is uncertain.",
         "uncertain",
@@ -203,11 +213,10 @@ export class OpenAIImageProvider implements ImageProvider {
     }
 
     if (!response.ok) {
-      /**
-       * Don't expose provider response bodies
-       * to callers: they can contain details
-       * inappropriate for API responses.
-       */
+      logProviderFailure("http_response", {
+        httpStatus: response.status,
+      });
+
       await response.body?.cancel().catch(() => undefined);
 
       throw classifyHttpError(response.status);
@@ -218,6 +227,8 @@ export class OpenAIImageProvider implements ImageProvider {
     try {
       raw = await readBoundedResponse(response);
     } catch {
+      logProviderFailure("response_read");
+
       throw providerError(
         "Image provider response could not be read safely.",
         "uncertain",
@@ -229,6 +240,8 @@ export class OpenAIImageProvider implements ImageProvider {
     try {
       payload = JSON.parse(raw);
     } catch {
+      logProviderFailure("invalid_json");
+
       throw providerError("Image provider returned invalid JSON.", "uncertain");
     }
 
@@ -303,6 +316,8 @@ export class OpenAIImageProvider implements ImageProvider {
         model: this.model,
       };
     } catch {
+      logProviderFailure("image_validation");
+
       throw providerError(
         "Image provider returned an invalid or unexpected image.",
         "uncertain",

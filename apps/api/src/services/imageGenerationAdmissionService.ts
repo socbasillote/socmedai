@@ -75,6 +75,20 @@ function transient(error: unknown): boolean {
   );
 }
 
+/**
+ * Bounded delay between admission retries.
+ *
+ * Only use this for database contention.
+ * Never use it to retry provider execution.
+ */
+async function admissionRetryDelay(attempt: number): Promise<void> {
+  const delayMs = Math.min(20 * 2 ** attempt, 160);
+
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
 export function utcUsageDay(now = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
@@ -409,6 +423,7 @@ export async function admitImageGeneration(input: AdmissionInput) {
       }
 
       if ((duplicateKey(error) || transient(error)) && attempt < 4) {
+        await admissionRetryDelay(attempt);
         continue;
       }
 

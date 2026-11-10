@@ -307,7 +307,23 @@ describe("Credit-aware generation admission", () => {
       admitImageGeneration(request("credit-race-request-0001")),
       admitImageGeneration(request("credit-race-request-0002")),
     ]);
-
+    console.log(
+      "Concurrent admission outcomes:",
+      outcomes.map((result, index) => ({
+        request: index + 1,
+        status: result.status,
+        error:
+          result.status === "rejected"
+            ? {
+                name: result.reason?.name,
+                message: result.reason?.message,
+                code: result.reason?.code,
+                errorLabels: result.reason?.errorLabels,
+                stack: result.reason?.stack,
+              }
+            : null,
+      })),
+    );
     expect(
       outcomes.filter((result) => result.status === "fulfilled"),
     ).toHaveLength(1);

@@ -82,6 +82,7 @@ describe("OpenAIImageProvider", () => {
       model: "gpt-image-2",
       prompt: PROMPT,
       size: "1024x1024",
+      quality: "low",
       n: 1,
       output_format: "png",
     });
@@ -146,7 +147,7 @@ describe("OpenAIImageProvider", () => {
   });
 
   it.each([400, 401, 403, 404, 422])(
-    "classifies HTTP %i as rejected",
+    "classifies HTTP %i as uncertain",
     async (status) => {
       const fetchMock = vi.fn(async () =>
         jsonResponse({ error: "rejected" }, status),
@@ -155,7 +156,7 @@ describe("OpenAIImageProvider", () => {
       const provider = makeProvider(fetchMock as typeof fetch);
 
       await expect(provider.generate(request())).rejects.toMatchObject({
-        outcome: "rejected",
+        outcome: "uncertain",
       });
 
       expect(fetchMock).toHaveBeenCalledOnce();

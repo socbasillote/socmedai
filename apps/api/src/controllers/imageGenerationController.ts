@@ -15,6 +15,10 @@ import type { AuthenticatedUser } from "../services/userProfileService.js";
 
 import { createPrivateImageAccessUrl } from "../services/media/mediaImageAccessService.js";
 
+import { parseLiveImageGateConfig } from "../services/imageGenerationLiveGate.js";
+
+import { evaluateLiveAdmissionReadiness } from "../services/imageGenerationLiveAdmissionReadiness.js";
+
 function routeParam(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -64,13 +68,17 @@ function respondError(
 }
 
 /**
- * HTTP generation is explicitly opt-in and
- * mock-only for this checkpoint.
+ * HTTP generation remains development-only.
  *
- * A production deployment must not enable
- * this development-only synchronous route.
+ * Mock generation follows the existing route.
+ * OpenAI generation requires the live admission
+ * gate and the exact allowlisted workspace.
  */
-function assertMockHttpEnabled(): void {
+
+function assertImageGenerationHttpEnabled(
+  provider: "mock" | "openai",
+  workspaceId: string,
+): void {
   if (
     process.env.NODE_ENV === "production" ||
     process.env.IMAGE_GENERATION_HTTP_ENABLED !== "true"
@@ -82,6 +90,21 @@ function assertMockHttpEnabled(): void {
     error.statusCode = 503;
     throw error;
   }
+
+  if (provider === "openai") {
+    const gate = parseLiveImageGateConfig(process.env);
+
+    const readiness = evaluateLiveAdmissionReadiness(gate, workspaceId);
+
+    if (!readiness.ready) {
+      const error = new Error(
+        "Live image generation is unavailable.",
+      ) as Error & { statusCode: number };
+
+      error.statusCode = 503;
+      throw error;
+    }
+  }
 }
 
 export const generateWorkspaceImageController: RequestHandler = async (
@@ -92,16 +115,25 @@ export const generateWorkspaceImageController: RequestHandler = async (
   try {
     const config = getImageGenerationConfig();
 
-    // Preserve the development-only HTTP gate
-    // from Step 12.2.5.
-    assertMockHttpEnabled();
+    const workspaceId = routeParam(req.params.workspaceId);
 
-    if (config.IMAGE_GENERATION_PROVIDER !== "mock") {
-      res.status(503).json({
-        error: "Live image generation is unavailable.",
-      });
-      return;
-    }
+    // Temporary diagnostic for Step 12.3.6.7.
+    console.info("[Image HTTP Diagnostic]", {
+      provider: config.IMAGE_GENERATION_PROVIDER,
+      httpEnabled: process.env.IMAGE_GENERATION_HTTP_ENABLED === "true",
+      production: process.env.NODE_ENV === "production",
+      workspaceIdMatchesAllowlist: (
+        process.env.IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST ?? ""
+      )
+        .split(",")
+        .map((id) => id.trim())
+        .includes(workspaceId),
+    });
+
+    assertImageGenerationHttpEnabled(
+      config.IMAGE_GENERATION_PROVIDER,
+      workspaceId,
+    );
 
     // The request body may only contain
     // idempotencyKey and image.
@@ -132,11 +164,24 @@ export const generateWorkspaceImageController: RequestHandler = async (
       return;
     }
 
-    const queued = await enqueueImageGeneration({
-      authUser: res.locals.authUser as AuthenticatedUser,
-      command: parsed.data,
-      config,
-    });
+    let queued: Awaited<ReturnType<typeof enqueueImageGeneration>>;
+
+    try {
+      queued = await enqueueImageGeneration({
+        authUser: res.locals.authUser as AuthenticatedUser,
+        command: parsed.data,
+        config,
+      });
+    } catch (error) {
+      console.error("[Image Admission Diagnostic]", {
+        stage: "enqueueImageGeneration",
+        errorType:
+          error instanceof Error ? error.constructor.name : "UnknownError",
+        statusCode: isStatusError(error) ? error.statusCode : undefined,
+      });
+
+      throw error;
+    }
 
     // HTTP 202 means the operation has been
     // accepted but is not necessarily complete.
