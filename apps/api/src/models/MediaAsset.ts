@@ -119,6 +119,74 @@ const generationExecutionSchema = new Schema(
   },
 );
 
+/**
+ * Persisted branding instructions captured when
+ * the image-generation admission is created.
+ *
+ * Null logo means the generation is unbranded.
+ * A non-null logo pins an immutable private
+ * object version and its expected checksum.
+ */
+const logoOverlaySnapshotSchema = new Schema(
+  {
+    enabled: {
+      type: Boolean,
+      required: true,
+    },
+
+    logo: {
+      type: new Schema(
+        {
+          storageKey: {
+            type: String,
+            required: true,
+            trim: true,
+            maxlength: 1024,
+          },
+
+          sha256: {
+            type: String,
+            required: true,
+            match: SHA256_HEX_PATTERN,
+          },
+        },
+        {
+          _id: false,
+          id: false,
+          strict: "throw",
+        },
+      ),
+      default: null,
+    },
+
+    position: {
+      type: String,
+      enum: ["top-left", "top-right", "bottom-left", "bottom-right"],
+      required: true,
+    },
+
+    sizePercent: {
+      type: Number,
+      required: true,
+      min: 5,
+      max: 30,
+      validate: Number.isInteger,
+    },
+
+    opacity: {
+      type: Number,
+      required: true,
+      min: 0.1,
+      max: 1,
+    },
+  },
+  {
+    _id: false,
+    id: false,
+    strict: "throw",
+  },
+);
+
 const mediaAssetSchema = new Schema(
   {
     workspaceId: {
@@ -252,6 +320,12 @@ const mediaAssetSchema = new Schema(
       default: undefined,
     },
 
+    logoOverlaySnapshot: {
+      type: logoOverlaySnapshotSchema,
+      default: undefined,
+      immutable: true,
+    },
+
     /**
      * SHA-256 of the verified, normalized PNG bytes.
      *
@@ -327,6 +401,32 @@ mediaAssetSchema.pre("validate", function () {
         "generationExecution.providerStartedAt",
         "Provider start time is required.",
       );
+    }
+  }
+
+  const snapshot = this.logoOverlaySnapshot;
+
+  if (snapshot) {
+    if (snapshot.enabled && !snapshot.logo) {
+      this.invalidate(
+        "logoOverlaySnapshot",
+        "Enabled branding requires a logo snapshot.",
+      );
+    }
+
+    if (snapshot.logo) {
+      const workspaceId = String(this.workspaceId).toLowerCase();
+
+      const expectedPattern = new RegExp(
+        `^workspaces/${workspaceId}/logos/[a-f0-9]{24}\\.png$`,
+      );
+
+      if (!expectedPattern.test(snapshot.logo.storageKey)) {
+        this.invalidate(
+          "logoOverlaySnapshot.logo.storageKey",
+          "Snapshot logo must belong to the asset workspace.",
+        );
+      }
     }
   }
 

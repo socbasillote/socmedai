@@ -1,0 +1,845 @@
+
+===== apps/api/src/services/media/mediaGenerationCompletionService.ts =====
+import mongoose from "mongoose";
+
+import MediaAsset from "../../models/MediaAsset.js";
+
+import type { AuthenticatedUser } from "../userProfileService.js";
+
+import { getWorkspaceMediaAsset } from "../mediaAssetService.js";
+
+import {
+  getImageStorageKey,
+  getPrivateImageBucket,
+  uploadGeneratedImage,
+  type ImageStorageBucket,
+  type StoredImage,
+} from "./supabaseImageStorage.js";
+
+import {
+  validateGeneratedImage,
+  type ValidatedImage,
+} from "./imageValidation.js";
+
+import {
+  renewGenerationLease,
+  withGenerationLeaseHeartbeat,
+} from "./mediaGenerationLeaseService.js";
+
+export class MediaGenerationCompletionError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+  ) {
+    super(message);
+    this.name = "MediaGenerationCompletionError";
+  }
+}
+
+export type GenerationCompletionContext = {
+  authUser: AuthenticatedUser;
+  workspaceId: string;
+  assetId: string;
+  claimToken: string;
+};
+
+export type CompleteClaimedGenerationInput = GenerationCompletionContext & {
+  bytes: Uint8Array;
+};
+
+const CLAIM_CONFLICT = "Generation ownership or lifecycle state has changed.";
+
+/**
+ * Durable checkpoint BEFORE object upload.
+ *
+ * This update atomically writes:
+ * - storage_pending phase
+ * - expected normalized image SHA-256
+ *
+ * No client can provide the digest.
+ */
+async function beginClaimedStorage(
+  context: GenerationCompletionContext,
+  image: ValidatedImage,
+) {
+  const current = await getWorkspaceMediaAsset(
+    context.authUser,
+    context.workspaceId,
+    context.assetId,
+  );
+
+  if (
+    current.status !== "pending" ||
+    current.generationExecution?.phase !== "provider_started" ||
+    current.generationExecution?.claimToken !== context.claimToken
+  ) {
+    throw new MediaGenerationCompletionError(CLAIM_CONFLICT, 409);
+  }
+
+  const now = new Date();
+
+  const updated = await MediaAsset.findOneAndUpdate(
+    {
+      _id: current._id,
+      workspaceId: current.workspaceId,
+      status: "pending",
+
+      "generationExecution.phase": "provider_started",
+
+      "generationExecution.claimToken": context.claimToken,
+
+      "generationExecution.leaseExpiresAt": {
+        $gt: now,
+      },
+
+      contentSha256: { $exists: false },
+    },
+    {
+      $set: {
+        "generationExecution.phase": "storage_pending",
+
+        contentSha256: image.sha256,
+      },
+    },
+    {
+      returnDocument: "after",
+      runValidators: true,
+    },
+  );
+
+  if (!updated) {
+    throw new MediaGenerationCompletionError(CLAIM_CONFLICT, 409);
+  }
+
+  return updated;
+}
+
+/**
+ * Atomically finalize the owned generation.
+ *
+ * Both the storage object's key and verified
+ * SHA-256 must match our durable expectations.
+ */
+async function finalizeClaimedGeneration(
+  context: GenerationCompletionContext,
+  image: StoredImage,
+) {
+  const current = await getWorkspaceMediaAsset(
+    context.authUser,
+    context.workspaceId,
+    context.assetId,
+  );
+
+  const expectedKey = getImageStorageKey(context.workspaceId, context.assetId);
+
+  if (
+    current.status !== "pending" ||
+    current.generationExecution?.phase !== "storage_pending" ||
+    current.generationExecution?.claimToken !== context.claimToken
+  ) {
+    throw new MediaGenerationCompletionError(CLAIM_CONFLICT, 409);
+  }
+
+  if (
+    image.storageKey !== expectedKey ||
+    current.contentSha256 !== image.sha256 ||
+    !/^[a-f0-9]{64}$/.test(image.sha256) ||
+    !mongoose.isObjectIdOrHexString(context.assetId)
+  ) {
+    throw new MediaGenerationCompletionError(
+      "Stored image does not match the generation checkpoint.",
+      409,
+    );
+  }
+
+  // Execute complete document validation,
+  // including pre("validate") middleware.
+  const candidate = new MediaAsset(current.toObject());
+
+  candidate.set({
+    status: "ready",
+    storageKey: image.storageKey,
+    mimeType: image.mimeType,
+    width: image.width,
+    height: image.height,
+    fileSize: image.fileSize,
+    contentSha256: image.sha256,
+  });
+
+  await candidate.validate();
+
+  const now = new Date();
+
+  const completed = await MediaAsset.findOneAndUpdate(
+    {
+      _id: current._id,
+      workspaceId: current.workspaceId,
+      status: "pending",
+
+      "generationExecution.phase": "storage_pending",
+
+      "generationExecution.claimToken": context.claimToken,
+
+      "generationExecution.leaseExpiresAt": {
+        $gt: now,
+      },
+
+      contentSha256: image.sha256,
+    },
+    {
+      $set: {
+        status: "ready",
+        storageKey: image.storageKey,
+        mimeType: image.mimeType,
+        width: image.width,
+        height: image.height,
+        fileSize: image.fileSize,
+        contentSha256: image.sha256,
+      },
+
+      $unset: {
+        failureReason: "",
+      },
+    },
+    {
+      returnDocument: "after",
+      runValidators: true,
+    },
+  );
+
+  if (!completed) {
+    throw new MediaGenerationCompletionError(CLAIM_CONFLICT, 409);
+  }
+
+  return completed;
+}
+
+/**
+ * Trusted worker-only operation.
+ *
+ * The provider response must already exist.
+ * No paid provider call is performed here.
+ */
+export async function completeClaimedImageGeneration(
+  input: CompleteClaimedGenerationInput,
+  bucket: ImageStorageBucket = getPrivateImageBucket(),
+) {
+  // Authenticate and authorize before
+  // performing expensive image decoding.
+  const current = await getWorkspaceMediaAsset(
+    input.authUser,
+    input.workspaceId,
+    input.assetId,
+  );
+
+  if (
+    current.status !== "pending" ||
+    current.generationExecution?.phase !== "provider_started" ||
+    current.generationExecution?.claimToken !== input.claimToken
+  ) {
+    throw new MediaGenerationCompletionError(CLAIM_CONFLICT, 409);
+  }
+
+  // Ensure ownership has not expired before
+  // performing image normalization.
+  await renewGenerationLease(input);
+
+  const normalized = await validateGeneratedImage(input.bytes);
+
+  // Normalization may take time. Revalidate
+  // ownership before persisting the checkpoint.
+  await renewGenerationLease(input);
+
+  // Crucial crash-safety boundary:
+  // expected SHA is durable before upload.
+  await beginClaimedStorage(input, normalized);
+
+  // Maintain ownership while Supabase processes
+  // the upload and read-back verification.
+  const stored = await withGenerationLeaseHeartbeat(input, () =>
+    uploadGeneratedImage(
+      {
+        workspaceId: input.workspaceId,
+        assetId: input.assetId,
+        bytes: normalized.bytes,
+      },
+      bucket,
+    ),
+  );
+
+  if (
+    stored.sha256 !== normalized.sha256 ||
+    stored.fileSize !== normalized.fileSize ||
+    stored.width !== normalized.width ||
+    stored.height !== normalized.height
+  ) {
+    throw new MediaGenerationCompletionError(
+      "Uploaded image differs from the durable generation checkpoint.",
+      409,
+    );
+  }
+
+  // If the database update fails, retain the
+  // private object for checksum-based recovery.
+  return finalizeClaimedGeneration(input, stored);
+}
+
+===== apps/api/src/services/media/mediaAssetStorageService.ts =====
+import type { AuthenticatedUser } from "../userProfileService.js";
+
+import {
+  getWorkspaceMediaAsset,
+  markMediaAssetReady,
+  MediaAssetServiceError,
+} from "../mediaAssetService.js";
+
+import {
+  getImageStorageKey,
+  getPrivateImageBucket,
+  uploadGeneratedImage,
+  type ImageStorageBucket,
+  type StoredImage,
+} from "./supabaseImageStorage.js";
+
+import { validateGeneratedImage } from "./imageValidation.js";
+
+export class MediaAssetStorageError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+  ) {
+    super(message);
+    this.name = "MediaAssetStorageError";
+  }
+}
+
+type AssetContext = {
+  authUser: AuthenticatedUser;
+  workspaceId: string;
+  assetId: string;
+};
+
+type CompleteAssetInput = AssetContext & {
+  bytes: Uint8Array;
+};
+
+/**
+ * Reconcile a concurrent completion without
+ * silently accepting a different storage object.
+ */
+async function resolveCompletionConflict(
+  context: AssetContext,
+  expectedKey: string,
+) {
+  const current = await getWorkspaceMediaAsset(
+    context.authUser,
+    context.workspaceId,
+    context.assetId,
+  );
+
+  if (current.status === "ready" && current.storageKey === expectedKey) {
+    return current;
+  }
+
+  throw new MediaAssetServiceError("Media asset is no longer pending.", 409);
+}
+
+async function finalizeVerifiedImage(
+  context: AssetContext,
+  image: StoredImage,
+) {
+  try {
+    return await markMediaAssetReady(
+      context.authUser,
+      context.workspaceId,
+      context.assetId,
+      {
+        storageKey: image.storageKey,
+        mimeType: image.mimeType,
+        width: image.width,
+        height: image.height,
+        fileSize: image.fileSize,
+      },
+    );
+  } catch (error) {
+    if (error instanceof MediaAssetServiceError && error.statusCode === 409) {
+      return resolveCompletionConflict(context, image.storageKey);
+    }
+
+    // The uploaded object is deliberately retained
+    // if MongoDB completion fails.
+    //
+    // A later reconciliation can recover it without
+    // regenerating or re-uploading the image.
+    throw error;
+  }
+}
+
+/**
+ * Complete a pending MediaAsset using trusted
+ * server-generated image bytes.
+ *
+ * Not an HTTP controller.
+ */
+export async function completePendingMediaAsset(
+  input: CompleteAssetInput,
+  bucket: ImageStorageBucket = getPrivateImageBucket(),
+) {
+  const asset = await getWorkspaceMediaAsset(
+    input.authUser,
+    input.workspaceId,
+    input.assetId,
+  );
+
+  if (asset.generationExecution) {
+    throw new MediaAssetStorageError(
+      "Claimed generations require claim-aware storage.",
+      409,
+    );
+  }
+
+  if (asset.status !== "pending") {
+    throw new MediaAssetStorageError(
+      "Only pending media assets can be completed.",
+      409,
+    );
+  }
+
+  // This function performs normalization, upload,
+  // read-back verification, and integrity checking.
+  //
+  // A storage error leaves MongoDB pending because
+  // an upload timeout can have an unknown outcome.
+  const image = await uploadGeneratedImage(
+    {
+      workspaceId: input.workspaceId,
+      assetId: input.assetId,
+      bytes: input.bytes,
+    },
+    bucket,
+  );
+
+  return finalizeVerifiedImage(input, image);
+}
+
+/**
+ * Recover an asset whose private object already
+ * exists but whose MongoDB status is still pending.
+ *
+ * This function does not call the image provider
+ * and does not upload or overwrite an object.
+ */
+export async function reconcileStoredMediaAsset(
+  context: AssetContext,
+  bucket: ImageStorageBucket = getPrivateImageBucket(),
+) {
+  const asset = await getWorkspaceMediaAsset(
+    context.authUser,
+    context.workspaceId,
+    context.assetId,
+  );
+
+  const key = getImageStorageKey(context.workspaceId, context.assetId);
+
+  if (asset.status === "ready") {
+    if (asset.storageKey !== key) {
+      throw new MediaAssetStorageError(
+        "Media asset storage metadata is inconsistent.",
+        409,
+      );
+    }
+
+    return asset;
+  }
+
+  if (asset.generationExecution) {
+    throw new MediaAssetStorageError(
+      "Claimed generations require claim-aware storage.",
+      409,
+    );
+  }
+
+  if (asset.status !== "pending") {
+    throw new MediaAssetStorageError(
+      "Failed media assets cannot be reconciled.",
+      409,
+    );
+  }
+
+  let storedBytes: Buffer;
+
+  try {
+    const download = await bucket.download(key);
+
+    if (download.error || !download.data) {
+      throw new Error("Stored object unavailable");
+    }
+
+    storedBytes = Buffer.from(await download.data.arrayBuffer());
+  } catch {
+    throw new MediaAssetStorageError(
+      "The stored image cannot be verified yet.",
+      503,
+    );
+  }
+
+  // Revalidate actual object bytes. The stored file
+  // must already be in Storm's normalized PNG format.
+  const image = await validateGeneratedImage(storedBytes);
+
+  if (!storedBytes.equals(image.bytes)) {
+    throw new MediaAssetStorageError(
+      "The stored image does not match the required normalized format.",
+      409,
+    );
+  }
+
+  return finalizeVerifiedImage(context, {
+    storageKey: key,
+    mimeType: image.mimeType,
+    width: image.width,
+    height: image.height,
+    fileSize: image.fileSize,
+    sha256: image.sha256,
+  });
+}
+
+===== apps/api/src/services/media/supabaseImageStorage.ts =====
+import { createHash } from "node:crypto";
+import { createClient } from "@supabase/supabase-js";
+import mongoose from "mongoose";
+
+import { env } from "../../config/env.js";
+
+import {
+  validateGeneratedImage,
+  type ValidatedImage,
+} from "./imageValidation.js";
+
+export const IMAGE_BUCKET = "storm-media";
+
+type StorageErrorResult = {
+  error: { message: string } | null;
+};
+
+export type ImageStorageBucket = {
+  upload(
+    path: string,
+    body: ArrayBuffer,
+    options: {
+      contentType: "image/png";
+      cacheControl: string;
+      upsert: false;
+    },
+  ): Promise<StorageErrorResult>;
+
+  download(path: string): Promise<{
+    data: Blob | null;
+    error: { message: string } | null;
+  }>;
+
+  remove(paths: string[]): Promise<StorageErrorResult>;
+};
+
+export class ImageStorageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ImageStorageError";
+  }
+}
+
+export function getPrivateImageBucket(): ImageStorageBucket {
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new ImageStorageError("Private media storage is not configured.");
+  }
+
+  const client = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+
+  return client.storage.from(IMAGE_BUCKET);
+}
+
+/**
+ * Construct keys from trusted MongoDB IDs only.
+ * Never use a prompt, filename, or URL as a key.
+ */
+export function getImageStorageKey(
+  workspaceId: string,
+  assetId: string,
+): string {
+  if (
+    !mongoose.isObjectIdOrHexString(workspaceId) ||
+    !mongoose.isObjectIdOrHexString(assetId)
+  ) {
+    throw new ImageStorageError("Invalid image storage identifiers.");
+  }
+
+  return (
+    `workspaces/${workspaceId.toLowerCase()}/` +
+    `images/${assetId.toLowerCase()}.png`
+  );
+}
+
+export type StoredImage = {
+  storageKey: string;
+  mimeType: "image/png";
+  width: number;
+  height: number;
+  fileSize: number;
+  sha256: string;
+};
+
+/**
+ * Server-only upload.
+ *
+ * Workspace authorization must occur in the
+ * calling MediaAsset service before invoking
+ * this function.
+ */
+export async function uploadGeneratedImage(
+  input: {
+    workspaceId: string;
+    assetId: string;
+    bytes: Uint8Array;
+  },
+  bucket: ImageStorageBucket = getPrivateImageBucket(),
+): Promise<StoredImage> {
+  const key = getImageStorageKey(input.workspaceId, input.assetId);
+
+  const image: ValidatedImage = await validateGeneratedImage(input.bytes);
+
+  const body = Uint8Array.from(image.bytes).buffer;
+
+  let uploaded = false;
+
+  try {
+    const uploadResult = await bucket.upload(key, body, {
+      contentType: image.mimeType,
+      cacheControl: "3600",
+      upsert: false,
+    });
+
+    if (uploadResult.error) {
+      throw new ImageStorageError("Private image upload failed.");
+    }
+
+    uploaded = true;
+
+    // Read back the stored object to verify
+    // what Supabase actually persisted.
+    const downloadResult = await bucket.download(key);
+
+    if (downloadResult.error || !downloadResult.data) {
+      throw new ImageStorageError("Stored image verification failed.");
+    }
+
+    const downloaded = Buffer.from(await downloadResult.data.arrayBuffer());
+
+    const downloadedHash = createHash("sha256")
+      .update(downloaded)
+      .digest("hex");
+
+    if (
+      downloaded.length !== image.fileSize ||
+      downloadedHash !== image.sha256
+    ) {
+      throw new ImageStorageError(
+        "Stored image integrity verification failed.",
+      );
+    }
+
+    return {
+      storageKey: key,
+      mimeType: image.mimeType,
+      width: image.width,
+      height: image.height,
+      fileSize: image.fileSize,
+      sha256: image.sha256,
+    };
+  } catch {
+    if (uploaded) {
+      // Only clean up an object successfully
+      // uploaded by this invocation.
+      let cleanupConfirmed = false;
+
+      try {
+        const cleanup = await bucket.remove([key]);
+        cleanupConfirmed = !cleanup.error;
+      } catch {
+        cleanupConfirmed = false;
+      }
+
+      if (!cleanupConfirmed) {
+        throw new ImageStorageError(
+          "Image verification failed and cleanup could not be confirmed.",
+        );
+      }
+    }
+
+    throw new ImageStorageError("Image could not be safely stored.");
+  }
+}
+
+/**
+ * Internal cleanup helper.
+ *
+ * The caller must verify ownership and must
+ * not delete assets referenced by posts.
+ */
+export async function removeStoredImage(
+  workspaceId: string,
+  assetId: string,
+  bucket: ImageStorageBucket = getPrivateImageBucket(),
+): Promise<void> {
+  const key = getImageStorageKey(workspaceId, assetId);
+
+  const result = await bucket.remove([key]);
+
+  if (result.error) {
+    throw new ImageStorageError("Image cleanup failed.");
+  }
+}
+
+===== apps/api/src/services/media/imageValidation.ts =====
+import sharp from "sharp";
+import { createHash } from "node:crypto";
+
+export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+export const MAX_IMAGE_DIMENSION = 16_384;
+export const MAX_IMAGE_PIXELS = 40_000_000;
+
+export class ImageValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ImageValidationError";
+  }
+}
+
+export type ValidatedImage = {
+  bytes: Buffer;
+  mimeType: "image/png";
+  width: number;
+  height: number;
+  fileSize: number;
+  sha256: string;
+};
+
+export async function validateGeneratedImage(
+  input: Uint8Array,
+): Promise<ValidatedImage> {
+  if (
+    !(input instanceof Uint8Array) ||
+    input.byteLength === 0 ||
+    input.byteLength > MAX_IMAGE_BYTES
+  ) {
+    throw new ImageValidationError(
+      "Image data is empty or exceeds the 20 MB limit.",
+    );
+  }
+
+  try {
+    const source = sharp(input, {
+      failOn: "error",
+      limitInputPixels: MAX_IMAGE_PIXELS,
+      animated: false,
+    });
+
+    const metadata = await source.metadata();
+
+    if (!["png", "jpeg", "webp"].includes(metadata.format ?? "")) {
+      throw new ImageValidationError("Unsupported image format.");
+    }
+
+    if (
+      !metadata.width ||
+      !metadata.height ||
+      metadata.width > MAX_IMAGE_DIMENSION ||
+      metadata.height > MAX_IMAGE_DIMENSION ||
+      metadata.width * metadata.height > MAX_IMAGE_PIXELS ||
+      (metadata.pages ?? 1) !== 1
+    ) {
+      throw new ImageValidationError(
+        "Invalid image dimensions or multiple frames.",
+      );
+    }
+
+    // Re-encode to normalize the format and remove
+    // source metadata before storing.
+    const normalized = await sharp(input, {
+      failOn: "error",
+      limitInputPixels: MAX_IMAGE_PIXELS,
+      animated: false,
+    })
+      .rotate()
+      .png()
+      .toBuffer({ resolveWithObject: true });
+
+    const bytes = normalized.data;
+    const { width, height } = normalized.info;
+
+    if (
+      width < 1 ||
+      height < 1 ||
+      width > MAX_IMAGE_DIMENSION ||
+      height > MAX_IMAGE_DIMENSION ||
+      bytes.length > MAX_IMAGE_BYTES
+    ) {
+      throw new ImageValidationError(
+        "Normalized image exceeds storage limits.",
+      );
+    }
+
+    return {
+      bytes,
+      mimeType: "image/png",
+      width,
+      height,
+      fileSize: bytes.length,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
+  } catch (error) {
+    if (error instanceof ImageValidationError) {
+      throw error;
+    }
+
+    throw new ImageValidationError("Image data could not be decoded.");
+  }
+}
+
+===== apps/api/package.json =====
+{
+  "name": "@storm/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.7",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "mongoose": "^9.11.2",
+    "sharp": "^0.35.5",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.19.2",
+    "@types/supertest": "^7.2.1",
+    "mongodb-memory-server": "^11.3.0",
+    "supertest": "^7.3.1",
+    "tsx": "^4.23.15",
+    "vitest": "^5.0.4"
+  }
+}

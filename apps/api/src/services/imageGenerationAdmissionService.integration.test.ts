@@ -39,6 +39,46 @@ const image = {
   aspectRatio: "square" as const,
 };
 
+const LOGO_ID = "6af31be35bba81eee2f1be9b";
+const SECOND_LOGO_ID = "6af31be35bba81eee2f1be9c";
+
+function createLogoSettings(
+  logoId = LOGO_ID,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    enabled: true,
+
+    logo: {
+      storageKey: `workspaces/${workspaceId}/logos/${logoId}.png`,
+      sha256: "a".repeat(64),
+    },
+
+    position: "bottom-right",
+    sizePercent: 20,
+    opacity: 0.8,
+
+    ...overrides,
+  };
+}
+
+async function setWorkspaceLogoSettings(settings: unknown) {
+  await Workspace.updateOne(
+    { _id: workspaceId },
+    {
+      $set: {
+        "settings.logoOverlay": settings,
+      },
+    },
+  );
+}
+
+async function getSavedSnapshot(assetId: string) {
+  const asset = await MediaAsset.findById(assetId).lean();
+
+  return asset?.logoOverlaySnapshot;
+}
+
 function request(
   key = "credit-request-0001",
   policy = { dailyLimit: 3, maxActive: 2 },
@@ -350,5 +390,204 @@ describe("Credit-aware generation admission", () => {
     expect(utcUsageDay(new Date("2026-11-07T23:59:59Z"))).toBe("2026-11-07");
 
     expect(utcUsageDay(new Date("2026-11-08T00:00:00Z"))).toBe("2026-11-08");
+  });
+
+  it("persists disabled branding for an unconfigured workspace", async () => {
+    const result = await admitImageGeneration(
+      request("snapshot-disabled-0001"),
+    );
+
+    const snapshot = await getSavedSnapshot(String(result.asset._id));
+
+    expect(snapshot).toMatchObject({
+      enabled: false,
+      logo: null,
+      position: "bottom-right",
+      sizePercent: 20,
+      opacity: 0.8,
+    });
+
+    expect(await balance()).toBe(4);
+    expect(await activeCount()).toBe(1);
+  });
+
+  it("captures the exact enabled logo configuration", async () => {
+    const settings = createLogoSettings();
+
+    await setWorkspaceLogoSettings(settings);
+
+    const result = await admitImageGeneration(request("snapshot-enabled-0001"));
+
+    const snapshot = await getSavedSnapshot(String(result.asset._id));
+
+    expect(snapshot).toMatchObject(settings);
+
+    expect(await balance()).toBe(4);
+    expect(await attemptCount()).toBe(1);
+    expect(await activeCount()).toBe(1);
+  });
+
+  it("preserves the admitted logo after workspace branding changes", async () => {
+    const original = createLogoSettings();
+
+    await setWorkspaceLogoSettings(original);
+
+    const admitted = await admitImageGeneration(
+      request("snapshot-original-0001"),
+    );
+
+    const changed = createLogoSettings(SECOND_LOGO_ID, {
+      position: "top-left",
+      sizePercent: 10,
+      opacity: 0.5,
+    });
+
+    await setWorkspaceLogoSettings(changed);
+
+    const snapshot = await getSavedSnapshot(String(admitted.asset._id));
+
+    expect(snapshot).toMatchObject(original);
+
+    expect(snapshot?.logo?.storageKey).not.toBe(changed.logo.storageKey);
+
+    const currentWorkspace = await Workspace.findById(workspaceId).lean();
+
+    expect(currentWorkspace?.settings.logoOverlay.logo.storageKey).toBe(
+      changed.logo.storageKey,
+    );
+  });
+
+  it("returns the original snapshot on idempotent retry after a logo change", async () => {
+    await setWorkspaceLogoSettings(createLogoSettings());
+
+    const first = await admitImageGeneration(request("snapshot-retry-0001"));
+
+    await setWorkspaceLogoSettings(
+      createLogoSettings(SECOND_LOGO_ID, {
+        opacity: 0.4,
+      }),
+    );
+
+    const retry = await admitImageGeneration(request("snapshot-retry-0001"));
+
+    expect(retry.created).toBe(false);
+    expect(retry.creditsChargedNow).toBe(0);
+
+    expect(String(retry.asset._id)).toBe(String(first.asset._id));
+
+    const snapshot = await getSavedSnapshot(String(first.asset._id));
+
+    expect(snapshot?.logo?.storageKey).toBe(
+      `workspaces/${workspaceId}/logos/${LOGO_ID}.png`,
+    );
+
+    expect(snapshot?.opacity).toBe(0.8);
+
+    expect(await balance()).toBe(4);
+    expect(await attemptCount()).toBe(1);
+    expect(await activeCount()).toBe(1);
+
+    expect(await MediaAsset.countDocuments()).toBe(1);
+  });
+
+  it("rejects invalid branding without debiting credits", async () => {
+    await setWorkspaceLogoSettings({
+      enabled: true,
+      logo: null,
+      position: "bottom-right",
+      sizePercent: 20,
+      opacity: 0.8,
+    });
+
+    await expect(
+      admitImageGeneration(request("snapshot-invalid-0001")),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+    });
+
+    expect(await balance()).toBe(5);
+    expect(await attemptCount()).toBe(0);
+    expect(await activeCount()).toBe(0);
+
+    expect(await MediaAsset.countDocuments()).toBe(0);
+
+    expect(await ImageGenerationAdmission.countDocuments()).toBe(0);
+  });
+
+  it("keeps a consistent logo snapshot when workspace settings change during admission", async () => {
+    const original = createLogoSettings();
+
+    const replacement = createLogoSettings(SECOND_LOGO_ID, {
+      position: "top-left",
+      sizePercent: 10,
+      opacity: 0.5,
+    });
+
+    await setWorkspaceLogoSettings(original);
+
+    let updateCompleted = false;
+
+    const admitted = await admitImageGeneration({
+      ...request("snapshot-concurrent-0001"),
+
+      faultInjection: {
+        async beforeDebitLedgerInsert() {
+          // This executes after admission has read
+          // workspace settings and created the
+          // image asset inside its transaction.
+          //
+          // Update workspace settings through a
+          // separate MongoDB operation.
+          await setWorkspaceLogoSettings(replacement);
+
+          updateCompleted = true;
+        },
+      },
+    });
+
+    expect(updateCompleted).toBe(true);
+
+    const savedSnapshot = await getSavedSnapshot(String(admitted.asset._id));
+
+    const currentWorkspace = await Workspace.findById(workspaceId).lean();
+
+    // The admitted generation retains Logo A.
+    expect(savedSnapshot).toMatchObject(original);
+
+    // The workspace now has Logo B.
+    expect(currentWorkspace?.settings.logoOverlay).toMatchObject(replacement);
+
+    // Billing and admission remain consistent.
+    expect(await balance()).toBe(4);
+    expect(await attemptCount()).toBe(1);
+    expect(await activeCount()).toBe(1);
+
+    expect(await ImageGenerationAdmission.countDocuments()).toBe(1);
+
+    expect(await MediaAsset.countDocuments()).toBe(1);
+  });
+
+  it("rolls back admission when an asynchronous operation fails", async () => {
+    await setWorkspaceLogoSettings(createLogoSettings());
+
+    await expect(
+      admitImageGeneration({
+        ...request("snapshot-rollback-0001"),
+
+        faultInjection: {
+          async beforeDebitLedgerInsert() {
+            throw new Error("Simulated asynchronous admission failure");
+          },
+        },
+      }),
+    ).rejects.toThrow("Simulated asynchronous admission failure");
+
+    expect(await balance()).toBe(5);
+    expect(await attemptCount()).toBe(0);
+    expect(await activeCount()).toBe(0);
+
+    expect(await MediaAsset.countDocuments()).toBe(0);
+
+    expect(await ImageGenerationAdmission.countDocuments()).toBe(0);
   });
 });

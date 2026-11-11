@@ -24,6 +24,8 @@ import {
   withGenerationLeaseHeartbeat,
 } from "./mediaGenerationLeaseService.js";
 
+import { prepareBrandedGeneratedImage } from "./prepareBrandedGeneratedImage.js";
+
 export class MediaGenerationCompletionError extends Error {
   constructor(
     message: string,
@@ -238,14 +240,26 @@ export async function completeClaimedImageGeneration(
     throw new MediaGenerationCompletionError(CLAIM_CONFLICT, 409);
   }
 
-  // Ensure ownership has not expired before
-  // performing image normalization.
   await renewGenerationLease(input);
 
-  const normalized = await validateGeneratedImage(input.bytes);
+  // The source of branding configuration is the
+  // persisted MediaAsset snapshot, not Workspace.
+  //
+  // Keep the generation lease alive during private
+  // logo download, Sharp work, and normalization.
+  const normalized = await withGenerationLeaseHeartbeat(input, () =>
+    prepareBrandedGeneratedImage(
+      {
+        workspaceId: input.workspaceId,
+        bytes: input.bytes,
+        snapshot: current.logoOverlaySnapshot ?? null,
+      },
+      bucket,
+    ),
+  );
 
-  // Normalization may take time. Revalidate
-  // ownership before persisting the checkpoint.
+  // Revalidate claim ownership before writing the
+  // final branded PNG's durable checksum.
   await renewGenerationLease(input);
 
   // Crucial crash-safety boundary:

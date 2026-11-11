@@ -22,10 +22,12 @@ import type { AuthenticatedUser } from "./userProfileService.js";
 
 import CreditTransaction from "../models/CreditTransaction.js";
 
+import { snapshotWorkspaceLogoSettings } from "./media/workspaceLogoConfig.js";
+
 export const IMAGE_CREDIT_COST = 1;
 
 export type ImageAdmissionFaultInjection = {
-  beforeDebitLedgerInsert?: () => void;
+  beforeDebitLedgerInsert?: () => void | Promise<void>;
 };
 
 export class ImageAdmissionError extends Error {
@@ -218,11 +220,37 @@ export async function admitImageGeneration(input: AdmissionInput) {
           _id: lookup.workspaceId,
           ownerUserId: profile._id,
         })
-          .select("_id")
+          .select("_id settings")
           .session(session);
 
         if (!workspace) {
           throw new ImageAdmissionError("Workspace not found.", 404);
+        }
+
+        // Freeze workspace branding for this
+        // generation before creating the asset.
+        //
+        // Read from the authorized workspace
+        // inside the current MongoDB transaction.
+        const workspaceSettings =
+          workspace.settings &&
+          typeof workspace.settings === "object" &&
+          !Array.isArray(workspace.settings)
+            ? (workspace.settings as Record<string, unknown>)
+            : {};
+
+        let logoOverlaySnapshot;
+
+        try {
+          logoOverlaySnapshot = snapshotWorkspaceLogoSettings(
+            workspaceSettings.logoOverlay,
+            String(workspace._id),
+          );
+        } catch {
+          throw new ImageAdmissionError(
+            "Workspace logo settings are invalid.",
+            409,
+          );
         }
 
         // Idempotent retries consume nothing.
@@ -358,6 +386,7 @@ export async function admitImageGeneration(input: AdmissionInput) {
                 phase: "reserved",
                 attemptCount: 0,
               },
+              logoOverlaySnapshot,
             },
           ],
           { session },
@@ -381,7 +410,7 @@ export async function admitImageGeneration(input: AdmissionInput) {
           { session },
         );
 
-        input.faultInjection?.beforeDebitLedgerInsert?.();
+        await input.faultInjection?.beforeDebitLedgerInsert?.();
 
         await CreditTransaction.create(
           [

@@ -1,0 +1,2358 @@
+===== EXISTING LIFECYCLE TESTS =====
+
+===== apps/api/src/services/media/mediaGenerationCompletionService.integration.test.ts =====
+import mongoose from "mongoose";
+import sharp from "sharp";
+import { MongoMemoryServer } from "mongodb-memory-server";
+
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+import MediaAsset from "../../models/MediaAsset.js";
+import UserProfile from "../../models/UserProfile.js";
+import Workspace from "../../models/Workspace.js";
+
+import type { AuthenticatedUser } from "../userProfileService.js";
+
+import {
+  beginImageProviderCall,
+  claimImageGeneration,
+  reserveImageGeneration,
+} from "../mediaGenerationClaimService.js";
+
+import {
+  markMediaAssetFailed,
+  markMediaAssetReady,
+} from "../mediaAssetService.js";
+
+import { completePendingMediaAsset } from "./mediaAssetStorageService.js";
+
+import { completeClaimedImageGeneration } from "./mediaGenerationCompletionService.js";
+
+import type { ImageStorageBucket } from "./supabaseImageStorage.js";
+
+import {
+  renewGenerationLease,
+  withGenerationLeaseHeartbeat,
+} from "./mediaGenerationLeaseService.js";
+
+import { inspectStoredGeneration } from "./mediaGenerationRecoveryService.js";
+
+import { getImageStorageKey } from "./supabaseImageStorage.js";
+
+import { validateGeneratedImage } from "./imageValidation.js";
+
+let mongo: MongoMemoryServer;
+
+const userA = {
+  id: "completion-user-a",
+} as AuthenticatedUser;
+
+const userB = {
+  id: "completion-user-b",
+} as AuthenticatedUser;
+
+let workspaceA: string;
+let workspaceB: string;
+
+function fakeBucket() {
+  const objects = new Map<string, Uint8Array>();
+
+  const upload = vi.fn(
+    async (
+      key: string,
+      body: ArrayBuffer,
+    ): Promise<{ error: { message: string } | null }> => {
+      if (objects.has(key)) {
+        return {
+          error: { message: "Already exists" },
+        };
+      }
+
+      objects.set(key, new Uint8Array(body));
+      return { error: null };
+    },
+  );
+
+  const download = vi.fn(
+    async (
+      key: string,
+    ): Promise<{
+      data: Blob | null;
+      error: { message: string } | null;
+    }> => {
+      const bytes = objects.get(key);
+
+      if (!bytes) {
+        return {
+          data: null,
+          error: { message: "Not found" },
+        };
+      }
+
+      return {
+        data: new Blob([Uint8Array.from(bytes).buffer as ArrayBuffer]),
+        error: null,
+      };
+    },
+  );
+
+  const remove = vi.fn(
+    async (keys: string[]): Promise<{ error: { message: string } | null }> => {
+      for (const key of keys) {
+        objects.delete(key);
+      }
+
+      return { error: null };
+    },
+  );
+
+  const bucket: ImageStorageBucket = {
+    upload,
+    download,
+    remove,
+  };
+
+  return {
+    bucket,
+    objects,
+    upload,
+    download,
+    remove,
+  };
+}
+
+async function sampleImage() {
+  return sharp({
+    create: {
+      width: 128,
+      height: 96,
+      channels: 3,
+      background: "#7c3aed",
+    },
+  })
+    .png()
+    .toBuffer();
+}
+
+async function createStartedGeneration() {
+  const reservation = await reserveImageGeneration({
+    authUser: userA,
+    workspaceId: workspaceA,
+    idempotencyKey: `generation-${new mongoose.Types.ObjectId()}`,
+    image: {
+      prompt: "A professional product photograph on a desk.",
+      aspectRatio: "square",
+    },
+    generation: {
+      provider: "openai",
+      model: "test-image-model",
+    },
+  });
+
+  const context = {
+    authUser: userA,
+    workspaceId: workspaceA,
+    assetId: String(reservation.asset._id),
+  };
+
+  const claim = await claimImageGeneration(context);
+
+  await beginImageProviderCall({
+    ...context,
+    claimToken: claim.claimToken,
+  });
+
+  return {
+    ...context,
+    claimToken: claim.claimToken,
+  };
+}
+
+beforeAll(async () => {
+  mongo = await MongoMemoryServer.create();
+  await mongoose.connect(mongo.getUri());
+  await MediaAsset.createIndexes();
+});
+
+beforeEach(async () => {
+  await MediaAsset.deleteMany({});
+  await Workspace.collection.deleteMany({});
+  await UserProfile.collection.deleteMany({});
+
+  const profileA = new mongoose.Types.ObjectId();
+  const profileB = new mongoose.Types.ObjectId();
+
+  await UserProfile.collection.insertMany([
+    {
+      _id: profileA,
+      supabaseUserId: userA.id,
+    },
+    {
+      _id: profileB,
+      supabaseUserId: userB.id,
+    },
+  ]);
+
+  const idA = new mongoose.Types.ObjectId();
+  const idB = new mongoose.Types.ObjectId();
+
+  await Workspace.collection.insertMany([
+    {
+      _id: idA,
+      ownerUserId: profileA,
+      name: "Workspace A",
+    },
+    {
+      _id: idB,
+      ownerUserId: profileB,
+      name: "Workspace B",
+    },
+  ]);
+
+  workspaceA = String(idA);
+  workspaceB = String(idB);
+});
+
+afterAll(async () => {
+  await mongoose.disconnect();
+  await mongo?.stop();
+});
+
+describe("Claim-aware image completion", () => {
+  it("persists verified SHA-256 and ready metadata", async () => {
+    const context = await createStartedGeneration();
+    const storage = fakeBucket();
+
+    const completed = await completeClaimedImageGeneration(
+      {
+        ...context,
+        bytes: await sampleImage(),
+      },
+      storage.bucket,
+    );
+
+    expect(completed.status).toBe("ready");
+    expect(completed.width).toBe(128);
+    expect(completed.height).toBe(96);
+    expect(completed.contentSha256).toMatch(/^[a-f0-9]{64}$/);
+
+    const saved = await MediaAsset.findById(context.assetId);
+
+    expect(saved?.contentSha256).toBe(completed.contentSha256);
+
+    expect(storage.upload).toHaveBeenCalledOnce();
+    expect(storage.download).toHaveBeenCalledOnce();
+  });
+
+  it("rejects an incorrect claim before upload", async () => {
+    const context = await createStartedGeneration();
+    const storage = fakeBucket();
+
+    await expect(
+      completeClaimedImageGeneration(
+        {
+          ...context,
+          claimToken: "wrong-token",
+          bytes: await sampleImage(),
+        },
+        storage.bucket,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+    });
+
+    expect(storage.upload).not.toHaveBeenCalled();
+  });
+
+  it("rejects cross-workspace completion", async () => {
+    const context = await createStartedGeneration();
+    const storage = fakeBucket();
+
+    await expect(
+      completeClaimedImageGeneration(
+        {
+          ...context,
+          authUser: userB,
+          workspaceId: workspaceB,
+          bytes: await sampleImage(),
+        },
+        storage.bucket,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+    });
+
+    expect(storage.upload).not.toHaveBeenCalled();
+  });
+
+  it("allows only one concurrent storage completion", async () => {
+    const context = await createStartedGeneration();
+    const storage = fakeBucket();
+    const bytes = await sampleImage();
+
+    const results = await Promise.allSettled([
+      completeClaimedImageGeneration({ ...context, bytes }, storage.bucket),
+      completeClaimedImageGeneration({ ...context, bytes }, storage.bucket),
+    ]);
+
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+
+    expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+
+    expect(storage.upload).toHaveBeenCalledOnce();
+
+    const saved = await MediaAsset.findById(context.assetId);
+
+    expect(saved?.status).toBe("ready");
+  });
+
+  it("preserves storage_pending when upload fails", async () => {
+    const context = await createStartedGeneration();
+    const storage = fakeBucket();
+
+    storage.upload.mockImplementationOnce(async () => ({
+      error: { message: "Storage unavailable" },
+    }));
+
+    await expect(
+      completeClaimedImageGeneration(
+        {
+          ...context,
+          bytes: await sampleImage(),
+        },
+        storage.bucket,
+      ),
+    ).rejects.toThrow();
+
+    const saved = await MediaAsset.findById(context.assetId);
+
+    expect(saved?.status).toBe("pending");
+
+    expect(saved?.generationExecution?.phase).toBe("storage_pending");
+
+    expect(saved?.contentSha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("rejects finalization after claim ownership changes", async () => {
+    const context = await createStartedGeneration();
+    const storage = fakeBucket();
+
+    const originalUpload = storage.bucket.upload;
+
+    // Simulate a claim change while the worker
+    // is uploading. This is a fault-injection test.
+    storage.bucket.upload = async (key, body, options) => {
+      const result = await originalUpload(key, body, options);
+
+      await MediaAsset.collection.updateOne(
+        { _id: new mongoose.Types.ObjectId(context.assetId) },
+        {
+          $set: {
+            "generationExecution.claimToken":
+              "00000000-0000-4000-8000-000000000001",
+          },
+        },
+      );
+
+      return result;
+    };
+
+    await expect(
+      completeClaimedImageGeneration(
+        {
+          ...context,
+          bytes: await sampleImage(),
+        },
+        storage.bucket,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+    });
+
+    const saved = await MediaAsset.findById(context.assetId);
+
+    expect(saved?.status).toBe("pending");
+    expect(saved?.contentSha256).toMatch(/^[a-f0-9]{64}$/);
+
+    // Preserve the uploaded object for reconciliation.
+    expect(storage.objects.size).toBe(1);
+  });
+
+  it("blocks legacy MongoDB completion methods", async () => {
+    const context = await createStartedGeneration();
+
+    await expect(
+      markMediaAssetReady(userA, workspaceA, context.assetId, {
+        storageKey: `workspaces/${workspaceA}/images/test.png`,
+        mimeType: "image/png",
+        width: 128,
+        height: 96,
+        fileSize: 400_000,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+    });
+
+    await expect(
+      markMediaAssetFailed(userA, workspaceA, context.assetId),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+    });
+  });
+
+  it("blocks legacy storage completion before upload", async () => {
+    const context = await createStartedGeneration();
+    const storage = fakeBucket();
+
+    await expect(
+      completePendingMediaAsset(
+        {
+          authUser: userA,
+          workspaceId: workspaceA,
+          assetId: context.assetId,
+          bytes: await sampleImage(),
+        },
+        storage.bucket,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+    });
+
+    expect(storage.upload).not.toHaveBeenCalled();
+  });
+});
+
+describe("Generation crash-safety hardening", () => {
+  it("persists the checksum before upload begins", async () => {
+    const context = await createStartedGeneration();
+    const storage = fakeBucket();
+
+    let observedSha256: string | undefined;
+    let observedPhase: string | undefined;
+
+    const originalUpload = storage.bucket.upload;
+
+    storage.bucket.upload = async (key, body, options) => {
+      const checkpoint = await MediaAsset.findById(context.assetId);
+
+      observedSha256 = checkpoint?.contentSha256;
+
+      observedPhase = checkpoint?.generationExecution?.phase;
+
+      return originalUpload(key, body, options);
+    };
+
+    const completed = await completeClaimedImageGeneration(
+      {
+        ...context,
+        bytes: await sampleImage(),
+      },
+      storage.bucket,
+    );
+
+    expect(observedPhase).toBe("storage_pending");
+    expect(observedSha256).toMatch(/^[a-f0-9]{64}$/);
+
+    expect(completed.contentSha256).toBe(observedSha256);
+  });
+
+  it("retains the checksum after an upload failure", async () => {
+    const context = await createStartedGeneration();
+    const storage = fakeBucket();
+
+    storage.upload.mockImplementationOnce(async () => ({
+      error: {
+        message: "Simulated storage failure",
+      },
+    }));
+
+    await expect(
+      completeClaimedImageGeneration(
+        {
+          ...context,
+          bytes: await sampleImage(),
+        },
+        storage.bucket,
+      ),
+    ).rejects.toThrow();
+
+    const saved = await MediaAsset.findById(context.assetId);
+
+    expect(saved?.status).toBe("pending");
+    expect(saved?.generationExecution?.phase).toBe("storage_pending");
+
+    expect(saved?.contentSha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("verifies a stored image after a simulated crash", async () => {
+    const context = await createStartedGeneration();
+    const storage = fakeBucket();
+
+    const bytes = await sampleImage();
+
+    // Simulate a crash after the durable checkpoint
+    // and before normal MongoDB finalization.
+    //
+    // The mock records the uploaded object,
+    // then throws to interrupt the workflow.
+    const originalUpload = storage.bucket.upload;
+
+    storage.bucket.upload = async (key, body, options) => {
+      await originalUpload(key, body, options);
+
+      throw new Error("Simulated process interruption");
+    };
+
+    await expect(
+      completeClaimedImageGeneration(
+        {
+          ...context,
+          bytes,
+        },
+        storage.bucket,
+      ),
+    ).rejects.toThrow();
+
+    const beforeRecovery = await MediaAsset.findById(context.assetId);
+
+    expect(beforeRecovery?.status).toBe("pending");
+
+    const expectedSha = beforeRecovery?.contentSha256;
+
+    expect(expectedSha).toMatch(/^[a-f0-9]{64}$/);
+
+    // Simulate the original worker disappearing
+    // and its lease subsequently expiring.
+    await MediaAsset.collection.updateOne(
+      {
+        _id: new mongoose.Types.ObjectId(context.assetId),
+      },
+      {
+        $set: {
+          "generationExecution.leaseExpiresAt": new Date(Date.now() - 60_000),
+        },
+      },
+    );
+
+    const recovery = await inspectStoredGeneration(context, storage.bucket);
+
+    expect(recovery.outcome).toBe("checksum_verified");
+
+    expect(recovery.objectSha256).toBe(expectedSha);
+
+    const afterRecovery = await MediaAsset.findById(context.assetId);
+
+    // Inspection must not automatically
+    // finalize or repeat paid generation.
+    expect(afterRecovery?.status).toBe("pending");
+    expect(afterRecovery?.generationExecution?.phase).toBe("recovery_required");
+  });
+
+  it("rejects a lease renewal with the wrong token", async () => {
+    const context = await createStartedGeneration();
+
+    await expect(
+      renewGenerationLease({
+        ...context,
+        claimToken: "00000000-0000-4000-8000-000000000002",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+    });
+  });
+
+  it("renews an active owned lease", async () => {
+    const context = await createStartedGeneration();
+
+    const before = await MediaAsset.findById(context.assetId);
+
+    const renewed = await renewGenerationLease(context);
+
+    expect(renewed.generationExecution?.leaseExpiresAt).toBeInstanceOf(Date);
+
+    expect(
+      renewed.generationExecution!.leaseExpiresAt!.getTime(),
+    ).toBeGreaterThanOrEqual(
+      before!.generationExecution!.leaseExpiresAt!.getTime(),
+    );
+  });
+
+  it("refuses to revive an expired lease", async () => {
+    const context = await createStartedGeneration();
+
+    await MediaAsset.collection.updateOne(
+      {
+        _id: new mongoose.Types.ObjectId(context.assetId),
+      },
+      {
+        $set: {
+          "generationExecution.leaseExpiresAt": new Date(Date.now() - 60_000),
+        },
+      },
+    );
+
+    await expect(renewGenerationLease(context)).rejects.toMatchObject({
+      statusCode: 409,
+    });
+  });
+
+  it("refuses lease renewal after recovery takes ownership", async () => {
+    const context = await createStartedGeneration();
+
+    await MediaAsset.collection.updateOne(
+      {
+        _id: new mongoose.Types.ObjectId(context.assetId),
+      },
+      {
+        $set: {
+          "generationExecution.phase": "recovery_required",
+        },
+      },
+    );
+
+    await expect(renewGenerationLease(context)).rejects.toMatchObject({
+      statusCode: 409,
+    });
+  });
+
+  it("checks ownership before and after a heartbeat operation", async () => {
+    const context = await createStartedGeneration();
+
+    let called = false;
+
+    const value = await withGenerationLeaseHeartbeat(context, async () => {
+      called = true;
+      return "upload-completed";
+    });
+
+    expect(called).toBe(true);
+    expect(value).toBe("upload-completed");
+
+    const asset = await MediaAsset.findById(context.assetId);
+
+    expect(asset?.status).toBe("pending");
+    expect(asset?.generationExecution?.phase).toBe("provider_started");
+  });
+
+  it("rejects finalization when an object differs from its checkpoint", async () => {
+    const context = await createStartedGeneration();
+    const storage = fakeBucket();
+
+    const originalImage = await sampleImage();
+
+    const normalized = await validateGeneratedImage(originalImage);
+
+    const originalUpload = storage.bucket.upload;
+
+    storage.bucket.upload = async (key, body, options) => {
+      // The normal upload adapter must verify
+      // the stored bytes rather than trusting
+      // the response from this mock.
+      const result = await originalUpload(key, body, options);
+
+      const differentImage = await sharp({
+        create: {
+          width: 128,
+          height: 96,
+          channels: 3,
+          background: "#ef4444",
+        },
+      })
+        .png()
+        .toBuffer();
+
+      storage.objects.set(key, differentImage);
+
+      return result;
+    };
+
+    await expect(
+      completeClaimedImageGeneration(
+        {
+          ...context,
+          bytes: originalImage,
+        },
+        storage.bucket,
+      ),
+    ).rejects.toThrow();
+
+    const saved = await MediaAsset.findById(context.assetId);
+
+    expect(saved?.status).toBe("pending");
+    expect(saved?.contentSha256).toBe(normalized.sha256);
+
+    // The storage adapter attempts cleanup when
+    // read-back integrity verification fails.
+    expect(storage.remove).toHaveBeenCalled();
+
+    expect(
+      storage.objects.has(getImageStorageKey(workspaceA, context.assetId)),
+    ).toBe(false);
+  });
+});
+
+===== apps/api/src/services/imageGenerationWorkerService.integration.test.ts =====
+import mongoose from "mongoose";
+import { MongoMemoryReplSet } from "mongodb-memory-server";
+
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+import UserProfile from "../models/UserProfile.js";
+import Workspace from "../models/Workspace.js";
+import MediaAsset from "../models/MediaAsset.js";
+
+import {
+  UserCreditWallet,
+  ImageDailyUsage,
+  ImageWorkspaceCapacity,
+  ImageGenerationAdmission,
+} from "../models/ImageGenerationAccounting.js";
+
+import { parseImageGenerationConfig } from "../config/imageGenerationConfig.js";
+
+import { enqueueImageGeneration } from "./imageGenerationQueueService.js";
+
+import {
+  discoverReservedImageJobs,
+  runImageGenerationWorkerOnce,
+} from "./imageGenerationWorkerService.js";
+
+import { MockImageProvider } from "./media/providers/mockImageProvider.js";
+
+import {
+  ImageProviderError,
+  type ImageProvider,
+} from "./media/providers/imageProvider.js";
+
+import type { ImageStorageBucket } from "./media/supabaseImageStorage.js";
+
+import type { AuthenticatedUser } from "./userProfileService.js";
+
+let mongo: MongoMemoryReplSet;
+let workspaceId: string;
+let profileId: mongoose.Types.ObjectId;
+
+const authUser = {
+  id: "worker-test-user",
+} as AuthenticatedUser;
+
+const config = parseImageGenerationConfig({
+  IMAGE_GENERATION_PROVIDER: "mock",
+  IMAGE_GENERATION_DAILY_WORKSPACE_LIMIT: "10",
+  IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE: "2",
+});
+
+const realProvider = new MockImageProvider();
+
+function fakeProvider() {
+  const generate = vi.fn(
+    async (request: Parameters<ImageProvider["generate"]>[0]) =>
+      realProvider.generate(request),
+  );
+
+  const provider: ImageProvider = {
+    provider: "mock",
+    model: "storm-mock-image-v1",
+    generate,
+  };
+
+  return { provider, generate };
+}
+
+function fakeStorage() {
+  const objects = new Map<string, Uint8Array>();
+
+  const upload = vi.fn(
+    async (
+      key: string,
+      body: ArrayBuffer,
+    ): Promise<{
+      error: { message: string } | null;
+    }> => {
+      if (objects.has(key)) {
+        return {
+          error: { message: "Already exists" },
+        };
+      }
+
+      objects.set(key, Uint8Array.from(new Uint8Array(body)));
+
+      return { error: null };
+    },
+  );
+
+  const download = vi.fn(
+    async (
+      key: string,
+    ): Promise<{
+      data: Blob | null;
+      error: { message: string } | null;
+    }> => {
+      const bytes = objects.get(key);
+
+      if (!bytes) {
+        return {
+          data: null,
+          error: { message: "Not found" },
+        };
+      }
+
+      return {
+        data: new Blob([Uint8Array.from(bytes).buffer as ArrayBuffer]),
+        error: null,
+      };
+    },
+  );
+
+  const remove = vi.fn(
+    async (
+      paths: string[],
+    ): Promise<{
+      error: { message: string } | null;
+    }> => {
+      for (const path of paths) {
+        objects.delete(path);
+      }
+
+      return { error: null };
+    },
+  );
+
+  return {
+    bucket: {
+      upload,
+      download,
+      remove,
+    } satisfies ImageStorageBucket,
+    objects,
+    upload,
+    download,
+    remove,
+  };
+}
+
+function command(idempotencyKey = "worker-job-request-0001") {
+  return {
+    workspaceId,
+    idempotencyKey,
+    image: {
+      prompt: "A premium product photograph with dramatic studio lighting.",
+      aspectRatio: "square" as const,
+    },
+  };
+}
+
+async function enqueue(key?: string) {
+  return enqueueImageGeneration({
+    authUser,
+    config,
+    command: command(key),
+  });
+}
+
+async function balance() {
+  const wallet = await UserCreditWallet.findOne({
+    userId: profileId,
+  });
+
+  return wallet?.balance;
+}
+
+async function activeCount() {
+  const capacity = await ImageWorkspaceCapacity.findOne({
+    workspaceId,
+  });
+
+  return capacity?.active ?? 0;
+}
+
+beforeAll(async () => {
+  mongo = await MongoMemoryReplSet.create({
+    replSet: { count: 1 },
+  });
+
+  await mongoose.connect(mongo.getUri());
+
+  await Promise.all([
+    MediaAsset.createIndexes(),
+    UserCreditWallet.createIndexes(),
+    ImageDailyUsage.createIndexes(),
+    ImageWorkspaceCapacity.createIndexes(),
+    ImageGenerationAdmission.createIndexes(),
+  ]);
+});
+
+beforeEach(async () => {
+  await Promise.all([
+    MediaAsset.deleteMany({}),
+    UserCreditWallet.deleteMany({}),
+    ImageDailyUsage.deleteMany({}),
+    ImageWorkspaceCapacity.deleteMany({}),
+    ImageGenerationAdmission.deleteMany({}),
+  ]);
+
+  await Workspace.collection.deleteMany({});
+  await UserProfile.collection.deleteMany({});
+
+  profileId = new mongoose.Types.ObjectId();
+
+  const workspaceObjectId = new mongoose.Types.ObjectId();
+
+  workspaceId = String(workspaceObjectId);
+
+  await UserProfile.collection.insertOne({
+    _id: profileId,
+    supabaseUserId: authUser.id,
+  });
+
+  await Workspace.collection.insertOne({
+    _id: workspaceObjectId,
+    ownerUserId: profileId,
+    name: "Worker Integration Workspace",
+  });
+
+  await UserCreditWallet.create({
+    userId: profileId,
+    balance: 5,
+  });
+});
+
+afterAll(async () => {
+  await mongoose.disconnect();
+  await mongo?.stop();
+});
+
+describe("Background image generation worker", () => {
+  it("returns idle when no admitted jobs exist", async () => {
+    const result = await runImageGenerationWorkerOnce();
+
+    expect(result).toEqual([{ outcome: "idle" }]);
+  });
+
+  it("discovers only credit-admitted reservations", async () => {
+    const queued = await enqueue();
+
+    const jobs = await discoverReservedImageJobs();
+
+    expect(jobs.map((job) => String(job._id))).toContain(queued.assetId);
+
+    // Simulate a missing accounting record.
+    await ImageGenerationAdmission.deleteMany({});
+
+    const after = await discoverReservedImageJobs();
+
+    expect(after).toHaveLength(0);
+  });
+
+  it("generates a queued image and releases capacity", async () => {
+    const queued = await enqueue();
+
+    const p = fakeProvider();
+    const s = fakeStorage();
+
+    const results = await runImageGenerationWorkerOnce({
+      provider: p.provider,
+      bucket: s.bucket,
+    });
+
+    expect(results).toContainEqual({
+      outcome: "completed",
+      assetId: queued.assetId,
+    });
+
+    expect(p.generate).toHaveBeenCalledOnce();
+    expect(s.upload).toHaveBeenCalledOnce();
+    expect(s.download).toHaveBeenCalledOnce();
+
+    const asset = await MediaAsset.findById(queued.assetId);
+
+    expect(asset?.status).toBe("ready");
+    expect(asset?.contentSha256).toMatch(/^[a-f0-9]{64}$/);
+
+    expect(await balance()).toBe(4);
+    expect(await activeCount()).toBe(0);
+
+    const admission = await ImageGenerationAdmission.findOne({
+      assetId: queued.assetId,
+    });
+
+    expect(admission?.state).toBe("released");
+  });
+
+  it("does not regenerate an already completed job", async () => {
+    await enqueue();
+
+    const p = fakeProvider();
+    const s = fakeStorage();
+
+    await runImageGenerationWorkerOnce({
+      provider: p.provider,
+      bucket: s.bucket,
+    });
+
+    const second = await runImageGenerationWorkerOnce({
+      provider: p.provider,
+      bucket: s.bucket,
+    });
+
+    expect(second).toEqual([{ outcome: "idle" }]);
+
+    expect(p.generate).toHaveBeenCalledOnce();
+    expect(await balance()).toBe(4);
+  });
+
+  it("allows only one provider invocation across two workers", async () => {
+    const queued = await enqueue();
+
+    const p = fakeProvider();
+    const s = fakeStorage();
+
+    const results = await Promise.all([
+      runImageGenerationWorkerOnce({
+        provider: p.provider,
+        bucket: s.bucket,
+      }),
+      runImageGenerationWorkerOnce({
+        provider: p.provider,
+        bucket: s.bucket,
+      }),
+    ]);
+
+    const outcomes = results.flat();
+
+    expect(
+      outcomes.filter((result) => result.outcome === "completed"),
+    ).toHaveLength(1);
+
+    expect(p.generate).toHaveBeenCalledOnce();
+
+    const asset = await MediaAsset.findById(queued.assetId);
+
+    expect(asset?.status).toBe("ready");
+    expect(await balance()).toBe(4);
+    expect(await activeCount()).toBe(0);
+  });
+
+  it("marks definite provider rejection failed", async () => {
+    const queued = await enqueue();
+
+    const p = fakeProvider();
+    const s = fakeStorage();
+
+    p.generate.mockImplementationOnce(async () => {
+      throw new ImageProviderError("Mock rejected the request.", "rejected");
+    });
+
+    const results = await runImageGenerationWorkerOnce({
+      provider: p.provider,
+      bucket: s.bucket,
+    });
+
+    expect(results).toContainEqual({
+      outcome: "rejected",
+      assetId: queued.assetId,
+    });
+
+    const asset = await MediaAsset.findById(queued.assetId);
+
+    expect(asset?.status).toBe("failed");
+    expect(await activeCount()).toBe(0);
+    expect(await balance()).toBe(4);
+
+    expect(s.upload).not.toHaveBeenCalled();
+  });
+
+  it("does not retry an uncertain provider outcome", async () => {
+    const queued = await enqueue();
+
+    const p = fakeProvider();
+    const s = fakeStorage();
+
+    p.generate.mockImplementationOnce(async () => {
+      throw new ImageProviderError("Mock network uncertainty.", "uncertain");
+    });
+
+    const first = await runImageGenerationWorkerOnce({
+      provider: p.provider,
+      bucket: s.bucket,
+    });
+
+    expect(first).toContainEqual({
+      outcome: "recovery_required",
+      assetId: queued.assetId,
+    });
+
+    const asset = await MediaAsset.findById(queued.assetId);
+
+    expect(asset?.status).toBe("pending");
+
+    expect(asset?.generationExecution?.phase).toBe("provider_started");
+
+    expect(await activeCount()).toBe(1);
+
+    const second = await runImageGenerationWorkerOnce({
+      provider: p.provider,
+      bucket: s.bucket,
+    });
+
+    expect(second).toEqual([{ outcome: "idle" }]);
+
+    expect(p.generate).toHaveBeenCalledOnce();
+  });
+
+  it("preserves the checksum after a failed upload", async () => {
+    const queued = await enqueue();
+
+    const p = fakeProvider();
+    const s = fakeStorage();
+
+    s.upload.mockImplementationOnce(async () => ({
+      error: {
+        message: "Simulated upload failure",
+      },
+    }));
+
+    const result = await runImageGenerationWorkerOnce({
+      provider: p.provider,
+      bucket: s.bucket,
+    });
+
+    expect(result).toContainEqual({
+      outcome: "recovery_required",
+      assetId: queued.assetId,
+    });
+
+    const asset = await MediaAsset.findById(queued.assetId);
+
+    expect(asset?.status).toBe("pending");
+
+    expect(asset?.generationExecution?.phase).toBe("storage_pending");
+
+    expect(asset?.contentSha256).toMatch(/^[a-f0-9]{64}$/);
+
+    expect(await activeCount()).toBe(1);
+    expect(p.generate).toHaveBeenCalledOnce();
+
+    // The next poll must not call the provider.
+    await runImageGenerationWorkerOnce({
+      provider: p.provider,
+      bucket: s.bucket,
+    });
+
+    expect(p.generate).toHaveBeenCalledOnce();
+  });
+
+  it("refuses to execute a live provider", async () => {
+    await enqueue();
+
+    const generate = vi.fn();
+
+    const result = await runImageGenerationWorkerOnce({
+      provider: {
+        provider: "openai",
+        model: "gpt-image-2",
+        generate,
+      },
+      bucket: fakeStorage().bucket,
+    });
+
+    expect(result[0]?.outcome).toBe("recovery_required");
+
+    expect(generate).not.toHaveBeenCalled();
+
+    const asset = await MediaAsset.findOne({
+      workspaceId,
+    });
+
+    expect(asset?.generationExecution?.phase).toBe("reserved");
+  });
+});
+
+===== apps/api/src/services/imageGenerationLiveWorker.integration.test.ts =====
+/**
+ * Database-backed OpenAI queue-to-worker activation contract tests.
+ * No real OpenAI HTTP requests. Do not copy the test-only vi.mock into production.
+ * Real production arming remains false; this suite simulates arming while
+ * retaining the real workspace release gate, queue admission and billing checks.
+ * Unmocked arming/authorization is covered by separate gate suites.
+ */
+import mongoose from "mongoose";
+import { MongoMemoryReplSet } from "mongodb-memory-server";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+// This mock is isolated to this Vitest test file, and never changes production code.
+vi.mock("./imageGenerationWorkerProviderGate.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("./imageGenerationWorkerProviderGate.js")
+    >();
+  return {
+    ...actual,
+    LIVE_PAID_WORKER_ARMED: true,
+    selectWorkerImageProvider: (
+      persisted: Parameters<typeof actual.selectWorkerImageProvider>[0],
+      config: Parameters<typeof actual.selectWorkerImageProvider>[1],
+    ) => {
+      if (
+        persisted.provider === "openai" &&
+        persisted.model === "gpt-image-2"
+      ) {
+        // Live gating is tested in its own unmocked test suite.
+        return { kind: "openai" as const, model: "gpt-image-2" as const };
+      }
+      return actual.selectWorkerImageProvider(persisted, config);
+    },
+  };
+});
+
+import UserProfile from "../models/UserProfile.js";
+import Workspace from "../models/Workspace.js";
+import MediaAsset from "../models/MediaAsset.js";
+import CreditTransaction from "../models/CreditTransaction.js";
+import {
+  UserCreditWallet,
+  ImageDailyUsage,
+  ImageWorkspaceCapacity,
+  ImageGenerationAdmission,
+} from "../models/ImageGenerationAccounting.js";
+import { parseImageGenerationConfig } from "../config/imageGenerationConfig.js";
+import { enqueueImageGeneration } from "./imageGenerationQueueService.js";
+import {
+  discoverReservedImageJobs,
+  executeReservedImageJob,
+  runImageGenerationWorkerOnce,
+} from "./imageGenerationWorkerService.js";
+import { MockImageProvider } from "./media/providers/mockImageProvider.js";
+import {
+  ImageProviderError,
+  type ImageProvider,
+} from "./media/providers/imageProvider.js";
+import type { ImageStorageBucket } from "./media/supabaseImageStorage.js";
+import type { AuthenticatedUser } from "./userProfileService.js";
+
+let mongo: MongoMemoryReplSet;
+let workspaceId: string;
+let profileId: mongoose.Types.ObjectId;
+const authUser = { id: "live-worker-test-user" } as AuthenticatedUser;
+const fixtureProvider = new MockImageProvider();
+const ENV_KEYS = [
+  "IMAGE_GENERATION_PROVIDER",
+  "IMAGE_GENERATION_LIVE_ENABLED",
+  "IMAGE_GENERATION_LIVE_WORKER_ENABLED",
+  "IMAGE_GENERATION_LIVE_ROLLOUT",
+  "IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST",
+  "IMAGE_GENERATION_MODEL",
+  "IMAGE_GENERATION_LIVE_CREDIT_COST",
+  "IMAGE_GENERATION_LIVE_MAX_ACTIVE",
+  "IMAGE_GENERATION_LIVE_DAILY_LIMIT",
+  "OPENAI_API_KEY",
+] as const;
+const priorEnv = Object.fromEntries(
+  ENV_KEYS.map((k) => [k, process.env[k]]),
+) as Record<string, string | undefined>;
+
+function configureFakeCanary() {
+  Object.assign(process.env, {
+    IMAGE_GENERATION_PROVIDER: "openai",
+    IMAGE_GENERATION_LIVE_ENABLED: "true",
+    IMAGE_GENERATION_LIVE_WORKER_ENABLED: "true",
+    IMAGE_GENERATION_LIVE_ROLLOUT: "internal",
+    IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST: workspaceId,
+    IMAGE_GENERATION_MODEL: "gpt-image-2",
+    IMAGE_GENERATION_LIVE_CREDIT_COST: "1",
+    IMAGE_GENERATION_LIVE_MAX_ACTIVE: "1",
+    IMAGE_GENERATION_LIVE_DAILY_LIMIT: "2",
+    OPENAI_API_KEY: "not-a-real-api-key",
+  });
+}
+
+function fakeOpenAIProvider() {
+  const generate = vi.fn(
+    async (request: Parameters<ImageProvider["generate"]>[0]) => {
+      const image = await fixtureProvider.generate(request);
+      return { ...image, provider: "openai", model: "gpt-image-2" };
+    },
+  );
+  const provider: ImageProvider = {
+    provider: "openai",
+    model: "gpt-image-2",
+    generate,
+  };
+  return { provider, generate };
+}
+
+function uncertainOpenAIProvider() {
+  const generate = vi.fn(
+    async (_request: Parameters<ImageProvider["generate"]>[0]) => {
+      throw new ImageProviderError("Simulated lost response", "uncertain");
+    },
+  );
+  const provider: ImageProvider = {
+    provider: "openai",
+    model: "gpt-image-2",
+    generate,
+  };
+  return { provider, generate };
+}
+
+function fakeStorage() {
+  const objects = new Map<string, Uint8Array>();
+
+  const upload = vi.fn(
+    async (
+      key: string,
+      body: ArrayBuffer,
+    ): Promise<{
+      error: { message: string } | null;
+    }> => {
+      if (objects.has(key)) {
+        return {
+          error: { message: "Already exists" },
+        };
+      }
+
+      objects.set(key, Uint8Array.from(new Uint8Array(body)));
+
+      return { error: null };
+    },
+  );
+
+  const download = vi.fn(
+    async (
+      key: string,
+    ): Promise<{
+      data: Blob | null;
+      error: { message: string } | null;
+    }> => {
+      const bytes = objects.get(key);
+
+      if (!bytes) {
+        return {
+          data: null,
+          error: { message: "Not found" },
+        };
+      }
+
+      return {
+        data: new Blob([Uint8Array.from(bytes).buffer as ArrayBuffer]),
+        error: null,
+      };
+    },
+  );
+
+  const remove = vi.fn(
+    async (
+      paths: string[],
+    ): Promise<{
+      error: { message: string } | null;
+    }> => {
+      for (const path of paths) {
+        objects.delete(path);
+      }
+
+      return { error: null };
+    },
+  );
+
+  return {
+    bucket: {
+      upload,
+      download,
+      remove,
+    } satisfies ImageStorageBucket,
+    objects,
+    upload,
+    download,
+    remove,
+  };
+}
+
+const liveQueueConfig = parseImageGenerationConfig({
+  IMAGE_GENERATION_PROVIDER: "openai",
+  IMAGE_GENERATION_LIVE_ENABLED: "true",
+  IMAGE_GENERATION_MODEL: "gpt-image-2",
+  IMAGE_GENERATION_DAILY_WORKSPACE_LIMIT: "10",
+  IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE: "2",
+});
+
+async function enqueueLive(key = "live-worker-request-0001") {
+  const admitted = await enqueueImageGeneration({
+    authUser,
+    config: liveQueueConfig,
+    command: {
+      workspaceId,
+      idempotencyKey: key,
+      image: {
+        prompt: "A premium product photograph with dramatic studio lighting.",
+        aspectRatio: "square",
+      },
+    },
+  });
+  const asset = await MediaAsset.findById(admitted.assetId);
+  if (!asset)
+    throw new Error("Queue did not persist its admitted image asset.");
+  return asset;
+}
+
+async function walletBalance() {
+  return (await UserCreditWallet.findOne({ userId: profileId }))?.balance;
+}
+
+async function activeCount() {
+  return (await ImageWorkspaceCapacity.findOne({ workspaceId }))?.active ?? 0;
+}
+
+beforeAll(async () => {
+  mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+  await mongoose.connect(mongo.getUri());
+  await Promise.all([
+    MediaAsset.createIndexes(),
+    UserCreditWallet.createIndexes(),
+    ImageDailyUsage.createIndexes(),
+    ImageWorkspaceCapacity.createIndexes(),
+    ImageGenerationAdmission.createIndexes(),
+    CreditTransaction.createIndexes(),
+  ]);
+});
+
+beforeEach(async () => {
+  await Promise.all([
+    MediaAsset.deleteMany({}),
+    UserCreditWallet.deleteMany({}),
+    ImageDailyUsage.deleteMany({}),
+    ImageWorkspaceCapacity.deleteMany({}),
+    ImageGenerationAdmission.deleteMany({}),
+    CreditTransaction.deleteMany({}),
+  ]);
+  await Workspace.collection.deleteMany({});
+  await UserProfile.collection.deleteMany({});
+
+  profileId = new mongoose.Types.ObjectId();
+  const workspaceObjectId = new mongoose.Types.ObjectId();
+  workspaceId = String(workspaceObjectId);
+  await UserProfile.collection.insertOne({
+    _id: profileId,
+    supabaseUserId: authUser.id,
+  });
+  await Workspace.collection.insertOne({
+    _id: workspaceObjectId,
+    ownerUserId: profileId,
+    name: "Live Fake Worker Workspace",
+  });
+  await UserCreditWallet.create({ userId: profileId, balance: 5 });
+  configureFakeCanary();
+});
+
+afterAll(async () => {
+  for (const key of ENV_KEYS) {
+    const previous = priorEnv[key];
+    if (previous === undefined) delete process.env[key];
+    else process.env[key] = previous;
+  }
+  await mongoose.disconnect();
+  await mongo?.stop();
+});
+
+describe("Fake OpenAI background-worker integration", () => {
+  it("admits through the actual queue, persists model and debits once", async () => {
+    const first = await enqueueImageGeneration({
+      authUser,
+      config: liveQueueConfig,
+      command: {
+        workspaceId,
+        idempotencyKey: "queue-contract-idempotent-0001",
+        image: {
+          prompt: "A premium product photograph with dramatic studio lighting.",
+          aspectRatio: "square",
+        },
+      },
+    });
+    const again = await enqueueImageGeneration({
+      authUser,
+      config: liveQueueConfig,
+      command: {
+        workspaceId,
+        idempotencyKey: "queue-contract-idempotent-0001",
+        image: {
+          prompt: "A premium product photograph with dramatic studio lighting.",
+          aspectRatio: "square",
+        },
+      },
+    });
+    expect(first.created).toBe(true);
+    expect(first.creditsChargedNow).toBe(1);
+    expect(again.created).toBe(false);
+    expect(again.creditsChargedNow).toBe(0);
+    expect(again.assetId).toBe(first.assetId);
+    const asset = await MediaAsset.findById(first.assetId);
+    expect(asset?.generation.provider).toBe("openai");
+    expect(asset?.generation.model).toBe("gpt-image-2");
+    const admission = await ImageGenerationAdmission.findOne({
+      assetId: first.assetId,
+    });
+    expect(admission?.creditsCharged).toBe(1);
+    expect(await walletBalance()).toBe(4);
+    expect(
+      await CreditTransaction.countDocuments({
+        assetId: first.assetId,
+        type: "image_debit",
+      }),
+    ).toBe(1);
+  });
+
+  it("denies a non-allowlisted workspace before any credit mutation", async () => {
+    process.env.IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST =
+      new mongoose.Types.ObjectId().toHexString();
+    await expect(
+      enqueueLive("queue-nonallowlisted-0001"),
+    ).rejects.toMatchObject({ statusCode: 503 });
+    expect(await MediaAsset.countDocuments()).toBe(0);
+    expect(await CreditTransaction.countDocuments()).toBe(0);
+    expect(await walletBalance()).toBe(5);
+  });
+
+  it("denies a mismatched live credit price before admission", async () => {
+    process.env.IMAGE_GENERATION_LIVE_CREDIT_COST = "2";
+    await expect(
+      enqueueLive("queue-price-mismatch-0001"),
+    ).rejects.toMatchObject({ statusCode: 503 });
+    expect(await MediaAsset.countDocuments()).toBe(0);
+    expect(await CreditTransaction.countDocuments()).toBe(0);
+    expect(await walletBalance()).toBe(5);
+  });
+
+  it("denies live admission when the live worker flag is off", async () => {
+    process.env.IMAGE_GENERATION_LIVE_WORKER_ENABLED = "false";
+    await expect(
+      enqueueLive("queue-worker-disabled-0001"),
+    ).rejects.toMatchObject({ statusCode: 503 });
+    expect(await MediaAsset.countDocuments()).toBe(0);
+    expect(await CreditTransaction.countDocuments()).toBe(0);
+    expect(await walletBalance()).toBe(5);
+  });
+
+  it("denies live admission when the rollout is off", async () => {
+    process.env.IMAGE_GENERATION_LIVE_ROLLOUT = "off";
+    await expect(
+      enqueueLive("queue-rollout-disabled-0001"),
+    ).rejects.toMatchObject({ statusCode: 503 });
+    expect(await MediaAsset.countDocuments()).toBe(0);
+    expect(await CreditTransaction.countDocuments()).toBe(0);
+    expect(await walletBalance()).toBe(5);
+  });
+
+  it("discovers an admitted OpenAI job in the allowlisted workspace", async () => {
+    const asset = await enqueueLive();
+    const jobs = await discoverReservedImageJobs();
+    expect(jobs.map((j) => String(j._id))).toContain(String(asset._id));
+    expect(await walletBalance()).toBe(4);
+  });
+
+  it("completes one fake OpenAI image and reconciles credit and capacity", async () => {
+    const asset = await enqueueLive();
+    const p = fakeOpenAIProvider();
+    const s = fakeStorage();
+    const results = await runImageGenerationWorkerOnce({
+      provider: p.provider,
+      bucket: s.bucket,
+    });
+
+    expect(results).toContainEqual({
+      outcome: "completed",
+      assetId: String(asset._id),
+    });
+    expect(p.generate).toHaveBeenCalledTimes(1);
+    expect(s.upload).toHaveBeenCalledTimes(1);
+    expect(s.download).toHaveBeenCalledTimes(1);
+
+    const completed = await MediaAsset.findById(asset._id);
+    expect(completed?.status).toBe("ready");
+    expect(completed?.generation.provider).toBe("openai");
+    expect(completed?.generation.model).toBe("gpt-image-2");
+    expect(completed?.contentSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(completed?.storageKey).toBeTruthy();
+    expect(completed?.width).toBeGreaterThan(0);
+    expect(completed?.height).toBeGreaterThan(0);
+    expect(await walletBalance()).toBe(4);
+    expect(await activeCount()).toBe(0);
+    expect(
+      (await ImageGenerationAdmission.findOne({ assetId: asset._id }))?.state,
+    ).toBe("released");
+
+    const debits = await CreditTransaction.find({
+      assetId: asset._id,
+      type: "image_debit",
+    });
+    expect(debits).toHaveLength(1);
+    expect(debits[0]?.amount).toBe(-1);
+    expect(await CreditTransaction.countDocuments({ assetId: asset._id })).toBe(
+      1,
+    );
+    const second = await runImageGenerationWorkerOnce({
+      provider: p.provider,
+      bucket: s.bucket,
+    });
+    expect(second).toEqual([{ outcome: "idle" }]);
+    expect(p.generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows only one provider execution when two workers race", async () => {
+    const asset = await enqueueLive();
+    const p = fakeOpenAIProvider();
+    const s = fakeStorage();
+    const results = await Promise.all([
+      runImageGenerationWorkerOnce({ provider: p.provider, bucket: s.bucket }),
+      runImageGenerationWorkerOnce({ provider: p.provider, bucket: s.bucket }),
+    ]);
+    expect(
+      results.flat().filter((r) => r.outcome === "completed"),
+    ).toHaveLength(1);
+    expect(p.generate).toHaveBeenCalledTimes(1);
+    expect((await MediaAsset.findById(asset._id))?.status).toBe("ready");
+    expect(await walletBalance()).toBe(4);
+    expect(await activeCount()).toBe(0);
+    expect(
+      await CreditTransaction.countDocuments({
+        assetId: asset._id,
+        type: "image_debit",
+      }),
+    ).toBe(1);
+  });
+
+  it("never invokes provider after an uncertain outcome and preserves billing", async () => {
+    const asset = await enqueueLive();
+    const p = uncertainOpenAIProvider();
+    const s = fakeStorage();
+    const first = await runImageGenerationWorkerOnce({
+      provider: p.provider,
+      bucket: s.bucket,
+    });
+    expect(first).toContainEqual({
+      outcome: "recovery_required",
+      assetId: String(asset._id),
+    });
+    expect(p.generate).toHaveBeenCalledTimes(1);
+    const after = await MediaAsset.findById(asset._id);
+    expect(after?.status).toBe("pending");
+    expect(after?.generationExecution?.phase).toBe("provider_started");
+    expect(after?.generationExecution?.providerStartedAt).toBeTruthy();
+    expect(await activeCount()).toBe(1);
+    expect(await walletBalance()).toBe(4);
+    expect(
+      await CreditTransaction.countDocuments({
+        assetId: asset._id,
+        type: "image_debit",
+      }),
+    ).toBe(1);
+    expect(
+      await CreditTransaction.countDocuments({
+        assetId: asset._id,
+        type: "refund",
+      }),
+    ).toBe(0);
+    const remaining = await discoverReservedImageJobs();
+    expect(remaining.some((j) => String(j._id) === String(asset._id))).toBe(
+      false,
+    );
+    expect(
+      await runImageGenerationWorkerOnce({
+        provider: p.provider,
+        bucket: s.bucket,
+      }),
+    ).toEqual([{ outcome: "idle" }]);
+    expect(p.generate).toHaveBeenCalledTimes(1);
+    expect(s.upload).not.toHaveBeenCalled();
+  });
+
+  it("ignores a reservation whose committed credit admission is missing", async () => {
+    const asset = await enqueueLive();
+    await ImageGenerationAdmission.deleteOne({ assetId: asset._id });
+    const p = fakeOpenAIProvider();
+    const result = await runImageGenerationWorkerOnce({
+      provider: p.provider,
+      bucket: fakeStorage().bucket,
+    });
+    expect(result).toEqual([{ outcome: "idle" }]);
+    expect(p.generate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a mismatched provider without crossing provider_started", async () => {
+    const asset = await enqueueLive();
+    const mismatched: ImageProvider = {
+      provider: "mock",
+      model: "storm-mock-image-v1",
+      generate: vi.fn(async () => {
+        throw new Error("Must never invoke");
+      }),
+    };
+    const jobs = await discoverReservedImageJobs();
+    expect(jobs).toHaveLength(1);
+    await expect(
+      executeReservedImageJob(jobs[0]!, {
+        provider: mismatched,
+        bucket: fakeStorage().bucket,
+      }),
+    ).rejects.toThrow("Persisted image provider does not match the worker.");
+    const persisted = await MediaAsset.findById(asset._id);
+    expect(persisted?.generationExecution?.phase).toBe("reserved");
+    expect(mismatched.generate).not.toHaveBeenCalled();
+  });
+
+  it("refuses to discover live jobs outside the workspace allowlist", async () => {
+    const asset = await enqueueLive();
+    process.env.IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST =
+      new mongoose.Types.ObjectId().toHexString();
+    expect(await discoverReservedImageJobs()).toHaveLength(0);
+    expect(
+      (await MediaAsset.findById(asset._id))?.generationExecution?.phase,
+    ).toBe("reserved");
+  });
+});
+
+===== apps/api/src/services/imageGenerationReconciliation.integration.test.ts =====
+import mongoose from "mongoose";
+import { MongoMemoryReplSet } from "mongodb-memory-server";
+
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+import MediaAsset from "../models/MediaAsset.js";
+import UserProfile from "../models/UserProfile.js";
+import Workspace from "../models/Workspace.js";
+
+import { runImageGenerationRecoverySweep } from "./imageGenerationRecoverySweepService.js";
+
+import {
+  UserCreditWallet,
+  ImageDailyUsage,
+  ImageWorkspaceCapacity,
+  ImageGenerationAdmission,
+} from "../models/ImageGenerationAccounting.js";
+
+import { parseImageGenerationConfig } from "../config/imageGenerationConfig.js";
+
+import { enqueueImageGeneration } from "./imageGenerationQueueService.js";
+
+import { runImageGenerationWorkerOnce } from "./imageGenerationWorkerService.js";
+
+import {
+  claimImageGeneration,
+  beginImageProviderCall,
+} from "./mediaGenerationClaimService.js";
+
+import { reconcileVerifiedImageGeneration } from "./media/mediaGenerationReconciliationService.js";
+
+import {
+  discoverTerminalAdmissions,
+  reconcileTerminalImageCapacity,
+} from "./imageGenerationCapacityReconciliationService.js";
+
+import {
+  getImageStorageKey,
+  type ImageStorageBucket,
+} from "./media/supabaseImageStorage.js";
+
+import { MockImageProvider } from "./media/providers/mockImageProvider.js";
+
+import type { AuthenticatedUser } from "./userProfileService.js";
+
+let mongo: MongoMemoryReplSet;
+
+let workspaceId: string;
+let profileId: mongoose.Types.ObjectId;
+
+const user = {
+  id: "reconciliation-test-user",
+} as AuthenticatedUser;
+
+const config = parseImageGenerationConfig({
+  IMAGE_GENERATION_PROVIDER: "mock",
+  IMAGE_GENERATION_DAILY_WORKSPACE_LIMIT: "10",
+  IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE: "2",
+});
+
+const provider = new MockImageProvider();
+
+function storage() {
+  const objects = new Map<string, Uint8Array>();
+
+  const upload = vi.fn(
+    async (
+      path: string,
+      body: ArrayBuffer,
+    ): Promise<{
+      error: { message: string } | null;
+    }> => {
+      if (objects.has(path)) {
+        return {
+          error: { message: "Already exists" },
+        };
+      }
+
+      objects.set(path, Uint8Array.from(new Uint8Array(body)));
+
+      return { error: null };
+    },
+  );
+
+  const download = vi.fn(
+    async (
+      path: string,
+    ): Promise<{
+      data: Blob | null;
+      error: { message: string } | null;
+    }> => {
+      const bytes = objects.get(path);
+
+      if (!bytes) {
+        return {
+          data: null,
+          error: { message: "Missing object" },
+        };
+      }
+
+      return {
+        data: new Blob([Uint8Array.from(bytes).buffer as ArrayBuffer]),
+        error: null,
+      };
+    },
+  );
+
+  const remove = vi.fn(
+    async (
+      paths: string[],
+    ): Promise<{
+      error: { message: string } | null;
+    }> => {
+      for (const path of paths) {
+        objects.delete(path);
+      }
+
+      return { error: null };
+    },
+  );
+
+  return {
+    bucket: {
+      upload,
+      download,
+      remove,
+    } satisfies ImageStorageBucket,
+    objects,
+    upload,
+    download,
+    remove,
+  };
+}
+
+let sequence = 0;
+
+async function enqueue() {
+  sequence++;
+
+  return enqueueImageGeneration({
+    authUser: user,
+    config,
+    command: {
+      workspaceId,
+      idempotencyKey: `recovery-request-${String(sequence).padStart(8, "0")}`,
+      image: {
+        prompt: "A cinematic professional product photograph.",
+        aspectRatio: "square",
+      },
+    },
+  });
+}
+
+async function expireLease(assetId: string) {
+  await MediaAsset.collection.updateOne(
+    {
+      _id: new mongoose.Types.ObjectId(assetId),
+    },
+    {
+      $set: {
+        "generationExecution.leaseExpiresAt": new Date(Date.now() - 60_000),
+      },
+    },
+  );
+}
+
+async function balance() {
+  const wallet = await UserCreditWallet.findOne({
+    userId: profileId,
+  });
+
+  return wallet?.balance;
+}
+
+async function activeCount() {
+  const capacity = await ImageWorkspaceCapacity.findOne({
+    workspaceId,
+  });
+
+  return capacity?.active ?? 0;
+}
+
+function context(assetId: string) {
+  return {
+    authUser: user,
+    workspaceId,
+    assetId,
+  };
+}
+
+/**
+ * Simulate a crash after the image has been
+ * written, but before MongoDB finalization.
+ */
+async function createInterruptedUpload() {
+  const queued = await enqueue();
+  const s = storage();
+
+  s.upload.mockImplementationOnce(async (path: string, bytes: ArrayBuffer) => {
+    // Simulate an upload that successfully
+    // writes the object to storage.
+    s.objects.set(path, Uint8Array.from(new Uint8Array(bytes)));
+
+    // But the client never receives confirmation.
+    // This represents an ambiguous upload result.
+    throw new Error("Simulated lost upload response");
+  });
+
+  const result = await runImageGenerationWorkerOnce({
+    provider,
+    bucket: s.bucket,
+  });
+
+  expect(result).toContainEqual({
+    outcome: "recovery_required",
+    assetId: queued.assetId,
+  });
+
+  const before = await MediaAsset.findById(queued.assetId);
+
+  expect(before?.status).toBe("pending");
+
+  expect(before?.generationExecution?.phase).toBe("storage_pending");
+
+  expect(before?.contentSha256).toMatch(/^[a-f0-9]{64}$/);
+
+  await expireLease(queued.assetId);
+
+  return {
+    queued,
+    storage: s,
+  };
+}
+
+beforeAll(async () => {
+  mongo = await MongoMemoryReplSet.create({
+    replSet: { count: 1 },
+  });
+
+  await mongoose.connect(mongo.getUri());
+
+  await Promise.all([
+    MediaAsset.createIndexes(),
+    UserCreditWallet.createIndexes(),
+    ImageDailyUsage.createIndexes(),
+    ImageWorkspaceCapacity.createIndexes(),
+    ImageGenerationAdmission.createIndexes(),
+  ]);
+});
+
+beforeEach(async () => {
+  sequence = 0;
+
+  await Promise.all([
+    MediaAsset.deleteMany({}),
+    UserCreditWallet.deleteMany({}),
+    ImageDailyUsage.deleteMany({}),
+    ImageWorkspaceCapacity.deleteMany({}),
+    ImageGenerationAdmission.deleteMany({}),
+  ]);
+
+  await Workspace.collection.deleteMany({});
+  await UserProfile.collection.deleteMany({});
+
+  profileId = new mongoose.Types.ObjectId();
+
+  const workspaceObjectId = new mongoose.Types.ObjectId();
+
+  workspaceId = String(workspaceObjectId);
+
+  await UserProfile.collection.insertOne({
+    _id: profileId,
+    supabaseUserId: user.id,
+  });
+
+  await Workspace.collection.insertOne({
+    _id: workspaceObjectId,
+    ownerUserId: profileId,
+    name: "Recovery Test Workspace",
+  });
+
+  await UserCreditWallet.create({
+    userId: profileId,
+    balance: 5,
+  });
+});
+
+afterAll(async () => {
+  await mongoose.disconnect();
+  await mongo?.stop();
+});
+
+describe("Generation crash reconciliation", () => {
+  it("reclaims an expired pre-provider claim", async () => {
+    const queued = await enqueue();
+
+    const firstClaim = await claimImageGeneration(context(queued.assetId));
+
+    expect(firstClaim.claimToken).toBeTruthy();
+
+    await expireLease(queued.assetId);
+
+    const s = storage();
+
+    const results = await runImageGenerationWorkerOnce({
+      provider,
+      bucket: s.bucket,
+    });
+
+    expect(results).toContainEqual({
+      assetId: queued.assetId,
+      outcome: "completed",
+    });
+
+    const final = await MediaAsset.findById(queued.assetId);
+
+    expect(final?.status).toBe("ready");
+
+    expect(final?.generationExecution?.attemptCount).toBe(2);
+
+    expect(await balance()).toBe(4);
+    expect(await activeCount()).toBe(0);
+  });
+
+  it("never rediscovers expired provider_started jobs", async () => {
+    const queued = await enqueue();
+
+    const claimed = await claimImageGeneration(context(queued.assetId));
+
+    await beginImageProviderCall({
+      ...context(queued.assetId),
+      claimToken: claimed.claimToken,
+    });
+
+    await expireLease(queued.assetId);
+
+    const s = storage();
+
+    const results = await runImageGenerationWorkerOnce({
+      provider,
+      bucket: s.bucket,
+    });
+
+    expect(results).toEqual([{ outcome: "idle" }]);
+
+    const final = await MediaAsset.findById(queued.assetId);
+
+    expect(final?.status).toBe("pending");
+
+    expect(final?.generationExecution?.phase).toBe("provider_started");
+
+    expect(await activeCount()).toBe(1);
+  });
+
+  it("recovers uploaded bytes using the durable SHA-256", async () => {
+    const interrupted = await createInterruptedUpload();
+
+    const reconciled = await reconcileVerifiedImageGeneration(
+      context(interrupted.queued.assetId),
+      interrupted.storage.bucket,
+    );
+
+    expect(reconciled.outcome).toBe("verified_ready");
+
+    const asset = await MediaAsset.findById(interrupted.queued.assetId);
+
+    expect(asset?.status).toBe("ready");
+
+    expect(asset?.storageKey).toBe(
+      getImageStorageKey(workspaceId, interrupted.queued.assetId),
+    );
+
+    expect(await balance()).toBe(4);
+
+    // Image finalization and capacity repair
+    // are separate idempotent steps.
+    expect(await activeCount()).toBe(1);
+  });
+
+  it("does not finalize an image with corrupted stored bytes", async () => {
+    const interrupted = await createInterruptedUpload();
+
+    const key = getImageStorageKey(workspaceId, interrupted.queued.assetId);
+
+    interrupted.storage.objects.set(key, Buffer.from("corrupted image"));
+
+    const reconciled = await reconcileVerifiedImageGeneration(
+      context(interrupted.queued.assetId),
+      interrupted.storage.bucket,
+    );
+
+    expect(reconciled.outcome).toBe("manual_review_required");
+
+    const asset = await MediaAsset.findById(interrupted.queued.assetId);
+
+    expect(asset?.status).toBe("pending");
+
+    expect(await activeCount()).toBe(1);
+  });
+
+  it("cannot finalize a missing stored image", async () => {
+    const interrupted = await createInterruptedUpload();
+
+    interrupted.storage.objects.clear();
+
+    const reconciled = await reconcileVerifiedImageGeneration(
+      context(interrupted.queued.assetId),
+      interrupted.storage.bucket,
+    );
+
+    expect(reconciled.outcome).toBe("manual_review_required");
+
+    const asset = await MediaAsset.findById(interrupted.queued.assetId);
+
+    expect(asset?.status).toBe("pending");
+    expect(await balance()).toBe(4);
+  });
+
+  it("allows only one concurrent checksum recovery finalization", async () => {
+    const interrupted = await createInterruptedUpload();
+
+    const results = await Promise.all([
+      reconcileVerifiedImageGeneration(
+        context(interrupted.queued.assetId),
+        interrupted.storage.bucket,
+      ),
+      reconcileVerifiedImageGeneration(
+        context(interrupted.queued.assetId),
+        interrupted.storage.bucket,
+      ),
+    ]);
+
+    expect(results.some((r) => r.outcome === "verified_ready")).toBe(true);
+
+    const asset = await MediaAsset.findById(interrupted.queued.assetId);
+
+    expect(asset?.status).toBe("ready");
+
+    expect(
+      await MediaAsset.countDocuments({
+        _id: interrupted.queued.assetId,
+        status: "ready",
+      }),
+    ).toBe(1);
+
+    expect(await balance()).toBe(4);
+  });
+
+  it("repairs capacity after terminal persistence", async () => {
+    const interrupted = await createInterruptedUpload();
+
+    await reconcileVerifiedImageGeneration(
+      context(interrupted.queued.assetId),
+      interrupted.storage.bucket,
+    );
+
+    const candidates = await discoverTerminalAdmissions();
+
+    expect(candidates.map((c) => String(c.assetId))).toContain(
+      interrupted.queued.assetId,
+    );
+
+    const repaired = await reconcileTerminalImageCapacity();
+
+    expect(repaired).toContainEqual({
+      assetId: interrupted.queued.assetId,
+      outcome: "released",
+    });
+
+    expect(await activeCount()).toBe(0);
+    expect(await balance()).toBe(4);
+
+    const admission = await ImageGenerationAdmission.findOne({
+      assetId: interrupted.queued.assetId,
+    });
+
+    expect(admission?.state).toBe("released");
+  });
+
+  it("does not release terminal capacity twice", async () => {
+    const queued = await enqueue();
+
+    await MediaAsset.updateOne(
+      { _id: queued.assetId },
+      {
+        $set: {
+          status: "failed",
+        },
+      },
+    );
+
+    const first = await reconcileTerminalImageCapacity();
+
+    const second = await reconcileTerminalImageCapacity();
+
+    expect(first).toContainEqual({
+      assetId: queued.assetId,
+      outcome: "released",
+    });
+
+    expect(second).toHaveLength(0);
+
+    expect(await activeCount()).toBe(0);
+    expect(await balance()).toBe(4);
+  });
+
+  it("handles concurrent terminal capacity repairs", async () => {
+    const queued = await enqueue();
+
+    await MediaAsset.updateOne(
+      { _id: queued.assetId },
+      {
+        $set: {
+          status: "failed",
+        },
+      },
+    );
+
+    await Promise.all([
+      reconcileTerminalImageCapacity(),
+      reconcileTerminalImageCapacity(),
+    ]);
+
+    expect(await activeCount()).toBe(0);
+    expect(await balance()).toBe(4);
+
+    const admission = await ImageGenerationAdmission.findOne({
+      assetId: queued.assetId,
+    });
+
+    expect(admission?.state).toBe("released");
+  });
+
+  it("refuses recovery while a worker lease is active", async () => {
+    const queued = await enqueue();
+
+    const claimed = await claimImageGeneration(context(queued.assetId));
+
+    await beginImageProviderCall({
+      ...context(queued.assetId),
+      claimToken: claimed.claimToken,
+    });
+
+    const reconciled = await reconcileVerifiedImageGeneration(
+      context(queued.assetId),
+      storage().bucket,
+    );
+
+    expect(reconciled.outcome).toBe("lease_active");
+
+    const asset = await MediaAsset.findById(queued.assetId);
+
+    expect(asset?.generationExecution?.phase).toBe("provider_started");
+
+    expect(await activeCount()).toBe(1);
+  });
+
+  it("sweeps and finalizes a verified interrupted upload", async () => {
+    const interrupted = await createInterruptedUpload();
+
+    const sweep = await runImageGenerationRecoverySweep(
+      interrupted.storage.bucket,
+    );
+
+    expect(sweep.inspected).toBe(1);
+    expect(sweep.verifiedReady).toBe(1);
+    expect(sweep.capacityReleased).toBe(1);
+
+    const asset = await MediaAsset.findById(interrupted.queued.assetId);
+
+    expect(asset?.status).toBe("ready");
+    expect(await activeCount()).toBe(0);
+    expect(await balance()).toBe(4);
+
+    const second = await runImageGenerationRecoverySweep(
+      interrupted.storage.bucket,
+    );
+
+    expect(second.inspected).toBe(0);
+    expect(second.capacityReleased).toBe(0);
+  });
+
+  it("never regenerates an expired provider-started job during recovery", async () => {
+    const queued = await enqueue();
+
+    const claimed = await claimImageGeneration(context(queued.assetId));
+
+    await beginImageProviderCall({
+      ...context(queued.assetId),
+      claimToken: claimed.claimToken,
+    });
+
+    await expireLease(queued.assetId);
+
+    const s = storage();
+
+    const sweep = await runImageGenerationRecoverySweep(s.bucket);
+
+    expect(sweep.inspected).toBe(1);
+    expect(sweep.verifiedReady).toBe(0);
+    expect(sweep.needsReview).toBe(1);
+
+    expect(s.upload).not.toHaveBeenCalled();
+
+    const asset = await MediaAsset.findById(queued.assetId);
+
+    expect(asset?.status).toBe("pending");
+
+    expect(asset?.generationExecution?.phase).toBe("recovery_required");
+
+    expect(await activeCount()).toBe(1);
+    expect(await balance()).toBe(4);
+  });
+});
