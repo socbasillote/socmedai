@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
+import { createHash } from "node:crypto";
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -421,5 +422,153 @@ describe("Image generation claim ownership", () => {
     ).rejects.toMatchObject({
       statusCode: 409,
     });
+  });
+});
+
+describe("Per-image branding fingerprints", () => {
+  const generation = {
+    provider: "mock",
+    model: "storm-mock-image-v1",
+  };
+
+  const image = {
+    prompt: "A professional coffee product photograph.",
+    aspectRatio: "square" as const,
+  };
+
+  it("preserves the legacy unbranded fingerprint", () => {
+    const legacyCanonical = JSON.stringify([
+      "storm-image-generation-v1",
+      image.prompt,
+      image.aspectRatio,
+      generation.provider,
+      generation.model,
+    ]);
+
+    const expected = createHash("sha256").update(legacyCanonical).digest("hex");
+
+    expect(fingerprintImageGeneration(image, generation)).toBe(expected);
+
+    expect(
+      fingerprintImageGeneration(
+        {
+          ...image,
+          branding: { type: "none" },
+        },
+        generation,
+      ),
+    ).toBe(expected);
+  });
+
+  it("distinguishes branded and unbranded requests", () => {
+    const none = fingerprintImageGeneration(
+      {
+        ...image,
+        branding: { type: "none" },
+      },
+      generation,
+    );
+
+    const logo = fingerprintImageGeneration(
+      {
+        ...image,
+        branding: { type: "logo" },
+      },
+      generation,
+    );
+
+    const text = fingerprintImageGeneration(
+      {
+        ...image,
+        branding: {
+          type: "text",
+          text: "BREW CO.",
+        },
+      },
+      generation,
+    );
+
+    expect(new Set([none, logo, text]).size).toBe(3);
+  });
+
+  it("changes when the text label changes", () => {
+    const first = fingerprintImageGeneration(
+      {
+        ...image,
+        branding: {
+          type: "text",
+          text: "BREW CO.",
+        },
+      },
+      generation,
+    );
+
+    const second = fingerprintImageGeneration(
+      {
+        ...image,
+        branding: {
+          type: "text",
+          text: "COFFEE HOUSE",
+        },
+      },
+      generation,
+    );
+
+    expect(first).not.toBe(second);
+  });
+
+  it("changes when branding appearance changes", () => {
+    const first = fingerprintImageGeneration(
+      {
+        ...image,
+        branding: {
+          type: "logo",
+          position: "bottom-right",
+          sizePercent: 20,
+          opacity: 0.8,
+        },
+      },
+      generation,
+    );
+
+    const second = fingerprintImageGeneration(
+      {
+        ...image,
+        branding: {
+          type: "logo",
+          position: "top-left",
+          sizePercent: 20,
+          opacity: 0.8,
+        },
+      },
+      generation,
+    );
+
+    expect(first).not.toBe(second);
+  });
+
+  it("normalizes omitted branding appearance defaults", () => {
+    const first = fingerprintImageGeneration(
+      {
+        ...image,
+        branding: { type: "logo" },
+      },
+      generation,
+    );
+
+    const second = fingerprintImageGeneration(
+      {
+        ...image,
+        branding: {
+          type: "logo",
+          position: "bottom-right",
+          sizePercent: 20,
+          opacity: 0.8,
+        },
+      },
+      generation,
+    );
+
+    expect(first).toBe(second);
   });
 });

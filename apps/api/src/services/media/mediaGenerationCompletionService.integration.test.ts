@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import sharp from "sharp";
 import { MongoMemoryServer } from "mongodb-memory-server";
+import { createHash } from "node:crypto";
 
 import {
   afterAll,
@@ -137,6 +138,63 @@ async function sampleImage() {
   })
     .png()
     .toBuffer();
+}
+
+function hashBytes(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+async function sampleLogo(color = "#ff0000") {
+  return sharp({
+    create: {
+      width: 40,
+      height: 20,
+      channels: 4,
+      background: color,
+    },
+  })
+    .png()
+    .toBuffer();
+}
+
+/**
+ * Install branding on a test asset that has
+ * already entered provider_started.
+ *
+ * This fixture bypasses Mongoose immutability
+ * intentionally. Production branding must only
+ * be saved during image admission.
+ */
+async function installTestLogoSnapshot(
+  assetId: string,
+  logoBytes: Buffer,
+  logoId = new mongoose.Types.ObjectId().toHexString(),
+) {
+  const storageKey = `workspaces/${workspaceA}/logos/${logoId}.png`;
+
+  const snapshot = {
+    enabled: true,
+    logo: {
+      storageKey,
+      sha256: hashBytes(logoBytes),
+    },
+    position: "bottom-right",
+    sizePercent: 20,
+    opacity: 1,
+  };
+
+  await MediaAsset.collection.updateOne(
+    {
+      _id: new mongoose.Types.ObjectId(assetId),
+    },
+    {
+      $set: {
+        logoOverlaySnapshot: snapshot,
+      },
+    },
+  );
+
+  return snapshot;
 }
 
 async function createStartedGeneration() {
@@ -422,6 +480,182 @@ describe("Claim-aware image completion", () => {
     ).rejects.toMatchObject({
       statusCode: 409,
     });
+
+    expect(storage.upload).not.toHaveBeenCalled();
+  });
+
+  it("stores the branded PNG with a matching durable checksum", async () => {
+    const context = await createStartedGeneration();
+    const storage = fakeBucket();
+
+    const original = await sampleImage();
+    const logo = await sampleLogo();
+
+    const snapshot = await installTestLogoSnapshot(context.assetId, logo);
+
+    storage.objects.set(snapshot.logo.storageKey, logo);
+
+    let checkpointBeforeUpload: string | undefined;
+
+    const originalUpload = storage.bucket.upload;
+
+    storage.bucket.upload = async (key, body, options) => {
+      const asset = await MediaAsset.findById(context.assetId);
+
+      checkpointBeforeUpload = asset?.contentSha256;
+
+      expect(asset?.generationExecution?.phase).toBe("storage_pending");
+
+      return originalUpload(key, body, options);
+    };
+
+    const completed = await completeClaimedImageGeneration(
+      {
+        ...context,
+        bytes: original,
+      },
+      storage.bucket,
+    );
+
+    expect(completed.status).toBe("ready");
+
+    const imageKey = getImageStorageKey(workspaceA, context.assetId);
+
+    const storedBytes = storage.objects.get(imageKey);
+
+    expect(storedBytes).toBeDefined();
+
+    const stored = Buffer.from(storedBytes!);
+
+    expect(hashBytes(stored)).toBe(checkpointBeforeUpload);
+
+    expect(completed.contentSha256).toBe(hashBytes(stored));
+
+    // Verify that the image is actually branded.
+    // The original generated image is purple;
+    // the logo is red in its bottom-right corner.
+    const pixel = await sharp(stored)
+      .extract({
+        left: 110,
+        top: 85,
+        width: 1,
+        height: 1,
+      })
+      .removeAlpha()
+      .raw()
+      .toBuffer();
+
+    expect([...pixel]).toEqual([255, 0, 0]);
+
+    expect(storage.upload).toHaveBeenCalledOnce();
+  });
+
+  it("uses the admitted logo after workspace branding changes", async () => {
+    const context = await createStartedGeneration();
+    const storage = fakeBucket();
+
+    const redLogo = await sampleLogo("#ff0000");
+    const blueLogo = await sampleLogo("#0000ff");
+
+    const snapshot = await installTestLogoSnapshot(context.assetId, redLogo);
+
+    storage.objects.set(snapshot.logo.storageKey, redLogo);
+
+    const replacementLogoId = new mongoose.Types.ObjectId().toHexString();
+
+    const replacementKey = `workspaces/${workspaceA}/logos/${replacementLogoId}.png`;
+
+    storage.objects.set(replacementKey, blueLogo);
+
+    // Change the current workspace configuration.
+    // The generation must still use its persisted
+    // original snapshot.
+    await Workspace.updateOne(
+      { _id: workspaceA },
+      {
+        $set: {
+          "settings.logoOverlay": {
+            ...snapshot,
+            logo: {
+              storageKey: replacementKey,
+              sha256: hashBytes(blueLogo),
+            },
+          },
+        },
+      },
+    );
+
+    const completed = await completeClaimedImageGeneration(
+      {
+        ...context,
+        bytes: await sampleImage(),
+      },
+      storage.bucket,
+    );
+
+    expect(completed.status).toBe("ready");
+
+    const stored = storage.objects.get(
+      getImageStorageKey(workspaceA, context.assetId),
+    );
+
+    expect(stored).toBeDefined();
+
+    const pixel = await sharp(Buffer.from(stored!))
+      .extract({
+        left: 110,
+        top: 85,
+        width: 1,
+        height: 1,
+      })
+      .removeAlpha()
+      .raw()
+      .toBuffer();
+
+    // Red is the original admitted logo.
+    // Blue is the newer workspace logo.
+    expect([...pixel]).toEqual([255, 0, 0]);
+
+    const asset = await MediaAsset.findById(context.assetId);
+
+    expect(asset?.logoOverlaySnapshot?.logo?.storageKey).toBe(
+      snapshot.logo.storageKey,
+    );
+
+    expect(asset?.contentSha256).toBe(hashBytes(Buffer.from(stored!)));
+  });
+
+  it("does not store an unbranded image when its logo is missing", async () => {
+    const context = await createStartedGeneration();
+    const storage = fakeBucket();
+
+    const logo = await sampleLogo();
+
+    await installTestLogoSnapshot(context.assetId, logo);
+
+    // The snapshot references a valid-looking
+    // immutable logo version, but that object
+    // does not exist in private storage.
+
+    await expect(
+      completeClaimedImageGeneration(
+        {
+          ...context,
+          bytes: await sampleImage(),
+        },
+        storage.bucket,
+      ),
+    ).rejects.toThrow("Private workspace logo is unavailable.");
+
+    const asset = await MediaAsset.findById(context.assetId);
+
+    expect(asset?.status).toBe("pending");
+
+    expect(asset?.generationExecution?.phase).toBe("provider_started");
+
+    // No final-image checksum should have been
+    // checkpointed because preparation failed.
+    expect(asset?.contentSha256).toBeUndefined();
 
     expect(storage.upload).not.toHaveBeenCalled();
   });

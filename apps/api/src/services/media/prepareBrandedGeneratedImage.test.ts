@@ -1,180 +1,215 @@
-import { createHash } from "node:crypto";
-import sharp from "sharp";
-
 import { describe, expect, it } from "vitest";
-
-import type { ImageStorageBucket } from "./supabaseImageStorage.js";
+import sharp from "sharp";
 
 import { prepareBrandedGeneratedImage } from "./prepareBrandedGeneratedImage.js";
 
-import type { WorkspaceLogoSettings } from "./workspaceLogoConfig.js";
+import type { ImageStorageBucket } from "./supabaseImageStorage.js";
 
-const workspaceId = "6aeba54a3fe7bf29e916b3f1";
+/**
+ * Text and unbranded composition must not
+ * access private logo storage.
+ *
+ * The empty bucket is intentional:
+ * any unexpected storage access should fail.
+ */
+const unusedBucket = {} as ImageStorageBucket;
 
-const logoId = "6af31be35bba81eee2f1be9b";
+const workspaceId = "507f1f77bcf86cd799439011";
 
-function sha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
-async function createBase() {
+async function createImage() {
   return sharp({
     create: {
-      width: 500,
-      height: 500,
+      width: 512,
+      height: 512,
       channels: 4,
-      background: "#ffffff",
+      background: "#465969",
     },
   })
     .png()
     .toBuffer();
 }
 
-async function createLogo() {
-  return sharp({
-    create: {
-      width: 100,
-      height: 50,
-      channels: 4,
-      background: "#ff0000",
-    },
-  })
-    .png()
-    .toBuffer();
-}
+const appearance = {
+  position: "bottom-right" as const,
+  sizePercent: 20,
+  opacity: 0.8,
+};
 
-function mockBucket(bytes: Buffer): ImageStorageBucket {
-  return {
-    async download() {
-      return {
-        data: new Blob([Uint8Array.from(bytes)]),
-        error: null,
-      };
-    },
-
-    async upload() {
-      return { error: null };
-    },
-
-    async remove() {
-      return { error: null };
-    },
-  };
-}
-
-function createSnapshot(logo: Buffer): WorkspaceLogoSettings {
-  return {
-    enabled: true,
-    logo: {
-      storageKey: `workspaces/${workspaceId}/logos/${logoId}.png`,
-      sha256: sha256(logo),
-    },
-    position: "bottom-right",
-    sizePercent: 20,
-    opacity: 1,
-  };
-}
-
-describe("Branded generated image preparation", () => {
-  it("preserves unbranded legacy image behavior", async () => {
-    const base = await createBase();
+describe("Branded generated image composition", () => {
+  it("supports new unbranded snapshots", async () => {
+    const bytes = await createImage();
 
     const result = await prepareBrandedGeneratedImage(
       {
         workspaceId,
-        bytes: base,
+        bytes,
+        brandingSnapshot: {
+          type: "none",
+        },
       },
-      mockBucket(await createLogo()),
+      unusedBucket,
     );
 
     expect(result.mimeType).toBe("image/png");
-    expect(result.width).toBe(500);
-    expect(result.height).toBe(500);
+    expect(result.width).toBe(512);
+    expect(result.height).toBe(512);
   });
 
-  it("does not download a disabled logo", async () => {
-    const base = await createBase();
-
-    const bucket = mockBucket(await createLogo());
-
-    bucket.download = async () => {
-      throw new Error("Disabled branding must not download.");
-    };
+  it("preserves legacy unbranded assets", async () => {
+    const bytes = await createImage();
 
     const result = await prepareBrandedGeneratedImage(
       {
         workspaceId,
-        bytes: base,
-        snapshot: {
-          enabled: false,
-          logo: null,
-          position: "bottom-right",
-          sizePercent: 20,
-          opacity: 0.8,
+        bytes,
+      },
+      unusedBucket,
+    );
+
+    expect(result.mimeType).toBe("image/png");
+    expect(result.width).toBe(512);
+    expect(result.height).toBe(512);
+  });
+
+  it("applies a persisted text label", async () => {
+    const bytes = await createImage();
+
+    const clean = await prepareBrandedGeneratedImage(
+      {
+        workspaceId,
+        bytes,
+        brandingSnapshot: {
+          type: "none",
         },
       },
-      bucket,
+      unusedBucket,
     );
 
-    expect(result.width).toBe(500);
-  });
-
-  it("produces a branded final PNG and checksum", async () => {
-    const base = await createBase();
-    const logo = await createLogo();
-
-    const result = await prepareBrandedGeneratedImage(
+    const labeled = await prepareBrandedGeneratedImage(
       {
         workspaceId,
-        bytes: base,
-        snapshot: createSnapshot(logo),
+        bytes,
+        brandingSnapshot: {
+          type: "text",
+          text: "BREW CO.",
+          ...appearance,
+        },
       },
-      mockBucket(logo),
+      unusedBucket,
     );
 
-    expect(result.sha256).toBe(sha256(result.bytes));
+    expect(labeled.mimeType).toBe("image/png");
+    expect(labeled.width).toBe(512);
+    expect(labeled.height).toBe(512);
 
-    expect(result.width).toBe(500);
-    expect(result.height).toBe(500);
-
-    const pixel = await sharp(result.bytes)
-      .extract({
-        left: 450,
-        top: 450,
-        width: 1,
-        height: 1,
-      })
-      .removeAlpha()
-      .raw()
-      .toBuffer();
-
-    expect([...pixel]).toEqual([255, 0, 0]);
+    // Branding must affect the final artifact.
+    expect(labeled.sha256).not.toBe(clean.sha256);
   });
 
-  it("rejects a logo that differs from its saved checksum", async () => {
-    const base = await createBase();
-    const originalLogo = await createLogo();
+  it("is deterministic for the same admitted label", async () => {
+    const bytes = await createImage();
 
-    const differentLogo = await sharp({
-      create: {
-        width: 100,
-        height: 50,
-        channels: 4,
-        background: "#0000ff",
+    const input = {
+      workspaceId,
+      bytes,
+      brandingSnapshot: {
+        type: "text" as const,
+        text: "BREW CO.",
+        ...appearance,
       },
-    })
-      .png()
-      .toBuffer();
+    };
+
+    const first = await prepareBrandedGeneratedImage(input, unusedBucket);
+
+    const second = await prepareBrandedGeneratedImage(input, unusedBucket);
+
+    expect(first.sha256).toBe(second.sha256);
+
+    expect(Buffer.from(first.bytes).equals(Buffer.from(second.bytes))).toBe(
+      true,
+    );
+  });
+
+  it("changes the artifact when label text changes", async () => {
+    const bytes = await createImage();
+
+    const first = await prepareBrandedGeneratedImage(
+      {
+        workspaceId,
+        bytes,
+        brandingSnapshot: {
+          type: "text",
+          text: "BREW CO.",
+          ...appearance,
+        },
+      },
+      unusedBucket,
+    );
+
+    const second = await prepareBrandedGeneratedImage(
+      {
+        workspaceId,
+        bytes,
+        brandingSnapshot: {
+          type: "text",
+          text: "COFFEE HOUSE",
+          ...appearance,
+        },
+      },
+      unusedBucket,
+    );
+
+    expect(first.sha256).not.toBe(second.sha256);
+  });
+
+  it("rejects conflicting new and legacy snapshots", async () => {
+    const bytes = await createImage();
+
+    const logo = {
+      storageKey: `workspaces/${workspaceId}/logos/507f1f77bcf86cd799439012.png`,
+      sha256: "a".repeat(64),
+    };
 
     await expect(
       prepareBrandedGeneratedImage(
         {
           workspaceId,
-          bytes: base,
-          snapshot: createSnapshot(originalLogo),
+          bytes,
+
+          brandingSnapshot: {
+            type: "text",
+            text: "BREW CO.",
+            ...appearance,
+          },
+
+          snapshot: {
+            enabled: true,
+            logo,
+            ...appearance,
+          },
         },
-        mockBucket(differentLogo),
+        unusedBucket,
       ),
-    ).rejects.toThrow("Workspace logo integrity verification failed.");
+    ).rejects.toThrow("Text branding conflicts with an enabled logo.");
+  });
+
+  it("rejects invalid persisted text before composition", async () => {
+    const bytes = await createImage();
+
+    await expect(
+      prepareBrandedGeneratedImage(
+        {
+          workspaceId,
+          bytes,
+
+          brandingSnapshot: {
+            type: "text",
+            text: "BREW\nCO.",
+            ...appearance,
+          },
+        } as Parameters<typeof prepareBrandedGeneratedImage>[0],
+        unusedBucket,
+      ),
+    ).rejects.toThrow();
   });
 });

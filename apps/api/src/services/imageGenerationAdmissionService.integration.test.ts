@@ -96,6 +96,20 @@ function request(
   };
 }
 
+function logoRequest(key: string) {
+  const base = request(key);
+
+  return {
+    ...base,
+    image: {
+      ...base.image,
+      branding: {
+        type: "logo" as const,
+      },
+    },
+  };
+}
+
 async function balance() {
   const wallet = await UserCreditWallet.findOne({
     userId: profileId,
@@ -416,7 +430,9 @@ describe("Credit-aware generation admission", () => {
 
     await setWorkspaceLogoSettings(settings);
 
-    const result = await admitImageGeneration(request("snapshot-enabled-0001"));
+    const result = await admitImageGeneration(
+      logoRequest("snapshot-enabled-0001"),
+    );
 
     const snapshot = await getSavedSnapshot(String(result.asset._id));
 
@@ -433,7 +449,7 @@ describe("Credit-aware generation admission", () => {
     await setWorkspaceLogoSettings(original);
 
     const admitted = await admitImageGeneration(
-      request("snapshot-original-0001"),
+      logoRequest("snapshot-original-0001"),
     );
 
     const changed = createLogoSettings(SECOND_LOGO_ID, {
@@ -460,7 +476,9 @@ describe("Credit-aware generation admission", () => {
   it("returns the original snapshot on idempotent retry after a logo change", async () => {
     await setWorkspaceLogoSettings(createLogoSettings());
 
-    const first = await admitImageGeneration(request("snapshot-retry-0001"));
+    const first = await admitImageGeneration(
+      logoRequest("snapshot-retry-0001"),
+    );
 
     await setWorkspaceLogoSettings(
       createLogoSettings(SECOND_LOGO_ID, {
@@ -468,7 +486,9 @@ describe("Credit-aware generation admission", () => {
       }),
     );
 
-    const retry = await admitImageGeneration(request("snapshot-retry-0001"));
+    const retry = await admitImageGeneration(
+      logoRequest("snapshot-retry-0001"),
+    );
 
     expect(retry.created).toBe(false);
     expect(retry.creditsChargedNow).toBe(0);
@@ -500,7 +520,7 @@ describe("Credit-aware generation admission", () => {
     });
 
     await expect(
-      admitImageGeneration(request("snapshot-invalid-0001")),
+      admitImageGeneration(logoRequest("snapshot-invalid-0001")),
     ).rejects.toMatchObject({
       statusCode: 409,
     });
@@ -528,7 +548,14 @@ describe("Credit-aware generation admission", () => {
     let updateCompleted = false;
 
     const admitted = await admitImageGeneration({
-      ...request("snapshot-concurrent-0001"),
+      ...request("snapshot-enabled-0001"),
+      image: {
+        prompt: "Professional product photography with studio lighting.",
+        aspectRatio: "square",
+        branding: {
+          type: "logo",
+        },
+      },
 
       faultInjection: {
         async beforeDebitLedgerInsert() {
@@ -589,5 +616,432 @@ describe("Credit-aware generation admission", () => {
     expect(await MediaAsset.countDocuments()).toBe(0);
 
     expect(await ImageGenerationAdmission.countDocuments()).toBe(0);
+  });
+
+  it("does not inherit workspace branding when the image selects none", async () => {
+    // This test assumes the workspace fixture already
+    // has an enabled logo configured.
+    const result = await admitImageGeneration({
+      ...request("snapshot-no-branding-0001"),
+      image: {
+        prompt: "A professional studio photograph of a coffee product.",
+        aspectRatio: "square",
+        branding: {
+          type: "none",
+        },
+      },
+    });
+
+    expect(result.asset.logoOverlaySnapshot?.enabled).toBe(false);
+
+    expect(result.asset.logoOverlaySnapshot?.logo).toBeNull();
+
+    expect(result.creditsChargedNow).toBe(1);
+  });
+
+  it("admits text branding and persists the immutable label", async () => {
+    const result = await admitImageGeneration({
+      ...request("text-admission-0001"),
+
+      image: {
+        prompt: "A professional studio photograph of a coffee product.",
+        aspectRatio: "square",
+
+        branding: {
+          type: "text",
+          text: "BREW CO.",
+          position: "bottom-right",
+          sizePercent: 20,
+          opacity: 0.8,
+        },
+      },
+    });
+
+    expect(result.created).toBe(true);
+    expect(result.creditsChargedNow).toBe(1);
+
+    const saved = await MediaAsset.findById(result.asset._id);
+
+    expect(saved?.brandingSnapshot?.toObject()).toMatchObject({
+      type: "text",
+      text: "BREW CO.",
+      position: "bottom-right",
+      sizePercent: 20,
+      opacity: 0.8,
+    });
+
+    expect(saved?.logoOverlaySnapshot?.enabled).toBe(false);
+
+    expect(saved?.logoOverlaySnapshot?.logo).toBeNull();
+
+    expect(saved?.generationExecution?.phase).toBe("reserved");
+  });
+
+  it("allows an unbranded image despite invalid unused workspace logo settings", async () => {
+    // Persist deliberately invalid logo settings.
+    await Workspace.updateOne(
+      { _id: workspaceId },
+      {
+        $set: {
+          "settings.logoOverlay": {
+            enabled: true,
+            logo: {
+              storageKey: "invalid-logo-path",
+              sha256: "invalid-checksum",
+            },
+            position: "bottom-right",
+            sizePercent: 20,
+            opacity: 0.8,
+          },
+        },
+      },
+    );
+
+    const admitted = await admitImageGeneration({
+      ...request("snapshot-invalid-unused-0001"),
+      image: {
+        prompt: "A professional studio photograph of a coffee product.",
+        aspectRatio: "square",
+        branding: {
+          type: "none",
+        },
+      },
+    });
+
+    expect(admitted.created).toBe(true);
+    expect(admitted.creditsChargedNow).toBe(1);
+
+    expect(admitted.asset.logoOverlaySnapshot?.enabled).toBe(false);
+
+    expect(admitted.asset.logoOverlaySnapshot?.logo).toBeNull();
+  });
+
+  it("persists an explicit none branding snapshot", async () => {
+    const result = await admitImageGeneration(
+      request("branding-none-new-0001"),
+    );
+
+    const saved = await MediaAsset.findById(result.asset._id);
+
+    expect(saved?.brandingSnapshot?.type).toBe("none");
+
+    expect(saved?.logoOverlaySnapshot?.enabled).toBe(false);
+
+    expect(saved?.logoOverlaySnapshot?.logo).toBeNull();
+
+    expect(result.creditsChargedNow).toBe(1);
+  });
+
+  it("persists matching logo snapshots", async () => {
+    // Configure an enabled valid workspace logo
+    // using the existing logo fixture setup.
+    const settings = createLogoSettings(workspaceId);
+
+    await Workspace.updateOne(
+      { _id: workspaceId },
+      {
+        $set: {
+          "settings.logoOverlay": settings,
+        },
+      },
+    );
+
+    const result = await admitImageGeneration(
+      logoRequest("branding-logo-new-0001"),
+    );
+
+    const saved = await MediaAsset.findById(result.asset._id);
+
+    expect(saved?.brandingSnapshot?.type).toBe("logo");
+
+    expect(saved?.brandingSnapshot?.logo?.storageKey).toBe(
+      saved?.logoOverlaySnapshot?.logo?.storageKey,
+    );
+
+    expect(saved?.brandingSnapshot?.logo?.sha256).toBe(
+      saved?.logoOverlaySnapshot?.logo?.sha256,
+    );
+
+    expect(saved?.brandingSnapshot?.position).toBe(
+      saved?.logoOverlaySnapshot?.position,
+    );
+
+    expect(saved?.brandingSnapshot?.sizePercent).toBe(
+      saved?.logoOverlaySnapshot?.sizePercent,
+    );
+
+    expect(saved?.brandingSnapshot?.opacity).toBe(
+      saved?.logoOverlaySnapshot?.opacity,
+    );
+  });
+
+  it("persists an explicit none branding snapshot", async () => {
+    const result = await admitImageGeneration(
+      request("branding-none-new-0001"),
+    );
+
+    const saved = await MediaAsset.findById(result.asset._id);
+
+    expect(saved?.brandingSnapshot?.type).toBe("none");
+
+    expect(saved?.logoOverlaySnapshot?.enabled).toBe(false);
+
+    expect(saved?.logoOverlaySnapshot?.logo).toBeNull();
+
+    expect(result.creditsChargedNow).toBe(1);
+  });
+
+  it("persists matching logo snapshots", async () => {
+    // Configure an enabled valid workspace logo
+    // using the existing logo fixture setup.
+    const settings = createLogoSettings(workspaceId);
+
+    await Workspace.updateOne(
+      { _id: workspaceId },
+      {
+        $set: {
+          "settings.logoOverlay": settings,
+        },
+      },
+    );
+
+    const result = await admitImageGeneration(
+      logoRequest("branding-logo-new-0001"),
+    );
+
+    const saved = await MediaAsset.findById(result.asset._id);
+
+    expect(saved?.brandingSnapshot?.type).toBe("logo");
+
+    expect(saved?.brandingSnapshot?.logo?.storageKey).toBe(
+      saved?.logoOverlaySnapshot?.logo?.storageKey,
+    );
+
+    expect(saved?.brandingSnapshot?.logo?.sha256).toBe(
+      saved?.logoOverlaySnapshot?.logo?.sha256,
+    );
+
+    expect(saved?.brandingSnapshot?.position).toBe(
+      saved?.logoOverlaySnapshot?.position,
+    );
+
+    expect(saved?.brandingSnapshot?.sizePercent).toBe(
+      saved?.logoOverlaySnapshot?.sizePercent,
+    );
+
+    expect(saved?.brandingSnapshot?.opacity).toBe(
+      saved?.logoOverlaySnapshot?.opacity,
+    );
+  });
+
+  it("persists an explicit none branding snapshot", async () => {
+    const result = await admitImageGeneration(
+      request("branding-none-new-0001"),
+    );
+
+    const saved = await MediaAsset.findById(result.asset._id);
+
+    expect(saved?.brandingSnapshot?.type).toBe("none");
+
+    expect(saved?.logoOverlaySnapshot?.enabled).toBe(false);
+
+    expect(saved?.logoOverlaySnapshot?.logo).toBeNull();
+
+    expect(result.creditsChargedNow).toBe(1);
+  });
+
+  it("persists matching logo snapshots", async () => {
+    // Configure an enabled valid workspace logo
+    // using the existing logo fixture setup.
+    const settings = createLogoSettings(workspaceId);
+
+    await Workspace.updateOne(
+      { _id: workspaceId },
+      {
+        $set: {
+          "settings.logoOverlay": settings,
+        },
+      },
+    );
+
+    const result = await admitImageGeneration(
+      logoRequest("branding-logo-new-0001"),
+    );
+
+    const saved = await MediaAsset.findById(result.asset._id);
+
+    expect(saved?.brandingSnapshot?.type).toBe("logo");
+
+    expect(saved?.brandingSnapshot?.logo?.storageKey).toBe(
+      saved?.logoOverlaySnapshot?.logo?.storageKey,
+    );
+
+    expect(saved?.brandingSnapshot?.logo?.sha256).toBe(
+      saved?.logoOverlaySnapshot?.logo?.sha256,
+    );
+
+    expect(saved?.brandingSnapshot?.position).toBe(
+      saved?.logoOverlaySnapshot?.position,
+    );
+
+    expect(saved?.brandingSnapshot?.sizePercent).toBe(
+      saved?.logoOverlaySnapshot?.sizePercent,
+    );
+
+    expect(saved?.brandingSnapshot?.opacity).toBe(
+      saved?.logoOverlaySnapshot?.opacity,
+    );
+  });
+
+  it("returns the same branding snapshot on idempotent retry", async () => {
+    const key = "branding-retry-new-0001";
+
+    const first = await admitImageGeneration(request(key));
+
+    const retry = await admitImageGeneration(request(key));
+
+    expect(first.created).toBe(true);
+    expect(retry.created).toBe(false);
+
+    expect(first.creditsChargedNow).toBe(1);
+    expect(retry.creditsChargedNow).toBe(0);
+
+    expect(String(first.asset._id)).toBe(String(retry.asset._id));
+
+    const saved = await MediaAsset.findById(first.asset._id);
+
+    expect(saved?.brandingSnapshot?.type).toBe("none");
+  });
+
+  it("does not debit again for an identical text-label retry", async () => {
+    const input = {
+      ...request("text-idempotency-0001"),
+
+      image: {
+        prompt: "Professional coffee photography with warm lighting.",
+        aspectRatio: "square" as const,
+
+        branding: {
+          type: "text" as const,
+          text: "BREW CO.",
+          position: "bottom-right" as const,
+          sizePercent: 20,
+          opacity: 0.8,
+        },
+      },
+    };
+
+    const first = await admitImageGeneration(input);
+    const retry = await admitImageGeneration(input);
+
+    expect(first.created).toBe(true);
+    expect(retry.created).toBe(false);
+
+    expect(first.creditsChargedNow).toBe(1);
+    expect(retry.creditsChargedNow).toBe(0);
+
+    expect(String(first.asset._id)).toBe(String(retry.asset._id));
+
+    const saved = await MediaAsset.findById(first.asset._id);
+
+    expect(saved?.brandingSnapshot?.text).toBe("BREW CO.");
+  });
+
+  it("rejects a changed label under the same idempotency key", async () => {
+    const base = request("text-conflict-0001");
+
+    const image = {
+      prompt: "Professional coffee photography with warm lighting.",
+      aspectRatio: "square" as const,
+
+      branding: {
+        type: "text" as const,
+        text: "BREW CO.",
+      },
+    };
+
+    const first = await admitImageGeneration({
+      ...base,
+      image,
+    });
+
+    expect(first.creditsChargedNow).toBe(1);
+
+    await expect(
+      admitImageGeneration({
+        ...base,
+
+        image: {
+          ...image,
+          branding: {
+            type: "text",
+            text: "COFFEE HOUSE",
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+    });
+
+    const saved = await MediaAsset.findById(first.asset._id);
+
+    expect(saved?.brandingSnapshot?.text).toBe("BREW CO.");
+  });
+
+  it("rejects control characters before charging credits", async () => {
+    const balanceBefore = await balance();
+
+    await expect(
+      admitImageGeneration({
+        ...request("text-invalid-0001"),
+
+        image: {
+          prompt: "Professional coffee photography with warm lighting.",
+          aspectRatio: "square",
+
+          branding: {
+            type: "text",
+            text: "BREW\nCO.",
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+    });
+
+    expect(await balance()).toBe(balanceBefore);
+  });
+
+  it("rejects unreadable text labels before deducting credits", async () => {
+    const balanceBefore = await balance();
+    const assetsBefore = await MediaAsset.countDocuments();
+
+    await expect(
+      admitImageGeneration({
+        ...request("text-layout-admission-invalid-0001"),
+
+        image: {
+          prompt:
+            "A professional studio photograph of a premium coffee product.",
+          aspectRatio: "square",
+
+          branding: {
+            type: "text",
+            text: "A".repeat(80),
+            position: "bottom-right",
+            sizePercent: 5,
+            opacity: 0.8,
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+    });
+
+    // No credit was deducted.
+    expect(await balance()).toBe(balanceBefore);
+
+    // No generation asset was created.
+    expect(await MediaAsset.countDocuments()).toBe(assetsBefore);
   });
 });

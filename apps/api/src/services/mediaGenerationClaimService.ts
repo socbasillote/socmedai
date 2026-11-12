@@ -131,12 +131,35 @@ export function fingerprintImageGeneration(
 ): string {
   const validated = generateImageSchema.parse(input);
 
+  // Preserve historical fingerprints for requests
+  // without branding. This protects existing
+  // idempotency keys and previously admitted jobs.
+  if (validated.branding.type === "none") {
+    const legacyCanonical = JSON.stringify([
+      "storm-image-generation-v1",
+      validated.prompt,
+      validated.aspectRatio,
+      generation.provider,
+      generation.model,
+    ]);
+
+    return createHash("sha256").update(legacyCanonical).digest("hex");
+  }
+
+  // Branded requests use a separate fingerprint
+  // version and include the normalized branding
+  // selection, including appearance parameters.
   const canonical = JSON.stringify([
-    "storm-image-generation-v1",
+    "storm-image-generation-v2",
     validated.prompt,
     validated.aspectRatio,
     generation.provider,
     generation.model,
+    validated.branding.type,
+    validated.branding.type === "text" ? validated.branding.text : null,
+    validated.branding.position,
+    validated.branding.sizePercent,
+    validated.branding.opacity,
   ]);
 
   return createHash("sha256").update(canonical).digest("hex");

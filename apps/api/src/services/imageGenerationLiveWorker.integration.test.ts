@@ -17,6 +17,11 @@ import {
   vi,
 } from "vitest";
 
+import { createHash } from "node:crypto";
+import sharp from "sharp";
+
+import { getImageStorageKey } from "./media/supabaseImageStorage.js";
+
 // This mock is isolated to this Vitest test file, and never changes production code.
 vi.mock("./imageGenerationWorkerProviderGate.js", async (importOriginal) => {
   const actual =
@@ -66,6 +71,8 @@ import {
 } from "./media/providers/imageProvider.js";
 import type { ImageStorageBucket } from "./media/supabaseImageStorage.js";
 import type { AuthenticatedUser } from "./userProfileService.js";
+
+import { imageGenerationCommandSchema } from "../schemas/imageGenerationCommandSchema.js";
 
 let mongo: MongoMemoryReplSet;
 let workspaceId: string;
@@ -204,6 +211,51 @@ function fakeStorage() {
   };
 }
 
+function sha256(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+async function createBrandingLogo(color: string): Promise<Buffer> {
+  return sharp({
+    create: {
+      width: 100,
+      height: 50,
+      channels: 4,
+      background: color,
+    },
+  })
+    .png()
+    .toBuffer();
+}
+
+async function configureBrandingLogo(logoBytes: Buffer) {
+  const logoId = new mongoose.Types.ObjectId().toHexString();
+
+  const storageKey = `workspaces/${workspaceId}/logos/${logoId}.png`;
+
+  const settings = {
+    enabled: true,
+    logo: {
+      storageKey,
+      sha256: sha256(logoBytes),
+    },
+    position: "bottom-right" as const,
+    sizePercent: 20,
+    opacity: 1,
+  };
+
+  await Workspace.updateOne(
+    { _id: workspaceId },
+    {
+      $set: {
+        "settings.logoOverlay": settings,
+      },
+    },
+  );
+
+  return settings;
+}
+
 const liveQueueConfig = parseImageGenerationConfig({
   IMAGE_GENERATION_PROVIDER: "openai",
   IMAGE_GENERATION_LIVE_ENABLED: "true",
@@ -212,25 +264,49 @@ const liveQueueConfig = parseImageGenerationConfig({
   IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE: "2",
 });
 
-async function enqueueLive(key = "live-worker-request-0001") {
+async function enqueueLive(key: string, branding: "none" | "logo" = "none") {
+  const command = {
+    workspaceId,
+    idempotencyKey: key,
+    image: {
+      prompt: "A professional product photograph with studio lighting.",
+      aspectRatio: "square" as const,
+
+      // Preserve the original request shape for
+      // ordinary unbranded image generation.
+      //
+      // Explicit logo selection is included only
+      // for the branded lifecycle test.
+      ...(branding === "logo"
+        ? {
+            branding: {
+              type: "logo" as const,
+            },
+          }
+        : {}),
+    },
+  };
+
+  const validation = imageGenerationCommandSchema.safeParse(command);
+
+  if (!validation.success) {
+    console.error("ENQUEUE LIVE VALIDATION ISSUES:", validation.error.issues);
+  }
+
   const admitted = await enqueueImageGeneration({
     authUser,
     config: liveQueueConfig,
-    command: {
-      workspaceId,
-      idempotencyKey: key,
-      image: {
-        prompt: "A premium product photograph with dramatic studio lighting.",
-        aspectRatio: "square",
-      },
-    },
+    command,
   });
+
   const asset = await MediaAsset.findById(admitted.assetId);
-  if (!asset)
+
+  if (!asset) {
     throw new Error("Queue did not persist its admitted image asset.");
+  }
+
   return asset;
 }
-
 async function walletBalance() {
   return (await UserCreditWallet.findOne({ userId: profileId }))?.balance;
 }
@@ -379,14 +455,14 @@ describe("Fake OpenAI background-worker integration", () => {
   });
 
   it("discovers an admitted OpenAI job in the allowlisted workspace", async () => {
-    const asset = await enqueueLive();
+    const asset = await enqueueLive("existing-test-key-0001");
     const jobs = await discoverReservedImageJobs();
     expect(jobs.map((j) => String(j._id))).toContain(String(asset._id));
     expect(await walletBalance()).toBe(4);
   });
 
   it("completes one fake OpenAI image and reconciles credit and capacity", async () => {
-    const asset = await enqueueLive();
+    const asset = await enqueueLive("existing-test-key-0001");
     const p = fakeOpenAIProvider();
     const s = fakeStorage();
     const results = await runImageGenerationWorkerOnce({
@@ -434,7 +510,7 @@ describe("Fake OpenAI background-worker integration", () => {
   });
 
   it("allows only one provider execution when two workers race", async () => {
-    const asset = await enqueueLive();
+    const asset = await enqueueLive("existing-test-key-0001");
     const p = fakeOpenAIProvider();
     const s = fakeStorage();
     const results = await Promise.all([
@@ -457,7 +533,7 @@ describe("Fake OpenAI background-worker integration", () => {
   });
 
   it("never invokes provider after an uncertain outcome and preserves billing", async () => {
-    const asset = await enqueueLive();
+    const asset = await enqueueLive("existing-test-key-0001");
     const p = uncertainOpenAIProvider();
     const s = fakeStorage();
     const first = await runImageGenerationWorkerOnce({
@@ -502,7 +578,7 @@ describe("Fake OpenAI background-worker integration", () => {
   });
 
   it("ignores a reservation whose committed credit admission is missing", async () => {
-    const asset = await enqueueLive();
+    const asset = await enqueueLive("existing-test-key-0001");
     await ImageGenerationAdmission.deleteOne({ assetId: asset._id });
     const p = fakeOpenAIProvider();
     const result = await runImageGenerationWorkerOnce({
@@ -514,7 +590,7 @@ describe("Fake OpenAI background-worker integration", () => {
   });
 
   it("rejects a mismatched provider without crossing provider_started", async () => {
-    const asset = await enqueueLive();
+    const asset = await enqueueLive("existing-test-key-0001");
     const mismatched: ImageProvider = {
       provider: "mock",
       model: "storm-mock-image-v1",
@@ -536,12 +612,132 @@ describe("Fake OpenAI background-worker integration", () => {
   });
 
   it("refuses to discover live jobs outside the workspace allowlist", async () => {
-    const asset = await enqueueLive();
+    const asset = await enqueueLive("existing-test-key-0001");
     process.env.IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST =
       new mongoose.Types.ObjectId().toHexString();
     expect(await discoverReservedImageJobs()).toHaveLength(0);
     expect(
       (await MediaAsset.findById(asset._id))?.generationExecution?.phase,
     ).toBe("reserved");
+  });
+
+  it("completes a branded fake OpenAI generation using its admitted logo snapshot", async () => {
+    // 1. Configure Logo A before admission.
+    const logoA = await createBrandingLogo("#ff0000");
+
+    const originalSettings = await configureBrandingLogo(logoA);
+
+    // 2. Admit the fake OpenAI generation.
+    const admitted = await enqueueLive("branded-live-lifecycle-0001", "logo");
+
+    expect(admitted.logoOverlaySnapshot?.enabled).toBe(true);
+
+    expect(admitted.logoOverlaySnapshot?.logo?.storageKey).toBe(
+      originalSettings.logo.storageKey,
+    );
+
+    expect(await walletBalance()).toBe(4);
+    expect(await activeCount()).toBe(1);
+
+    // 3. Change the workspace to Logo B.
+    const logoB = await createBrandingLogo("#0000ff");
+
+    const replacementSettings = await configureBrandingLogo(logoB);
+
+    expect(replacementSettings.logo.storageKey).not.toBe(
+      originalSettings.logo.storageKey,
+    );
+
+    // 4. Prepare private test storage containing
+    // both immutable logo versions.
+    const storage = fakeStorage();
+
+    storage.objects.set(originalSettings.logo.storageKey, logoA);
+
+    storage.objects.set(replacementSettings.logo.storageKey, logoB);
+
+    const provider = fakeOpenAIProvider();
+
+    // 5. Run the complete worker.
+    const result = await runImageGenerationWorkerOnce({
+      provider: provider.provider,
+      bucket: storage.bucket,
+    });
+
+    expect(result).toContainEqual({
+      outcome: "completed",
+      assetId: String(admitted._id),
+    });
+
+    // Provider invoked only once.
+    expect(provider.generate).toHaveBeenCalledTimes(1);
+
+    // Two logo reads (preflight and composition),
+    // plus one final image verification.
+    expect(storage.download).toHaveBeenCalledTimes(3);
+
+    // Only the final image is uploaded.
+    expect(storage.upload).toHaveBeenCalledTimes(1);
+
+    // 6. Verify the stored final image.
+    const imageKey = getImageStorageKey(workspaceId, String(admitted._id));
+
+    const storedBytes = storage.objects.get(imageKey);
+
+    expect(storedBytes).toBeDefined();
+
+    const finalImage = Buffer.from(storedBytes!);
+
+    const metadata = await sharp(finalImage).metadata();
+
+    expect(metadata.format).toBe("png");
+    expect(metadata.width).toBeGreaterThan(0);
+    expect(metadata.height).toBeGreaterThan(0);
+
+    // 7. Verify MongoDB finalization.
+    const completed = await MediaAsset.findById(admitted._id);
+
+    expect(completed?.status).toBe("ready");
+
+    expect(completed?.contentSha256).toBe(sha256(finalImage));
+
+    expect(completed?.storageKey).toBe(imageKey);
+
+    // The original logo version must remain pinned.
+    expect(completed?.logoOverlaySnapshot?.logo?.storageKey).toBe(
+      originalSettings.logo.storageKey,
+    );
+
+    expect(completed?.logoOverlaySnapshot?.logo?.sha256).toBe(sha256(logoA));
+
+    // 8. Verify accounting.
+    expect(await walletBalance()).toBe(4);
+    expect(await activeCount()).toBe(0);
+
+    const admission = await ImageGenerationAdmission.findOne({
+      assetId: admitted._id,
+    });
+
+    expect(admission?.state).toBe("released");
+    expect(admission?.creditsCharged).toBe(1);
+
+    const debits = await CreditTransaction.find({
+      assetId: admitted._id,
+      type: "image_debit",
+    });
+
+    expect(debits).toHaveLength(1);
+    expect(debits[0]?.amount).toBe(-1);
+
+    // 9. Poll again to ensure no duplicate call.
+    const second = await runImageGenerationWorkerOnce({
+      provider: provider.provider,
+      bucket: storage.bucket,
+    });
+
+    expect(second).toEqual([{ outcome: "idle" }]);
+
+    expect(provider.generate).toHaveBeenCalledTimes(1);
+    expect(await walletBalance()).toBe(4);
   });
 });

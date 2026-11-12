@@ -40,6 +40,8 @@ import {
   type ImageProvider,
 } from "./media/providers/imageProvider.js";
 
+import { verifyAdmittedImageBrandingPreflight } from "./media/verifyAdmittedImageBrandingPreflight.js";
+
 export class ImageGenerationWorkerError extends Error {
   constructor(
     message: string,
@@ -374,11 +376,76 @@ export async function executeReservedImageJob(
     claimToken,
   };
 
+  // Verify persisted branding BEFORE the paid
+  // provider_started transition.
+  //
+  // Run under the existing generation lease
+  // heartbeat so a slow storage download cannot
+  // leave us executing under an expired claim.
+  try {
+    await withGenerationLeaseHeartbeat(owned, async () => {
+      const claimedAsset = await MediaAsset.findOne({
+        _id: job._id,
+        workspaceId: job.workspaceId,
+        createdByUserId: job.createdByUserId,
+        status: "pending",
+
+        "generationExecution.phase": "claimed",
+        "generationExecution.claimToken": claimToken,
+        "generationExecution.leaseExpiresAt": {
+          $gt: new Date(),
+        },
+      })
+        .select(
+          "generation.provider generation.model generation.aspectRatio " +
+            "logoOverlaySnapshot brandingSnapshot",
+        )
+        .lean();
+
+      if (!claimedAsset) {
+        throw new ImageGenerationWorkerError(
+          "Generation claim is no longer owned.",
+          409,
+        );
+      }
+
+      await verifyAdmittedImageBrandingPreflight(
+        {
+          workspaceId,
+
+          generation: {
+            provider: claimedAsset.generation.provider,
+            model: claimedAsset.generation.model,
+            aspectRatio: claimedAsset.generation.aspectRatio,
+          },
+
+          brandingSnapshot:
+            claimedAsset.brandingSnapshot?.toObject?.() ??
+            claimedAsset.brandingSnapshot ??
+            null,
+
+          logoOverlaySnapshot:
+            claimedAsset.logoOverlaySnapshot?.toObject?.() ??
+            claimedAsset.logoOverlaySnapshot ??
+            null,
+        },
+
+        dependencies.bucket ?? getPrivateImageBucket(),
+      );
+    });
+  } catch {
+    // No provider call was started.
+    // Preserve the admitted job for controlled
+    // retry/review; never silently remove branding.
+    return {
+      outcome: "recovery_required",
+      assetId,
+    };
+  }
+
   /**
    * Persist provider_started before the
    * provider is ever invoked.
-   *
-   * If this fails, no provider call happens.
    */
   await beginImageProviderCall(owned);
 

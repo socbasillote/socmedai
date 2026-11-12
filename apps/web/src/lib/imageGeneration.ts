@@ -2,6 +2,32 @@ import { apiFetch } from "@/lib/api";
 
 export type ImageAspectRatio = "square" | "portrait" | "landscape";
 
+export type ImageBrandingPosition =
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right";
+
+export type ImageBranding =
+  | {
+      type: "none";
+    }
+  | {
+      type: "logo";
+      position: ImageBrandingPosition;
+      sizePercent: number;
+      opacity: number;
+    }
+  | {
+      type: "text";
+      text: string;
+      position: ImageBrandingPosition;
+      sizePercent: number;
+      opacity: number;
+    };
+
+export type ImageBrandingMode = ImageBranding["type"];
+
 export type ImageGenerationStatus = "pending" | "ready" | "failed";
 
 export type ImageGenerationState =
@@ -55,6 +81,7 @@ export type GenerateImageCommand = {
   image: {
     prompt: string;
     aspectRatio: ImageAspectRatio;
+    branding?: ImageBranding;
   };
 };
 
@@ -103,6 +130,70 @@ export function validateImagePrompt(prompt: string): string {
   }
 
   return normalized;
+}
+
+export function validateImageBranding(branding: ImageBranding): ImageBranding {
+  if (branding.type === "none") {
+    return { type: "none" };
+  }
+
+  const positions: ImageBrandingPosition[] = [
+    "top-left",
+    "top-right",
+    "bottom-left",
+    "bottom-right",
+  ];
+
+  if (!positions.includes(branding.position)) {
+    throw new Error("Select a valid branding position.");
+  }
+
+  if (
+    !Number.isInteger(branding.sizePercent) ||
+    branding.sizePercent < 5 ||
+    branding.sizePercent > 30
+  ) {
+    throw new Error("Branding size must be between 5% and 30%.");
+  }
+
+  if (
+    !Number.isFinite(branding.opacity) ||
+    branding.opacity < 0.1 ||
+    branding.opacity > 1
+  ) {
+    throw new Error("Branding opacity must be between 10% and 100%.");
+  }
+
+  const appearance = {
+    position: branding.position,
+    sizePercent: branding.sizePercent,
+    opacity: branding.opacity,
+  };
+
+  if (branding.type === "logo") {
+    return {
+      type: "logo",
+      ...appearance,
+    };
+  }
+
+  const text = branding.text.trim();
+
+  if (
+    text.length < 1 ||
+    text.length > 80 ||
+    /[\u0000-\u001f\u007f]/u.test(text)
+  ) {
+    throw new Error(
+      "Enter a text label containing 1–80 characters without control characters.",
+    );
+  }
+
+  return {
+    type: "text",
+    text,
+    ...appearance,
+  };
 }
 
 export function getImageGenerationCredits(workspaceId: string) {

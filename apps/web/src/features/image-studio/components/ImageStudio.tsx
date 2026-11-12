@@ -7,6 +7,10 @@ import {
   getWorkspaceImageStatus,
   getWorkspaceImageUrl,
   validateImagePrompt,
+  validateImageBranding,
+  type ImageBranding,
+  type ImageBrandingMode,
+  type ImageBrandingPosition,
   type GenerateImageCommand,
   type ImageAspectRatio,
   type ImageGenerationCredits,
@@ -14,6 +18,7 @@ import {
 } from "@/lib/imageGeneration";
 
 import { ImageHistoryGallery } from "./ImageHistoryGallery";
+import { BrandingPlacementPreview } from "./BrandingPlacementPreview";
 
 type ImageStudioProps = {
   selectedWorkspaceId: string | null;
@@ -50,6 +55,17 @@ function errorMessage(error: unknown): string {
 export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState<ImageAspectRatio>("square");
+
+  const [brandingMode, setBrandingMode] = useState<ImageBrandingMode>("none");
+
+  const [brandingText, setBrandingText] = useState("");
+
+  const [brandingPosition, setBrandingPosition] =
+    useState<ImageBrandingPosition>("bottom-right");
+
+  const [brandingSize, setBrandingSize] = useState(20);
+
+  const [brandingOpacity, setBrandingOpacity] = useState(80);
 
   const [credits, setCredits] = useState<ImageGenerationCredits | null>(null);
 
@@ -221,6 +237,31 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
     }
   }
 
+  function buildSelectedBranding(): ImageBranding {
+    if (brandingMode === "none") {
+      return { type: "none" };
+    }
+
+    const appearance = {
+      position: brandingPosition,
+      sizePercent: brandingSize,
+      opacity: brandingOpacity / 100,
+    };
+
+    if (brandingMode === "logo") {
+      return validateImageBranding({
+        type: "logo",
+        ...appearance,
+      });
+    }
+
+    return validateImageBranding({
+      type: "text",
+      text: brandingText,
+      ...appearance,
+    });
+  }
+
   function handleGenerate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -234,6 +275,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
         image: {
           prompt: normalizedPrompt,
           aspectRatio,
+          branding: buildSelectedBranding(),
         },
       };
 
@@ -290,7 +332,11 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
     dailyLimitReached ||
     activeLimitReached ||
     prompt.trim().length < 10 ||
-    prompt.trim().length > 3000;
+    prompt.trim().length > 3000 ||
+    (brandingMode === "text" &&
+      (brandingText.trim().length === 0 ||
+        brandingText.length > 80 ||
+        /[\u0000-\u001f\u007f]/u.test(brandingText)));
 
   return (
     <main className="mx-auto w-full max-w-6xl space-y-6 px-4 py-6 sm:px-6">
@@ -421,6 +467,178 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
               })}
             </div>
           </fieldset>
+
+          <fieldset className="space-y-4 rounded-xl border border-slate-200 p-4">
+            <legend className="px-2 text-sm font-semibold text-slate-800">
+              Image branding (optional)
+            </legend>
+
+            <p className="text-xs text-slate-500">
+              Branding is applied only to this generated image.
+            </p>
+
+            <div className="grid gap-2 sm:grid-cols-3">
+              {(
+                [
+                  { value: "none", label: "None" },
+                  { value: "logo", label: "Workspace logo" },
+                  { value: "text", label: "Text label" },
+                ] as const
+              ).map((item) => {
+                const selected = brandingMode === item.value;
+
+                return (
+                  <label
+                    key={item.value}
+                    className={`cursor-pointer rounded-xl border p-3 text-center ${
+                      selected
+                        ? "border-violet-500 bg-violet-50"
+                        : "border-slate-200"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="brandingMode"
+                      value={item.value}
+                      checked={selected}
+                      onChange={() => setBrandingMode(item.value)}
+                      className="sr-only"
+                    />
+
+                    <span className="text-sm font-medium">{item.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {brandingMode === "none" && (
+              <p className="text-xs text-slate-500">
+                Your image will not include a logo or text label.
+              </p>
+            )}
+
+            {brandingMode === "logo" && (
+              <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+                Storm will use the logo uploaded in Workspace Settings. You must
+                have an enabled workspace logo before generating.
+              </p>
+            )}
+
+            {brandingMode === "text" && (
+              <div className="space-y-2">
+                <label
+                  htmlFor="image-studio-branding-text"
+                  className="block text-sm font-medium text-slate-700"
+                >
+                  Text label
+                </label>
+
+                <input
+                  id="image-studio-branding-text"
+                  type="text"
+                  maxLength={80}
+                  value={brandingText}
+                  onChange={(event) => setBrandingText(event.target.value)}
+                  placeholder="e.g. BREW CO."
+                  className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-500"
+                />
+
+                <p className="text-right text-xs text-slate-500">
+                  {brandingText.length}/80
+                </p>
+              </div>
+            )}
+
+            {brandingMode !== "none" && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label
+                    htmlFor="image-studio-branding-position"
+                    className="block text-sm font-medium text-slate-700"
+                  >
+                    Position
+                  </label>
+
+                  <select
+                    id="image-studio-branding-position"
+                    value={brandingPosition}
+                    onChange={(event) =>
+                      setBrandingPosition(
+                        event.target.value as ImageBrandingPosition,
+                      )
+                    }
+                    className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-500"
+                  >
+                    <option value="top-left">Top left</option>
+                    <option value="top-right">Top right</option>
+                    <option value="bottom-left">Bottom left</option>
+                    <option value="bottom-right">Bottom right</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <label
+                      htmlFor="image-studio-branding-size"
+                      className="font-medium text-slate-700"
+                    >
+                      Size
+                    </label>
+
+                    <span>{brandingSize}%</span>
+                  </div>
+
+                  <input
+                    id="image-studio-branding-size"
+                    type="range"
+                    min={5}
+                    max={30}
+                    step={1}
+                    value={brandingSize}
+                    onChange={(event) =>
+                      setBrandingSize(Number(event.target.value))
+                    }
+                    className="w-full accent-violet-600"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <label
+                      htmlFor="image-studio-branding-opacity"
+                      className="font-medium text-slate-700"
+                    >
+                      Opacity
+                    </label>
+
+                    <span>{brandingOpacity}%</span>
+                  </div>
+
+                  <input
+                    id="image-studio-branding-opacity"
+                    type="range"
+                    min={10}
+                    max={100}
+                    step={5}
+                    value={brandingOpacity}
+                    onChange={(event) =>
+                      setBrandingOpacity(Number(event.target.value))
+                    }
+                    className="w-full accent-violet-600"
+                  />
+                </div>
+              </div>
+            )}
+          </fieldset>
+
+          <BrandingPlacementPreview
+            aspectRatio={aspectRatio}
+            brandingMode={brandingMode}
+            text={brandingText}
+            position={brandingPosition}
+            sizePercent={brandingSize}
+            opacity={brandingOpacity}
+          />
 
           {insufficientCredits && (
             <p role="alert" className="text-sm text-amber-700">

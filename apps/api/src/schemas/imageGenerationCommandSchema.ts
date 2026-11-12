@@ -23,6 +23,10 @@ export const imageGenerationCommandSchema = z
   })
   .strict();
 
-export type ImageGenerationCommand = z.infer<
+export type ImageGenerationCommand = z.input<
+  typeof imageGenerationCommandSchema
+>;
+
+export type ParsedImageGenerationCommand = z.output<
   typeof imageGenerationCommandSchema
 >;

@@ -50,7 +50,7 @@ import {
 import { MockImageProvider } from "./media/providers/mockImageProvider.js";
 
 import type { AuthenticatedUser } from "./userProfileService.js";
-
+const originalImageGenerationProvider = process.env.IMAGE_GENERATION_PROVIDER;
 let mongo: MongoMemoryReplSet;
 
 let workspaceId: string;
@@ -241,6 +241,7 @@ async function createInterruptedUpload() {
 }
 
 beforeAll(async () => {
+  process.env.IMAGE_GENERATION_PROVIDER = "mock";
   mongo = await MongoMemoryReplSet.create({
     replSet: { count: 1 },
   });
@@ -296,6 +297,11 @@ beforeEach(async () => {
 afterAll(async () => {
   await mongoose.disconnect();
   await mongo?.stop();
+  if (originalImageGenerationProvider === undefined) {
+    delete process.env.IMAGE_GENERATION_PROVIDER;
+  } else {
+    process.env.IMAGE_GENERATION_PROVIDER = originalImageGenerationProvider;
+  }
 });
 
 describe("Generation crash reconciliation", () => {

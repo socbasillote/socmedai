@@ -82,3 +82,101 @@ describe("generateImageSchema", () => {
     ).toBe(false);
   });
 });
+
+describe("optional image branding", () => {
+  const prompt = "A premium coffee product photograph with studio lighting.";
+
+  it("defaults to no branding", () => {
+    const result = generateImageSchema.parse({
+      prompt,
+    });
+
+    expect(result.branding).toEqual({
+      type: "none",
+    });
+
+    expect(result.aspectRatio).toBe("square");
+  });
+
+  it("accepts explicitly disabled branding", () => {
+    const result = generateImageSchema.parse({
+      prompt,
+      branding: {
+        type: "none",
+      },
+    });
+
+    expect(result.branding.type).toBe("none");
+  });
+
+  it("accepts logo branding and applies defaults", () => {
+    const result = generateImageSchema.parse({
+      prompt,
+      branding: {
+        type: "logo",
+      },
+    });
+
+    expect(result.branding).toEqual({
+      type: "logo",
+      position: "bottom-right",
+      sizePercent: 20,
+      opacity: 0.8,
+    });
+  });
+
+  it("accepts text labels", () => {
+    const result = generateImageSchema.parse({
+      prompt,
+      branding: {
+        type: "text",
+        text: "  BREW CO.  ",
+      },
+    });
+
+    expect(result.branding).toEqual({
+      type: "text",
+      text: "BREW CO.",
+      position: "bottom-right",
+      sizePercent: 20,
+      opacity: 0.8,
+    });
+  });
+
+  it("rejects empty text labels", () => {
+    expect(
+      generateImageSchema.safeParse({
+        prompt,
+        branding: {
+          type: "text",
+          text: "   ",
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects invalid logo size and opacity", () => {
+    expect(
+      generateImageSchema.safeParse({
+        prompt,
+        branding: {
+          type: "logo",
+          sizePercent: 50,
+          opacity: 1.5,
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects unexpected branding properties", () => {
+    expect(
+      generateImageSchema.safeParse({
+        prompt,
+        branding: {
+          type: "none",
+          storageKey: "workspaces/other-workspace/logo.png",
+        },
+      }).success,
+    ).toBe(false);
+  });
+});

@@ -24,6 +24,8 @@ import CreditTransaction from "../models/CreditTransaction.js";
 
 import { snapshotWorkspaceLogoSettings } from "./media/workspaceLogoConfig.js";
 
+import { validateTextBrandingLayout } from "./media/verifyAdmittedImageBrandingPreflight.js";
+
 export const IMAGE_CREDIT_COST = 1;
 
 export type ImageAdmissionFaultInjection = {
@@ -123,6 +125,34 @@ export async function admitImageGeneration(input: AdmissionInput) {
 
   if (!provider || provider.length > 80 || !model || model.length > 120) {
     throw new ImageAdmissionError("Invalid image provider configuration.", 500);
+  }
+
+  /**
+   * Validate text rendering eligibility before
+   * creating any credit-accounting transaction.
+   *
+   * A valid text string is not necessarily
+   * renderable at the selected size.
+   */
+  if (parsed.data.branding.type === "text") {
+    try {
+      validateTextBrandingLayout(
+        {
+          text: parsed.data.branding.text,
+          sizePercent: parsed.data.branding.sizePercent,
+        },
+        {
+          provider,
+          model,
+          aspectRatio: parsed.data.aspectRatio,
+        },
+      );
+    } catch {
+      throw new ImageAdmissionError(
+        "Text label cannot fit readably at the selected size and aspect ratio.",
+        400,
+      );
+    }
   }
 
   const { dailyLimit, maxActive } = input.policy;
@@ -227,11 +257,15 @@ export async function admitImageGeneration(input: AdmissionInput) {
           throw new ImageAdmissionError("Workspace not found.", 404);
         }
 
-        // Freeze workspace branding for this
-        // generation before creating the asset.
-        //
-        // Read from the authorized workspace
-        // inside the current MongoDB transaction.
+        /**
+         * Freeze the branding selected for this image.
+         *
+         * Workspace settings provide an available logo,
+         * but they do not automatically enable branding.
+         *
+         * This runs inside the admission transaction,
+         * before credit deduction.
+         */
         const workspaceSettings =
           workspace.settings &&
           typeof workspace.settings === "object" &&
@@ -241,14 +275,131 @@ export async function admitImageGeneration(input: AdmissionInput) {
 
         let logoOverlaySnapshot;
 
+        let brandingSnapshot:
+          | {
+              type: "none";
+            }
+          | {
+              type: "logo";
+              logo: {
+                storageKey: string;
+                sha256: string;
+              };
+              position:
+                | "top-left"
+                | "top-right"
+                | "bottom-left"
+                | "bottom-right";
+              sizePercent: number;
+              opacity: number;
+            }
+          | {
+              type: "text";
+              text: string;
+              position:
+                | "top-left"
+                | "top-right"
+                | "bottom-left"
+                | "bottom-right";
+              sizePercent: number;
+              opacity: number;
+            };
+
         try {
-          logoOverlaySnapshot = snapshotWorkspaceLogoSettings(
-            workspaceSettings.logoOverlay,
-            String(workspace._id),
-          );
-        } catch {
+          const branding = parsed.data.branding;
+          const workspaceId = String(workspace._id);
+
+          if (branding.type === "none") {
+            // Explicitly unbranded.
+            // Do not inherit the workspace logo.
+            logoOverlaySnapshot = snapshotWorkspaceLogoSettings(
+              undefined,
+              workspaceId,
+            );
+
+            brandingSnapshot = {
+              type: "none",
+            };
+          } else if (branding.type === "logo") {
+            const availableLogo = snapshotWorkspaceLogoSettings(
+              workspaceSettings.logoOverlay,
+              workspaceId,
+            );
+
+            if (!availableLogo.enabled || !availableLogo.logo) {
+              throw new ImageAdmissionError(
+                "Upload a workspace logo before enabling image branding.",
+                409,
+              );
+            }
+
+            // The original snapshot continues supporting
+            // existing worker and completion services.
+            logoOverlaySnapshot = snapshotWorkspaceLogoSettings(
+              {
+                enabled: true,
+                logo: {
+                  storageKey: availableLogo.logo.storageKey,
+                  sha256: availableLogo.logo.sha256,
+                },
+                position: branding.position,
+                sizePercent: branding.sizePercent,
+                opacity: branding.opacity,
+              },
+              workspaceId,
+            );
+
+            // New immutable per-image representation.
+            // Both snapshots refer to exactly the same
+            // admitted logo and appearance settings.
+            brandingSnapshot = {
+              type: "logo",
+              logo: {
+                storageKey: availableLogo.logo.storageKey,
+                sha256: availableLogo.logo.sha256,
+              },
+              position: branding.position,
+              sizePercent: branding.sizePercent,
+              opacity: branding.opacity,
+            };
+          } else if (branding.type === "text") {
+            /**
+             * Text branding has no private logo dependency.
+             *
+             * Keep the legacy snapshot disabled so both
+             * persisted branding representations agree.
+             */
+            logoOverlaySnapshot = snapshotWorkspaceLogoSettings(
+              undefined,
+              workspaceId,
+            );
+
+            /**
+             * Freeze the user's label and appearance
+             * inside the same admission transaction.
+             *
+             * No workspace branding is inherited.
+             */
+            brandingSnapshot = {
+              type: "text",
+              text: branding.text,
+              position: branding.position,
+              sizePercent: branding.sizePercent,
+              opacity: branding.opacity,
+            };
+          } else {
+            throw new ImageAdmissionError(
+              "Unsupported image branding mode.",
+              400,
+            );
+          }
+        } catch (error) {
+          if (error instanceof ImageAdmissionError) {
+            throw error;
+          }
+
           throw new ImageAdmissionError(
-            "Workspace logo settings are invalid.",
+            "Image branding settings are invalid.",
             409,
           );
         }
@@ -387,6 +538,7 @@ export async function admitImageGeneration(input: AdmissionInput) {
                 attemptCount: 0,
               },
               logoOverlaySnapshot,
+              brandingSnapshot,
             },
           ],
           { session },

@@ -247,12 +247,24 @@ export async function completeClaimedImageGeneration(
   //
   // Keep the generation lease alive during private
   // logo download, Sharp work, and normalization.
+
   const normalized = await withGenerationLeaseHeartbeat(input, () =>
     prepareBrandedGeneratedImage(
       {
         workspaceId: input.workspaceId,
+
         bytes: input.bytes,
-        snapshot: current.logoOverlaySnapshot ?? null,
+
+        // Preserve compatibility with assets
+        // created before brandingSnapshot.
+        snapshot: current.logoOverlaySnapshot
+          ? current.logoOverlaySnapshot.toObject()
+          : null,
+
+        // New per-image immutable instructions.
+        brandingSnapshot: current.brandingSnapshot
+          ? current.brandingSnapshot.toObject()
+          : null,
       },
       bucket,
     ),

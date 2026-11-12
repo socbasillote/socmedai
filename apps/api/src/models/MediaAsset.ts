@@ -187,6 +187,85 @@ const logoOverlaySnapshotSchema = new Schema(
   },
 );
 
+/**
+ * Per-image branding instructions captured at admission.
+ *
+ * New format:
+ * - none: explicitly unbranded
+ * - logo: immutable logo reference and appearance
+ * - text: immutable label and appearance
+ *
+ * Older assets may not contain this field.
+ */
+const brandingSnapshotSchema = new Schema(
+  {
+    type: {
+      type: String,
+      enum: ["none", "logo", "text"],
+      required: true,
+    },
+
+    logo: {
+      type: new Schema(
+        {
+          storageKey: {
+            type: String,
+            required: true,
+            trim: true,
+            maxlength: 1024,
+          },
+
+          sha256: {
+            type: String,
+            required: true,
+            match: SHA256_HEX_PATTERN,
+          },
+        },
+        {
+          _id: false,
+          id: false,
+          strict: "throw",
+        },
+      ),
+      default: undefined,
+    },
+
+    text: {
+      type: String,
+      trim: true,
+      minlength: 1,
+      maxlength: 80,
+      default: undefined,
+    },
+
+    position: {
+      type: String,
+      enum: ["top-left", "top-right", "bottom-left", "bottom-right"],
+      default: undefined,
+    },
+
+    sizePercent: {
+      type: Number,
+      min: 5,
+      max: 30,
+      validate: Number.isInteger,
+      default: undefined,
+    },
+
+    opacity: {
+      type: Number,
+      min: 0.1,
+      max: 1,
+      default: undefined,
+    },
+  },
+  {
+    _id: false,
+    id: false,
+    strict: "throw",
+  },
+);
+
 const mediaAssetSchema = new Schema(
   {
     workspaceId: {
@@ -327,6 +406,18 @@ const mediaAssetSchema = new Schema(
     },
 
     /**
+     * New per-image branding snapshot.
+     *
+     * Optional so existing assets remain valid.
+     * Created at admission, never intentionally updated.
+     */
+    brandingSnapshot: {
+      type: brandingSnapshotSchema,
+      default: undefined,
+      immutable: true,
+    },
+
+    /**
      * SHA-256 of the verified, normalized PNG bytes.
      *
      * Populated by a future claim-aware completion
@@ -425,6 +516,76 @@ mediaAssetSchema.pre("validate", function () {
         this.invalidate(
           "logoOverlaySnapshot.logo.storageKey",
           "Snapshot logo must belong to the asset workspace.",
+        );
+      }
+    }
+  }
+
+  /**
+   * Validate the new per-image branding snapshot.
+   *
+   * Legacy assets without brandingSnapshot continue
+   * using their existing logoOverlaySnapshot.
+   */
+  const branding = this.brandingSnapshot;
+
+  if (branding) {
+    const hasLogo = branding.logo != null;
+    const hasText = branding.text != null;
+
+    const hasAnyAppearance =
+      branding.position != null ||
+      branding.sizePercent != null ||
+      branding.opacity != null;
+
+    const hasCompleteAppearance =
+      branding.position != null &&
+      branding.sizePercent != null &&
+      branding.opacity != null;
+
+    if (branding.type === "none") {
+      if (hasLogo || hasText || hasAnyAppearance) {
+        this.invalidate(
+          "brandingSnapshot",
+          "Unbranded images cannot contain logo, text, or appearance settings.",
+        );
+      }
+    }
+
+    if (branding.type === "logo") {
+      if (!hasLogo || hasText || !hasCompleteAppearance) {
+        this.invalidate(
+          "brandingSnapshot",
+          "Logo branding requires a logo and complete appearance settings.",
+        );
+      }
+
+      if (branding.logo) {
+        const workspaceId = String(this.workspaceId).toLowerCase();
+
+        const expectedPattern = new RegExp(
+          `^workspaces/${workspaceId}/logos/[a-f0-9]{24}\\.png$`,
+        );
+
+        if (!expectedPattern.test(branding.logo.storageKey)) {
+          this.invalidate(
+            "brandingSnapshot.logo.storageKey",
+            "Branding logo must belong to the asset workspace.",
+          );
+        }
+      }
+    }
+
+    if (branding.type === "text") {
+      if (
+        hasLogo ||
+        !hasText ||
+        !branding.text?.trim() ||
+        !hasCompleteAppearance
+      ) {
+        this.invalidate(
+          "brandingSnapshot",
+          "Text branding requires a non-empty label and complete appearance settings.",
         );
       }
     }

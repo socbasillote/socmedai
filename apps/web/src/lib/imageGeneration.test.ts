@@ -11,6 +11,7 @@ import {
   imageGenerationPath,
   validateImagePrompt,
   getWorkspaceImageHistory,
+  validateImageBranding,
 } from "./imageGeneration";
 
 vi.mock("@/lib/api", () => ({
@@ -210,5 +211,84 @@ describe("Image Studio API client", () => {
     // History uses the read-only apiFetch(path)
     // overload, without a request body or method.
     expect(apiFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports unbranded image generation by default", () => {
+    expect(validateImageBranding({ type: "none" })).toEqual({
+      type: "none",
+    });
+  });
+
+  it("normalizes a custom text label", () => {
+    expect(
+      validateImageBranding({
+        type: "text",
+        text: "  BREW CO.  ",
+        position: "bottom-right",
+        sizePercent: 20,
+        opacity: 0.8,
+      }),
+    ).toEqual({
+      type: "text",
+      text: "BREW CO.",
+      position: "bottom-right",
+      sizePercent: 20,
+      opacity: 0.8,
+    });
+  });
+
+  it("rejects an empty text label", () => {
+    expect(() =>
+      validateImageBranding({
+        type: "text",
+        text: "   ",
+        position: "bottom-right",
+        sizePercent: 20,
+        opacity: 0.8,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects invalid branding appearance values", () => {
+    expect(() =>
+      validateImageBranding({
+        type: "logo",
+        position: "bottom-right",
+        sizePercent: 50,
+        opacity: 0.8,
+      }),
+    ).toThrow();
+  });
+
+  it("posts the selected branding in the generation command", async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce({
+      assetId,
+      status: "pending",
+      created: true,
+      creditsChargedNow: 1,
+    });
+
+    const command = {
+      idempotencyKey: "image-branding-request-0001",
+      image: {
+        prompt: "A professional coffee product photograph.",
+        aspectRatio: "square" as const,
+
+        branding: {
+          type: "text" as const,
+          text: "BREW CO.",
+          position: "bottom-right" as const,
+          sizePercent: 20,
+          opacity: 0.8,
+        },
+      },
+    };
+
+    await generateWorkspaceImage(workspaceId, command);
+
+    expect(apiFetch).toHaveBeenCalledWith(basePath, {
+      method: "POST",
+      body: JSON.stringify(command),
+    });
   });
 });

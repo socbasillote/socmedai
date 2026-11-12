@@ -1,0 +1,716 @@
+STORM WORKSPACE LOGO INTEGRATION
+
+===== Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\components\CreateWorkspaceForm.tsx =====
+import { X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+
+type CreateWorkspaceFormProps = {
+  name: string;
+  creating: boolean;
+  error: string;
+  onNameChange: (name: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+};
+
+export function CreateWorkspaceForm({
+  name,
+  creating,
+  error,
+  onNameChange,
+  onSubmit,
+  onCancel,
+}: CreateWorkspaceFormProps) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !creating) {
+          onCancel();
+        }
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-workspace-title"
+        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+      >
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <h2
+              id="create-workspace-title"
+              className="text-xl font-bold text-slate-950"
+            >
+              Create a workspace
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Create a separate space for a brand, client, or team.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            aria-label="Close dialog"
+            disabled={creating}
+            onClick={onCancel}
+            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+          >
+            <X size={19} />
+          </button>
+        </div>
+
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSubmit();
+          }}
+        >
+          <label
+            htmlFor="workspace-name"
+            className="mb-2 block text-sm font-semibold text-slate-700"
+          >
+            Workspace name
+          </label>
+
+          <input
+            id="workspace-name"
+            autoFocus
+            maxLength={100}
+            value={name}
+            onChange={(event) => onNameChange(event.target.value)}
+            placeholder="e.g. Acme Marketing"
+            disabled={creating}
+            className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-violet-400 focus:ring-4 focus:ring-violet-100 disabled:bg-slate-50"
+          />
+
+          {error && (
+            <p role="alert" className="mt-2 text-sm text-rose-600">
+              {error}
+            </p>
+          )}
+
+          <div className="mt-5 flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={creating}
+              onClick={onCancel}
+            >
+              Cancel
+            </Button>
+
+            <Button
+              type="submit"
+              disabled={creating}
+              className="bg-violet-600 text-white hover:bg-violet-700"
+            >
+              {creating ? "Creating..." : "Create workspace"}
+            </Button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+===== Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\components\WorkspaceSelector.tsx =====
+import { ChevronDown, Plus } from "lucide-react";
+import type { Workspace } from "@/lib/workspaces";
+
+type WorkspaceSelectorProps = {
+  workspaces: Workspace[];
+  selectedWorkspace: Workspace | null;
+  selectedWorkspaceId: string;
+  workspacesLoading: boolean;
+  workspaceError: string;
+  workspaceMenuOpen: boolean;
+  setWorkspaceMenuOpen: (
+    open: boolean | ((current: boolean) => boolean),
+  ) => void;
+  setSelectedWorkspaceId: (id: string) => void;
+  storeWorkspaceId: (id: string) => void;
+  onCreateWorkspace: () => void;
+};
+
+export function WorkspaceSelector({
+  workspaces,
+  selectedWorkspace,
+  selectedWorkspaceId,
+  workspacesLoading,
+  workspaceError,
+  workspaceMenuOpen,
+  setWorkspaceMenuOpen,
+  setSelectedWorkspaceId,
+  storeWorkspaceId,
+  onCreateWorkspace,
+}: WorkspaceSelectorProps) {
+  return (
+    <div className="border-b border-white/10 p-4">
+      <div className="relative">
+        <button
+          type="button"
+          aria-expanded={workspaceMenuOpen}
+          aria-haspopup="listbox"
+          disabled={workspacesLoading || workspaces.length === 0}
+          onClick={() => setWorkspaceMenuOpen((open) => !open)}
+          className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3 text-left hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-70"
+        >
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-200 font-bold text-amber-900">
+            {(selectedWorkspace?.name ?? "W").charAt(0).toUpperCase()}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-white">
+              {workspacesLoading
+                ? "Loading workspaces..."
+                : (selectedWorkspace?.name ?? "No workspace yet")}
+            </p>
+            <p className="mt-0.5 truncate text-xs text-slate-400">
+              {workspaceError
+                ? "Unable to load workspaces"
+                : `${workspaces.length} workspace${workspaces.length === 1 ? "" : "s"}`}
+            </p>
+          </div>
+
+          <ChevronDown size={16} className="shrink-0" />
+        </button>
+
+        {workspaceMenuOpen && (
+          <div
+            role="listbox"
+            aria-label="Select workspace"
+            className="absolute left-0 right-0 top-full z-50 mt-2 rounded-xl border border-white/10 bg-slate-900 p-2 shadow-xl"
+          >
+            {workspaces.map((workspace) => (
+              <button
+                key={workspace._id}
+                type="button"
+                role="option"
+                aria-selected={workspace._id === selectedWorkspaceId}
+                onClick={() => {
+                  setSelectedWorkspaceId(workspace._id);
+                  storeWorkspaceId(workspace._id);
+                  setWorkspaceMenuOpen(false);
+                }}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm transition ${
+                  workspace._id === selectedWorkspaceId
+                    ? "bg-violet-500/20 text-violet-200"
+                    : "text-slate-300 hover:bg-white/5 hover:text-white"
+                }`}
+              >
+                <span className="block truncate font-medium">
+                  {workspace.name}
+                </span>
+                <span className="mt-1 block text-xs text-slate-400">
+                  {workspace._id === selectedWorkspaceId
+                    ? "Currently selected"
+                    : "Switch workspace"}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={onCreateWorkspace}
+          className="mt-2 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-violet-300 transition hover:bg-white/5 hover:text-white"
+        >
+          <Plus size={16} />
+          Create workspace
+        </button>
+      </div>
+
+      {workspaceError && (
+        <p role="alert" className="mt-2 px-1 text-xs text-rose-300">
+          {workspaceError}
+        </p>
+      )}
+    </div>
+  );
+}
+
+===== Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\workspaces\hooks\useDashboardWorkspace.ts =====
+import { useMemo } from "react";
+
+import { useWorkspaces } from "@/hooks/useWorkspaces";
+import { useWorkspaceActions } from "@/hooks/useWorkspaceActions";
+import { useCreateWorkspaceForm } from "@/hooks/useCreateWorkspaceForm";
+import { useWorkspaceMenu } from "@/hooks/useWorkspaceMenu";
+
+/**
+ * Reuse the notice callback contract already
+ * defined by the existing workspace actions hook.
+ */
+type NoticeHandler = Parameters<typeof useWorkspaceActions>[0]["setNotice"];
+
+/**
+ * Dashboard workspace orchestration.
+ *
+ * Responsibilities:
+ * - Workspace loading and selection
+ * - Workspace creation
+ * - Create-workspace form state
+ * - Workspace selector menu state
+ * - Deriving the selected workspace
+ *
+ * Does not:
+ * - Render any UI
+ * - Manage Facebook or LinkedIn connections
+ * - Handle OAuth callbacks
+ * - Manage posts or publishing
+ */
+export function useDashboardWorkspace(setNotice: NoticeHandler) {
+  // Existing workspace data and selection logic.
+  const {
+    workspaces,
+    selectedWorkspaceId,
+    setSelectedWorkspaceId,
+    workspacesLoading,
+    workspaceError,
+    addWorkspace,
+  } = useWorkspaces();
+
+  // Existing workspace selector menu.
+  const { workspaceMenuOpen, setWorkspaceMenuOpen } = useWorkspaceMenu();
+
+  // Existing workspace creation form.
+  const {
+    createWorkspaceOpen,
+    setCreateWorkspaceOpen,
+    newWorkspaceName,
+    setNewWorkspaceName,
+    openCreateWorkspace,
+    closeCreateWorkspace,
+  } = useCreateWorkspaceForm();
+
+  // Existing workspace creation action.
+  const {
+    creatingWorkspace,
+    createWorkspaceError,
+    setCreateWorkspaceError,
+    handleCreateWorkspace,
+  } = useWorkspaceActions({
+    addWorkspace,
+    setSelectedWorkspaceId,
+    setNewWorkspaceName,
+    setCreateWorkspaceOpen,
+    setNotice,
+  });
+
+  // Derived workspace selection.
+  const selectedWorkspace = useMemo(
+    () =>
+      workspaces.find((workspace) => workspace._id === selectedWorkspaceId) ??
+      null,
+    [workspaces, selectedWorkspaceId],
+  );
+
+  return {
+    // Workspace data and selection.
+    workspaces,
+    selectedWorkspaceId,
+    setSelectedWorkspaceId,
+    workspacesLoading,
+    workspaceError,
+    selectedWorkspace,
+
+    // Workspace selector menu.
+    workspaceMenuOpen,
+    setWorkspaceMenuOpen,
+
+    // Workspace creation form.
+    createWorkspaceOpen,
+    setCreateWorkspaceOpen,
+    newWorkspaceName,
+    setNewWorkspaceName,
+    openCreateWorkspace,
+    closeCreateWorkspace,
+
+    // Workspace creation action.
+    creatingWorkspace,
+    createWorkspaceError,
+    setCreateWorkspaceError,
+    handleCreateWorkspace,
+  };
+}
+
+===== Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\hooks\useCreateWorkspaceForm.ts =====
+import { useState } from "react";
+
+export function useCreateWorkspaceForm() {
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState("");
+
+  function openCreateWorkspace() {
+    setNewWorkspaceName("");
+    setCreateWorkspaceOpen(true);
+  }
+
+  function closeCreateWorkspace() {
+    setCreateWorkspaceOpen(false);
+  }
+
+  return {
+    createWorkspaceOpen,
+    setCreateWorkspaceOpen,
+    newWorkspaceName,
+    setNewWorkspaceName,
+    openCreateWorkspace,
+    closeCreateWorkspace,
+  };
+}
+
+===== Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\hooks\useWorkspaceActions.ts =====
+import { useState } from "react";
+import { createWorkspace, type Workspace } from "@/lib/workspaces";
+import { storeWorkspaceId } from "@/lib/workspaceSelection";
+
+type UseWorkspaceActionsOptions = {
+  addWorkspace: (workspace: Workspace) => void;
+  setSelectedWorkspaceId: (workspaceId: string) => void;
+  setNewWorkspaceName: (name: string) => void;
+  setCreateWorkspaceOpen: (open: boolean) => void;
+  setNotice: (message: string) => void;
+};
+
+export function useWorkspaceActions({
+  addWorkspace,
+  setSelectedWorkspaceId,
+  setNewWorkspaceName,
+  setCreateWorkspaceOpen,
+  setNotice,
+}: UseWorkspaceActionsOptions) {
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+  const [createWorkspaceError, setCreateWorkspaceError] = useState("");
+
+  async function handleCreateWorkspace(newWorkspaceName: string) {
+    const name = newWorkspaceName.trim();
+
+    if (!name) {
+      setCreateWorkspaceError("Workspace name is required.");
+      return;
+    }
+
+    if (name.length > 100) {
+      setCreateWorkspaceError(
+        "Workspace name must be 100 characters or fewer.",
+      );
+      return;
+    }
+
+    setCreatingWorkspace(true);
+    setCreateWorkspaceError("");
+
+    try {
+      const workspace = await createWorkspace(name);
+
+      addWorkspace(workspace);
+      setSelectedWorkspaceId(workspace._id);
+      storeWorkspaceId(workspace._id);
+      setNewWorkspaceName("");
+      setCreateWorkspaceOpen(false);
+      setNotice(`Workspace "${workspace.name}" created successfully.`);
+    } catch (error) {
+      setCreateWorkspaceError(
+        error instanceof Error ? error.message : "Unable to create workspace.",
+      );
+    } finally {
+      setCreatingWorkspace(false);
+    }
+  }
+
+  return {
+    creatingWorkspace,
+    createWorkspaceError,
+    setCreateWorkspaceError,
+    handleCreateWorkspace,
+  };
+}
+
+===== Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\hooks\useWorkspaceMenu.ts =====
+import { useState } from "react";
+
+export function useWorkspaceMenu() {
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+
+  function openWorkspaceMenu() {
+    setWorkspaceMenuOpen(true);
+  }
+
+  function closeWorkspaceMenu() {
+    setWorkspaceMenuOpen(false);
+  }
+
+  function toggleWorkspaceMenu() {
+    setWorkspaceMenuOpen((current) => !current);
+  }
+
+  return {
+    workspaceMenuOpen,
+    setWorkspaceMenuOpen,
+    openWorkspaceMenu,
+    closeWorkspaceMenu,
+    toggleWorkspaceMenu,
+  };
+}
+
+===== Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\hooks\useWorkspaces.ts =====
+import { useEffect, useState } from "react";
+import { getWorkspaces, type Workspace } from "@/lib/workspaces";
+import {
+  clearStoredWorkspaceId,
+  readStoredWorkspaceId,
+  storeWorkspaceId,
+} from "@/lib/workspaceSelection";
+
+export function useWorkspaces() {
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
+  const [workspacesLoading, setWorkspacesLoading] = useState(true);
+  const [workspaceError, setWorkspaceError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadWorkspaces() {
+      setWorkspacesLoading(true);
+      setWorkspaceError("");
+
+      try {
+        const result = await getWorkspaces();
+
+        if (!active) return;
+
+        setWorkspaces(result);
+
+        const storedId = readStoredWorkspaceId();
+
+        const validStoredWorkspace = storedId
+          ? result.find((workspace) => workspace._id === storedId)
+          : undefined;
+
+        const nextWorkspaceId =
+          validStoredWorkspace?._id ?? result[0]?._id ?? "";
+
+        setSelectedWorkspaceId(nextWorkspaceId);
+
+        if (nextWorkspaceId) {
+          storeWorkspaceId(nextWorkspaceId);
+        } else {
+          clearStoredWorkspaceId();
+        }
+      } catch (error) {
+        if (!active) return;
+
+        setWorkspaceError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load your workspaces.",
+        );
+      } finally {
+        if (active) {
+          setWorkspacesLoading(false);
+        }
+      }
+    }
+
+    void loadWorkspaces();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  function addWorkspace(workspace: Workspace) {
+    setWorkspaces((current) => [workspace, ...current]);
+  }
+
+  return {
+    workspaces,
+    selectedWorkspaceId,
+    setSelectedWorkspaceId,
+    workspacesLoading,
+    workspaceError,
+    addWorkspace,
+  };
+}
+
+===== Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\lib\facebookOAuthWorkspace.test.ts =====
+import { beforeEach, describe, expect, it } from "vitest";
+
+import {
+  storeFacebookOAuthWorkspaceId,
+  readFacebookOAuthWorkspaceId,
+  clearFacebookOAuthWorkspaceId,
+} from "./facebookOAuthWorkspace";
+
+const WORKSPACE_A = "507f1f77bcf86cd799439011";
+const WORKSPACE_B = "507f1f77bcf86cd799439012";
+
+describe("facebookOAuthWorkspace", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
+
+  it("stores the initiating Facebook OAuth workspace", () => {
+    storeFacebookOAuthWorkspaceId(WORKSPACE_A);
+
+    expect(sessionStorage.getItem("storm:facebook-oauth-workspace")).toBe(
+      WORKSPACE_A,
+    );
+  });
+
+  it("retrieves the original OAuth workspace", () => {
+    storeFacebookOAuthWorkspaceId(WORKSPACE_A);
+
+    const workspaceId = readFacebookOAuthWorkspaceId();
+
+    expect(workspaceId).toBe(WORKSPACE_A);
+  });
+
+  it("clears the temporary OAuth workspace", () => {
+    storeFacebookOAuthWorkspaceId(WORKSPACE_A);
+
+    clearFacebookOAuthWorkspaceId();
+
+    expect(readFacebookOAuthWorkspaceId()).toBeNull();
+
+    expect(sessionStorage.getItem("storm:facebook-oauth-workspace")).toBeNull();
+  });
+
+  it("replaces the previous workspace when a new OAuth flow starts", () => {
+    storeFacebookOAuthWorkspaceId(WORKSPACE_A);
+
+    expect(readFacebookOAuthWorkspaceId()).toBe(WORKSPACE_A);
+
+    storeFacebookOAuthWorkspaceId(WORKSPACE_B);
+
+    expect(readFacebookOAuthWorkspaceId()).toBe(WORKSPACE_B);
+  });
+
+  it("rejects empty workspace IDs without replacing a valid workspace", () => {
+    storeFacebookOAuthWorkspaceId(WORKSPACE_A);
+
+    expect(() => {
+      storeFacebookOAuthWorkspaceId("");
+    }).toThrow("A workspace ID is required.");
+
+    expect(() => {
+      storeFacebookOAuthWorkspaceId("   ");
+    }).toThrow("A workspace ID is required.");
+
+    expect(readFacebookOAuthWorkspaceId()).toBe(WORKSPACE_A);
+  });
+});
+
+===== Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\lib\facebookOAuthWorkspace.ts =====
+const FACEBOOK_OAUTH_WORKSPACE_KEY = "storm:facebook-oauth-workspace";
+
+/**
+ * Remember which workspace initiated Facebook OAuth.
+ *
+ * This value is temporary and scoped to the browser tab.
+ */
+export function storeFacebookOAuthWorkspaceId(workspaceId: string): void {
+  if (!workspaceId.trim()) {
+    throw new Error("A workspace ID is required.");
+  }
+
+  try {
+    sessionStorage.setItem(FACEBOOK_OAUTH_WORKSPACE_KEY, workspaceId);
+  } catch {
+    throw new Error(
+      "Unable to save the Facebook OAuth workspace. Please enable browser session storage and try again.",
+    );
+  }
+}
+
+/**
+ * Retrieve the workspace that initiated Facebook OAuth.
+ */
+export function readFacebookOAuthWorkspaceId(): string | null {
+  try {
+    return sessionStorage.getItem(FACEBOOK_OAUTH_WORKSPACE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Remove the temporary workspace reference.
+ *
+ * Call this after successful connection or when
+ * the OAuth flow is explicitly cancelled.
+ */
+export function clearFacebookOAuthWorkspaceId(): void {
+  try {
+    sessionStorage.removeItem(FACEBOOK_OAUTH_WORKSPACE_KEY);
+  } catch {
+    // Ignore storage failures during cleanup.
+  }
+}
+
+===== Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\lib\workspaces.ts =====
+import { apiFetch } from "@/lib/api";
+
+export type Workspace = {
+  _id: string;
+  name: string;
+  ownerUserId: string;
+  settings: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type WorkspaceListResponse = {
+  workspaces: Workspace[];
+};
+
+type WorkspaceCreateResponse = {
+  workspace: Workspace;
+};
+
+export async function getWorkspaces(): Promise<Workspace[]> {
+  const response = await apiFetch<WorkspaceListResponse>("/api/workspaces");
+
+  return response.workspaces;
+}
+
+export async function createWorkspace(name: string): Promise<Workspace> {
+  const response = await apiFetch<WorkspaceCreateResponse>("/api/workspaces", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+
+  return response.workspace;
+}
+
+===== Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\lib\workspaceSelection.ts =====
+const STORAGE_KEY = "storm";
+
+export function readStoredWorkspaceId(): string | null {
+  try {
+    return localStorage.getItem(STORAGE_KEY);
+  } catch {
+    // Storage may be unavailable in restricted browser contexts.
+    return null;
+  }
+}
+
+export function storeWorkspaceId(workspaceId: string): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, workspaceId);
+  } catch {
+    // The app should still work if browser storage is unavailable.
+  }
+}
+
+export function clearStoredWorkspaceId(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Ignore storage failures; selection can still work in memory.
+  }
+}
