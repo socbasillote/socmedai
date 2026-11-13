@@ -19,6 +19,10 @@ import {
 
 import { ImageHistoryGallery } from "./ImageHistoryGallery";
 import { BrandingPlacementPreview } from "./BrandingPlacementPreview";
+import { WorkspaceLogoUploader } from "./WorkspaceLogoUploader";
+
+import { useWorkspaceLogoAvailability } from "../hooks/useWorkspaceLogoAvailability";
+import { snapshotImageGenerationCommand } from "@/lib/imageGenerationCommandSnapshot";
 
 type ImageStudioProps = {
   selectedWorkspaceId: string | null;
@@ -66,6 +70,14 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
   const [brandingSize, setBrandingSize] = useState(20);
 
   const [brandingOpacity, setBrandingOpacity] = useState(80);
+
+  const {
+    status: logoAvailabilityStatus,
+    logoAvailable,
+    refresh: refreshLogoAvailability,
+  } = useWorkspaceLogoAvailability(selectedWorkspaceId);
+
+  const logoSelectionBlocked = brandingMode === "logo" && !logoAvailable;
 
   const [credits, setCredits] = useState<ImageGenerationCredits | null>(null);
 
@@ -242,6 +254,10 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
       return { type: "none" };
     }
 
+    if (brandingMode === "logo" && !logoAvailable) {
+      throw new Error("An enabled workspace logo is required.");
+    }
+
     const appearance = {
       position: brandingPosition,
       sizePercent: brandingSize,
@@ -270,14 +286,15 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
     try {
       const normalizedPrompt = validateImagePrompt(prompt);
 
-      const command: GenerateImageCommand = {
+      const command: GenerateImageCommand = snapshotImageGenerationCommand({
         idempotencyKey: createImageRequestKey(),
+
         image: {
           prompt: normalizedPrompt,
           aspectRatio,
           branding: buildSelectedBranding(),
         },
-      };
+      });
 
       // From this point, the command is immutable
       // for all retries of this logical request.
@@ -336,7 +353,8 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
     (brandingMode === "text" &&
       (brandingText.trim().length === 0 ||
         brandingText.length > 80 ||
-        /[\u0000-\u001f\u007f]/u.test(brandingText)));
+        /[\u0000-\u001f\u007f]/u.test(brandingText))) ||
+    logoSelectionBlocked;
 
   return (
     <main className="mx-auto w-full max-w-6xl space-y-6 px-4 py-6 sm:px-6">
@@ -477,6 +495,18 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
               Branding is applied only to this generated image.
             </p>
 
+            <WorkspaceLogoUploader
+              key={selectedWorkspaceId ?? "no-workspace"}
+              workspaceId={selectedWorkspaceId}
+              disabled={
+                submitting ||
+                pendingRetry !== null ||
+                details?.state === "processing" ||
+                details?.state === "action_required"
+              }
+              onReady={refreshLogoAvailability}
+            />
+
             <div className="grid gap-2 sm:grid-cols-3">
               {(
                 [
@@ -486,14 +516,16 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                 ] as const
               ).map((item) => {
                 const selected = brandingMode === item.value;
-
+                const disabled = item.value === "logo" && !logoAvailable;
                 return (
                   <label
                     key={item.value}
-                    className={`cursor-pointer rounded-xl border p-3 text-center ${
-                      selected
-                        ? "border-violet-500 bg-violet-50"
-                        : "border-slate-200"
+                    className={`rounded-xl border p-3 text-center ${
+                      disabled
+                        ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
+                        : selected
+                          ? "cursor-pointer border-violet-500 bg-violet-50"
+                          : "cursor-pointer border-slate-200"
                     }`}
                   >
                     <input
@@ -503,7 +535,34 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                       checked={selected}
                       onChange={() => setBrandingMode(item.value)}
                       className="sr-only"
+                      disabled={disabled}
                     />
+
+                    {item.value === "logo" ? (
+                      <div>
+                        {logoAvailabilityStatus === "loading" && (
+                          <p className="text-xs text-slate-500">
+                            Checking workspace logo availability...
+                          </p>
+                        )}
+
+                        {logoAvailabilityStatus === "unavailable" && (
+                          <p className="text-xs text-amber-700">
+                            No enabled workspace logo is available. Upload a
+                            logo above to enable logo branding.
+                          </p>
+                        )}
+
+                        {logoAvailabilityStatus === "error" && (
+                          <p role="alert" className="text-xs text-rose-600">
+                            Workspace logo availability could not be verified.
+                            Logo generation is temporarily unavailable.
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p></p>
+                    )}
 
                     <span className="text-sm font-medium">{item.label}</span>
                   </label>

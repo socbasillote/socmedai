@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "start:image-worker": "node dist/workers/imageGenerationWorkerMain.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

@@ -147,7 +147,7 @@ export async function applyTextLabelOverlay(
           y="${y}"
           text-anchor="middle"
           dominant-baseline="middle"
-          font-family="DejaVu Sans, Arial, sans-serif"
+          font-family="sans-serif"
           font-weight="700"
           font-size="${fontSize}"
           fill="#ffffff"

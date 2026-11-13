@@ -9,14 +9,21 @@ const base = {
 };
 
 describe("Text-label layout planning", () => {
-  it("keeps short labels readable", () => {
+  it("keeps short labels readable without losing characters", () => {
     const result = planTextLabelLayout({
       ...base,
       text: "BREW CO.",
     });
 
     expect(result.fontSize).toBeGreaterThanOrEqual(12);
-    expect(result.lines).toEqual(["BREW CO."]);
+
+    expect(result.lines.length).toBeGreaterThanOrEqual(1);
+    expect(result.lines.length).toBeLessThanOrEqual(5);
+
+    expect(result.lines.join("")).toBe("BREW CO.");
+
+    expect(result.overlayWidth).toBeGreaterThan(0);
+    expect(result.overlayHeight).toBeGreaterThan(0);
   });
 
   it("wraps longer labels into multiple lines", () => {
@@ -67,5 +74,22 @@ describe("Text-label layout planning", () => {
         sizePercent: 50,
       }),
     ).toThrow();
+  });
+
+  it("wraps wide uppercase glyphs conservatively", () => {
+    const result = planTextLabelLayout({
+      imageWidth: 512,
+      imageHeight: 512,
+      sizePercent: 20,
+      text: "WWWWWWWWWW",
+    });
+
+    expect(result.lines.length).toBeGreaterThan(1);
+
+    expect(result.lines.join("")).toBe("WWWWWWWWWW");
+
+    expect(result.lines.every((line) => line.length <= 6)).toBe(true);
+
+    expect(result.fontSize).toBeGreaterThanOrEqual(12);
   });
 });

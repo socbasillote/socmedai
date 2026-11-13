@@ -49,6 +49,10 @@ import { getImageStorageKey } from "./media/supabaseImageStorage.js";
 
 import { validateGeneratedImage } from "./media/imageValidation.js";
 
+import { getImageGenerationStatus } from "./imageGenerationApiQueryService.js";
+
+import { listWorkspaceImageHistory } from "./imageGenerationHistoryService.js";
+
 let mongo: MongoMemoryReplSet;
 let workspaceId: string;
 let profileId: mongoose.Types.ObjectId;
@@ -937,6 +941,58 @@ describe("Background image generation worker", () => {
     });
 
     expect(second).toEqual([{ outcome: "idle" }]);
+
+    expect(provider.generate).toHaveBeenCalledOnce();
+    expect(storage.upload).toHaveBeenCalledOnce();
+
+    // 10. Verify authenticated image status retrieval.
+    const status = await getImageGenerationStatus(
+      authUser,
+      workspaceId,
+      queued.assetId,
+    );
+
+    expect(status).toMatchObject({
+      assetId: queued.assetId,
+      status: "ready",
+      state: "ready",
+      image: {
+        mimeType: "image/png",
+      },
+    });
+
+    expect(status.image?.width).toBe(metadata.width);
+    expect(status.image?.height).toBe(metadata.height);
+
+    // 11. Verify authenticated image history.
+    const history = await listWorkspaceImageHistory({
+      authUser,
+      workspaceId,
+    });
+
+    expect(history.images).toHaveLength(1);
+
+    expect(history.images[0]).toMatchObject({
+      assetId: queued.assetId,
+      status: "ready",
+      state: "ready",
+      aspectRatio: "square",
+      image: {
+        mimeType: "image/png",
+      },
+    });
+
+    expect(history.hasMore).toBe(false);
+
+    // History is read-only. It must not charge credits,
+    // create another asset or invoke the provider.
+    expect(await balance()).toBe(4);
+
+    expect(
+      await MediaAsset.countDocuments({
+        workspaceId,
+      }),
+    ).toBe(1);
 
     expect(provider.generate).toHaveBeenCalledOnce();
     expect(storage.upload).toHaveBeenCalledOnce();

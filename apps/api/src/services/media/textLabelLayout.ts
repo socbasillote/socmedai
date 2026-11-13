@@ -22,7 +22,7 @@ const LINE_HEIGHT_MULTIPLIER = 1.5;
  * The final Sharp renderer will need actual
  * font-metric verification before release.
  */
-const CHAR_WIDTH_FACTOR = 0.75;
+const CHAR_WIDTH_FACTOR = 1.2;
 
 export function planTextLabelLayout(
   input: TextLabelLayoutInput,

@@ -1,86 +1,82 @@
-import mongoose from "mongoose";
-import sharp from "sharp";
-
 import { describe, expect, it, vi } from "vitest";
+import sharp from "sharp";
 
 import {
   getImageStorageKey,
   uploadGeneratedImage,
-  removeStoredImage,
+  ImageStorageError,
   type ImageStorageBucket,
 } from "./supabaseImageStorage.js";
 
-const workspaceId = new mongoose.Types.ObjectId().toString();
+import { validateGeneratedImage } from "./imageValidation.js";
 
-const assetId = new mongoose.Types.ObjectId().toString();
+const WORKSPACE_ID = "507f1f77bcf86cd799439011";
+const ASSET_ID = "507f1f77bcf86cd799439022";
 
-async function samplePng() {
+const STORAGE_KEY = getImageStorageKey(WORKSPACE_ID, ASSET_ID);
+
+async function makeImage(): Promise<Buffer> {
   return sharp({
     create: {
-      width: 120,
-      height: 80,
-      channels: 3,
-      background: "#9333ea",
+      width: 128,
+      height: 128,
+      channels: 4,
+      background: {
+        r: 25,
+        g: 80,
+        b: 160,
+        alpha: 1,
+      },
     },
   })
     .png()
     .toBuffer();
 }
 
-function fakeBucket() {
-  const objects = new Map<string, Uint8Array>();
+function makeBucket() {
+  const objects = new Map<string, Buffer>();
 
-  const upload = vi.fn(
-    async (
-      path: string,
-      body: ArrayBuffer,
-      _options: {
-        contentType: "image/png";
-        cacheControl: string;
-        upsert: false;
-      },
-    ) => {
-      if (objects.has(path)) {
+  const upload = vi.fn<ImageStorageBucket["upload"]>(
+    async (path, body, options) => {
+      if (objects.has(path) && !options.upsert) {
         return {
-          error: { message: "Object already exists" },
+          error: {
+            message: "Object already exists.",
+          },
         };
       }
 
-      objects.set(path, new Uint8Array(body));
+      objects.set(path, Buffer.from(body));
 
       return { error: null };
     },
   );
 
-  const download = vi.fn(async (path: string) => {
-    const object = objects.get(path);
+  const download = vi.fn<ImageStorageBucket["download"]>(async (path) => {
+    const bytes = objects.get(path);
 
-    if (!object) {
+    if (!bytes) {
       return {
         data: null,
-        error: { message: "Object not found" },
+        error: {
+          message: "Object not found.",
+        },
       };
     }
 
     return {
-      data: new Blob([Uint8Array.from(object).buffer as ArrayBuffer]),
+      data: new Blob([Uint8Array.from(bytes)]),
       error: null,
     };
   });
 
-  const remove = vi.fn(
-    async (
-      paths: string[],
-    ): Promise<{
-      error: { message: string } | null;
-    }> => {
-      for (const path of paths) {
-        objects.delete(path);
-      }
+  const remove = vi.fn<ImageStorageBucket["remove"]>(async (paths) => {
+    for (const path of paths) {
+      objects.delete(path);
+    }
 
-      return { error: null };
-    },
-  );
+    return { error: null };
+  });
 
   const bucket: ImageStorageBucket = {
     upload,
@@ -97,40 +93,32 @@ function fakeBucket() {
   };
 }
 
-function request(bytes: Uint8Array) {
-  return { workspaceId, assetId, bytes };
-}
-
-describe("supabaseImageStorage", () => {
-  it("creates a workspace-scoped object key", () => {
-    expect(getImageStorageKey(workspaceId, assetId)).toBe(
-      `workspaces/${workspaceId}/images/${assetId}.png`,
-    );
-  });
-
-  it("rejects invalid storage identifiers", () => {
-    expect(() => getImageStorageKey("../another-workspace", assetId)).toThrow();
-  });
-
-  it("uploads and verifies an image", async () => {
-    const storage = fakeBucket();
+describe("Private image storage integrity", () => {
+  it("uploads, reads back, and verifies a PNG", async () => {
+    const bytes = await makeImage();
+    const expected = await validateGeneratedImage(bytes);
+    const storage = makeBucket();
 
     const result = await uploadGeneratedImage(
-      request(await samplePng()),
+      {
+        workspaceId: WORKSPACE_ID,
+        assetId: ASSET_ID,
+        bytes,
+      },
       storage.bucket,
     );
 
-    expect(result.width).toBe(120);
-    expect(result.height).toBe(80);
-    expect(result.mimeType).toBe("image/png");
-    expect(result.sha256).toMatch(/^[a-f0-9]{64}$/);
-
-    expect(storage.objects.has(result.storageKey)).toBe(true);
-
-    expect(storage.download).toHaveBeenCalledOnce();
+    expect(result).toEqual({
+      storageKey: STORAGE_KEY,
+      mimeType: "image/png",
+      width: 128,
+      height: 128,
+      fileSize: expected.fileSize,
+      sha256: expected.sha256,
+    });
 
     expect(storage.upload).toHaveBeenCalledWith(
-      result.storageKey,
+      STORAGE_KEY,
       expect.any(ArrayBuffer),
       {
         contentType: "image/png",
@@ -138,78 +126,125 @@ describe("supabaseImageStorage", () => {
         upsert: false,
       },
     );
-  });
 
-  it("rejects duplicate uploads without deleting the original", async () => {
-    const storage = fakeBucket();
-    const bytes = await samplePng();
+    expect(storage.download).toHaveBeenCalledWith(STORAGE_KEY);
 
-    await uploadGeneratedImage(request(bytes), storage.bucket);
+    expect(storage.objects.get(STORAGE_KEY)).toEqual(expected.bytes);
 
-    await expect(
-      uploadGeneratedImage(request(bytes), storage.bucket),
-    ).rejects.toThrow();
-
-    expect(storage.objects.size).toBe(1);
     expect(storage.remove).not.toHaveBeenCalled();
   });
 
-  it("cleans up an image when verification fails", async () => {
-    const storage = fakeBucket();
+  it("rejects corrupted stored bytes and cleans up", async () => {
+    const bytes = await makeImage();
+    const storage = makeBucket();
 
     storage.download.mockImplementationOnce(async () => ({
-      data: new Blob([
-        Uint8Array.from(Buffer.from("corrupted")).buffer as ArrayBuffer,
-      ]),
+      data: new Blob([Uint8Array.from([1, 2, 3, 4])]),
       error: null,
     }));
 
     await expect(
-      uploadGeneratedImage(request(await samplePng()), storage.bucket),
-    ).rejects.toThrow();
+      uploadGeneratedImage(
+        {
+          workspaceId: WORKSPACE_ID,
+          assetId: ASSET_ID,
+          bytes,
+        },
+        storage.bucket,
+      ),
+    ).rejects.toBeInstanceOf(ImageStorageError);
 
-    expect(storage.remove).toHaveBeenCalledOnce();
-    expect(storage.objects.size).toBe(0);
+    expect(storage.remove).toHaveBeenCalledWith([STORAGE_KEY]);
+
+    expect(storage.objects.has(STORAGE_KEY)).toBe(false);
   });
 
-  it("reports cleanup uncertainty", async () => {
-    const storage = fakeBucket();
+  it("does not remove an object after upload rejection", async () => {
+    const bytes = await makeImage();
+    const storage = makeBucket();
 
-    storage.download.mockImplementationOnce(async () => ({
-      data: null,
-      error: { message: "Read failed" },
-    }));
+    const existing = Buffer.from("existing-object");
 
-    storage.remove.mockImplementationOnce(async () => ({
-      error: { message: "Cleanup unavailable" },
-    }));
+    storage.objects.set(STORAGE_KEY, existing);
 
     await expect(
-      uploadGeneratedImage(request(await samplePng()), storage.bucket),
-    ).rejects.toThrow("cleanup could not be confirmed");
+      uploadGeneratedImage(
+        {
+          workspaceId: WORKSPACE_ID,
+          assetId: ASSET_ID,
+          bytes,
+        },
+        storage.bucket,
+      ),
+    ).rejects.toBeInstanceOf(ImageStorageError);
+
+    expect(storage.download).not.toHaveBeenCalled();
+    expect(storage.remove).not.toHaveBeenCalled();
+
+    expect(storage.objects.get(STORAGE_KEY)).toEqual(existing);
   });
 
-  it("removes only the specified storage key", async () => {
-    const storage = fakeBucket();
-    const firstBytes = await samplePng();
+  it("fails when read-back verification is unavailable", async () => {
+    const bytes = await makeImage();
+    const storage = makeBucket();
 
-    await uploadGeneratedImage(request(firstBytes), storage.bucket);
+    storage.download.mockResolvedValueOnce({
+      data: null,
+      error: {
+        message: "Temporary storage failure.",
+      },
+    });
 
-    const secondId = new mongoose.Types.ObjectId().toString();
+    await expect(
+      uploadGeneratedImage(
+        {
+          workspaceId: WORKSPACE_ID,
+          assetId: ASSET_ID,
+          bytes,
+        },
+        storage.bucket,
+      ),
+    ).rejects.toBeInstanceOf(ImageStorageError);
 
-    await uploadGeneratedImage(
-      { workspaceId, assetId: secondId, bytes: firstBytes },
-      storage.bucket,
+    expect(storage.remove).toHaveBeenCalledWith([STORAGE_KEY]);
+  });
+
+  it("reports when cleanup cannot be confirmed", async () => {
+    const bytes = await makeImage();
+    const storage = makeBucket();
+
+    storage.download.mockResolvedValueOnce({
+      data: null,
+      error: {
+        message: "Read-back failed.",
+      },
+    });
+
+    storage.remove.mockResolvedValueOnce({
+      error: {
+        message: "Cleanup failed.",
+      },
+    });
+
+    await expect(
+      uploadGeneratedImage(
+        {
+          workspaceId: WORKSPACE_ID,
+          assetId: ASSET_ID,
+          bytes,
+        },
+        storage.bucket,
+      ),
+    ).rejects.toThrow(
+      "Image verification failed and cleanup could not be confirmed.",
     );
 
-    await removeStoredImage(workspaceId, assetId, storage.bucket);
+    expect(storage.objects.has(STORAGE_KEY)).toBe(true);
+  });
 
-    expect(storage.objects.has(getImageStorageKey(workspaceId, assetId))).toBe(
-      false,
-    );
-
-    expect(storage.objects.has(getImageStorageKey(workspaceId, secondId))).toBe(
-      true,
+  it("rejects invalid storage identifiers", () => {
+    expect(() => getImageStorageKey("../another-workspace", ASSET_ID)).toThrow(
+      ImageStorageError,
     );
   });
 });

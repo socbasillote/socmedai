@@ -35,7 +35,7 @@ export class WorkerProviderNotAllowedError extends Error {
  * We will review changing it only after
  * admission, billing and recovery pass.
  */
-export const LIVE_PAID_WORKER_ARMED = true;
+export const LIVE_PAID_WORKER_ARMED = false;
 
 export function selectWorkerImageProvider(
   persisted: PersistedImageProvider,
