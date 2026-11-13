@@ -1,6 +1,12 @@
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
-import { enableWorkspaceLogo, uploadWorkspaceLogo } from "@/lib/workspaceLogo";
+import {
+  enableWorkspaceLogo,
+  getWorkspaceLogo,
+  getWorkspaceLogoPreview,
+  uploadWorkspaceLogo,
+  type WorkspaceLogoSettings,
+} from "@/lib/workspaceLogo";
 
 type Props = {
   workspaceId: string | null;
@@ -19,20 +25,135 @@ export function WorkspaceLogoUploader({
   disabled = false,
   onReady,
 }: Props) {
+  const [settings, setSettings] = useState<WorkspaceLogoSettings | null>(null);
+
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+
   const [error, setError] = useState("");
+  const [previewError, setPreviewError] = useState("");
   const [success, setSuccess] = useState("");
+
   const [needsEnable, setNeedsEnable] = useState(false);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+
+  const hasLogo = Boolean(settings?.logo);
+  const isEnabled = Boolean(settings?.enabled && settings.logo);
+
+  const previewRequestRef = useRef(0);
+
+  // Load the persisted logo when Image Studio opens.
+  // Invalidate responses after a workspace change
+  // or a newer refresh request.
+  useEffect(() => {
+    const previewRequestId = ++previewRequestRef.current;
+    if (!workspaceId) {
+      setSettings(null);
+      setPreviewUrl(null);
+      setLoading(false);
+      return;
+    }
+
+    let active = true;
+
+    setLoading(true);
+    setPreviewError("");
+    setPreviewUrl(null);
+
+    async function loadLogo() {
+      if (!workspaceId) return;
+
+      try {
+        const current = await getWorkspaceLogo(workspaceId);
+
+        if (!active) return;
+
+        setSettings(current);
+
+        if (!current.logo) {
+          setPreviewUrl(null);
+          return;
+        }
+
+        try {
+          const preview = await getWorkspaceLogoPreview(workspaceId);
+
+          if (!active || previewRequestId !== previewRequestRef.current) {
+            return;
+          }
+
+          setPreviewUrl(preview.url);
+        } catch {
+          if (!active || previewRequestId !== previewRequestRef.current) {
+            return;
+          }
+
+          setPreviewError("Logo preview is unavailable. Try refreshing it.");
+        }
+      } catch {
+        if (!active) return;
+
+        setSettings(null);
+        setPreviewError("Unable to load the saved workspace logo.");
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadLogo();
+
+    return () => {
+      active = false;
+      previewRequestRef.current += 1;
+    };
+  }, [workspaceId, refreshVersion]);
+
+  function refreshSavedLogo() {
+    setRefreshVersion((version) => version + 1);
+  }
+
+  async function refreshPreview() {
+    if (!workspaceId || !hasLogo) return;
+
+    const requestId = ++previewRequestRef.current;
+
+    setPreviewError("");
+
+    try {
+      const result = await getWorkspaceLogoPreview(workspaceId);
+
+      // Only the newest preview request may
+      // update the displayed image.
+      if (requestId !== previewRequestRef.current) {
+        return;
+      }
+
+      setPreviewUrl(result.url);
+    } catch {
+      if (requestId !== previewRequestRef.current) {
+        return;
+      }
+
+      setPreviewUrl(null);
+      setPreviewError("Unable to refresh the private logo preview.");
+    }
+  }
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
 
-    // Allow selecting the same filename again.
+    // Allow the same file to be selected again.
     event.currentTarget.value = "";
 
     if (!file || !workspaceId || busy || disabled) {
       return;
     }
+
+    previewRequestRef.current += 1;
 
     setBusy(true);
     setError("");
@@ -42,30 +163,39 @@ export function WorkspaceLogoUploader({
     let uploadConfirmed = false;
 
     try {
-      await uploadWorkspaceLogo(workspaceId, file);
+      const uploaded = await uploadWorkspaceLogo(workspaceId, file);
 
       uploadConfirmed = true;
-      setNeedsEnable(true);
+      setSettings(uploaded);
+      setNeedsEnable(!uploaded.enabled);
 
-      await enableWorkspaceLogo(workspaceId);
+      const enabled = uploaded.enabled
+        ? uploaded
+        : await enableWorkspaceLogo(workspaceId);
 
+      setSettings(enabled);
       setNeedsEnable(false);
-      setSuccess("Workspace logo uploaded and enabled.");
+
+      setSuccess("Workspace logo saved and enabled.");
+
+      refreshSavedLogo();
       onReady();
     } catch (cause) {
       if (uploadConfirmed) {
         setError(
           "Logo uploaded, but enabling it failed. " +
-            "Use Retry enable instead of uploading again. " +
+            "Use Retry enable. " +
             errorMessage(cause),
         );
       } else {
         setError(
           "Logo upload could not be confirmed. " +
-            "Check the workspace logo before retrying. " +
+            "Check the workspace logo before uploading again. " +
             errorMessage(cause),
         );
       }
+
+      refreshSavedLogo();
     } finally {
       setBusy(false);
     }
@@ -78,9 +208,13 @@ export function WorkspaceLogoUploader({
     setError("");
 
     try {
-      await enableWorkspaceLogo(workspaceId);
+      const enabled = await enableWorkspaceLogo(workspaceId);
+
+      setSettings(enabled);
       setNeedsEnable(false);
       setSuccess("Workspace logo enabled.");
+
+      refreshSavedLogo();
       onReady();
     } catch (cause) {
       setError(errorMessage(cause));
@@ -90,36 +224,105 @@ export function WorkspaceLogoUploader({
   }
 
   return (
-    <div className="space-y-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
-      <div>
-        <p className="text-sm font-semibold text-slate-800">Workspace logo</p>
+    <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-slate-900">Workspace logo</h3>
 
-        <p className="mt-1 text-xs text-slate-600">
-          Upload or replace the logo used for image branding. PNG, JPEG, or
-          WebP. Maximum 5 MB.
-        </p>
-
-        <p className="mt-1 text-xs text-slate-500">
-          Transparent PNG is recommended.
-        </p>
+        <span
+          className={`rounded-full px-2 py-1 text-xs font-medium ${
+            isEnabled
+              ? "bg-green-100 text-green-800"
+              : "bg-slate-200 text-slate-700"
+          }`}
+        >
+          {loading
+            ? "Checking..."
+            : isEnabled
+              ? "Enabled"
+              : hasLogo
+                ? "Not enabled"
+                : "No logo"}
+        </span>
       </div>
 
-      <label
-        htmlFor="image-studio-logo-upload"
-        className="block text-sm font-medium text-slate-700"
-      >
-        Choose logo file
-      </label>
+      {loading ? (
+        <p role="status" className="text-sm text-slate-600">
+          Loading workspace logo...
+        </p>
+      ) : hasLogo ? (
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white p-2">
+            {previewUrl ? (
+              <img
+                src={previewUrl}
+                alt="Current workspace logo"
+                referrerPolicy="no-referrer"
+                className="max-h-full max-w-full object-contain"
+                onError={() => {
+                  setPreviewUrl(null);
+                  setPreviewError("Logo link expired or could not be loaded.");
+                }}
+              />
+            ) : (
+              <span className="text-center text-xs text-slate-500">
+                Preview unavailable
+              </span>
+            )}
+          </div>
 
-      <input
-        id="image-studio-logo-upload"
-        aria-label="Upload workspace logo"
-        type="file"
-        accept="image/png,image/jpeg,image/webp"
-        disabled={!workspaceId || busy || disabled}
-        onChange={(event) => void handleFileChange(event)}
-        className="block w-full text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-100 file:px-4 file:py-2 file:font-medium file:text-violet-800 disabled:opacity-50"
-      />
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-slate-800">
+              Saved workspace logo
+            </p>
+
+            <p className="text-xs text-slate-600">Stored privately as PNG.</p>
+
+            <button
+              type="button"
+              onClick={() => void refreshPreview()}
+              disabled={busy || disabled}
+              className="text-xs font-medium text-violet-700 underline disabled:opacity-50"
+            >
+              Refresh preview
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-sm text-slate-600">
+          Upload a logo to personalize generated images.
+        </p>
+      )}
+
+      {previewError && (
+        <p role="alert" className="text-xs text-amber-800">
+          {previewError}
+        </p>
+      )}
+
+      <div className="space-y-2">
+        <label
+          htmlFor="image-studio-logo-upload"
+          className="block text-sm font-medium text-slate-700"
+        >
+          {hasLogo ? "Replace logo" : "Upload logo"}
+        </label>
+
+        <input
+          id="image-studio-logo-upload"
+          aria-label={
+            hasLogo ? "Replace workspace logo" : "Upload workspace logo"
+          }
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          disabled={!workspaceId || loading || busy || disabled}
+          onChange={(event) => void handleFileChange(event)}
+          className="block w-full text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-100 file:px-4 file:py-2 file:font-medium file:text-violet-800 disabled:opacity-50"
+        />
+
+        <p className="text-xs text-slate-500">
+          PNG, JPEG, or WebP. Maximum 5 MB. Transparent PNG recommended.
+        </p>
+      </div>
 
       {busy && (
         <p role="status" className="text-sm text-slate-600">

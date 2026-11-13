@@ -76,3 +76,20 @@ export async function enableWorkspaceLogo(
 
   return response.logoOverlay;
 }
+
+export type WorkspaceLogoPreview = {
+  url: string;
+  expiresIn: number;
+};
+
+export async function getWorkspaceLogoPreview(
+  workspaceId: string,
+): Promise<WorkspaceLogoPreview> {
+  return apiFetch<WorkspaceLogoPreview>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/logo/preview`,
+    {
+      method: "GET",
+      cache: "no-store",
+    },
+  );
+}

@@ -15,6 +15,8 @@ import { updateUserWorkspaceLogoSettings } from "../services/workspaceLogoServic
 
 import { updateWorkspaceLogoSchema } from "../schemas/workspaceLogoUpdateSchema.js";
 
+import { createWorkspaceLogoPreview } from "../services/workspaceLogoPreviewService.js";
+
 export const getWorkspaceLogo: RequestHandler = async (req, res, next) => {
   try {
     const workspaceId = req.params.workspaceId;
@@ -137,6 +139,43 @@ export const updateWorkspaceLogo: RequestHandler = async (req, res, next) => {
     res.status(200).json({
       logoOverlay,
     });
+  } catch (error) {
+    if (error instanceof WorkspaceLogoServiceError) {
+      res.status(error.statusCode).json({
+        error: error.message,
+      });
+      return;
+    }
+
+    next(error);
+  }
+};
+
+export const getWorkspaceLogoPreview: RequestHandler = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const workspaceId = req.params.workspaceId;
+
+    if (typeof workspaceId !== "string") {
+      res.status(404).json({
+        error: "Workspace not found.",
+      });
+      return;
+    }
+
+    const result = await createWorkspaceLogoPreview(
+      res.locals.authUser as AuthenticatedUser,
+      workspaceId,
+    );
+
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Referrer-Policy", "no-referrer");
+
+    res.status(200).json(result);
   } catch (error) {
     if (error instanceof WorkspaceLogoServiceError) {
       res.status(error.statusCode).json({

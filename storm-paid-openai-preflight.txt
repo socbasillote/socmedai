@@ -1,0 +1,2244 @@
+STORM PAID OPENAI PREFLIGHT
+
+===== apps/api/src/services/media/providers/openAIImageProvider.ts =====
+import { generateImageSchema } from "../../../schemas/aiImageSchema.js";
+
+import {
+  MAX_IMAGE_BYTES,
+  MAX_IMAGE_DIMENSION,
+  validateGeneratedImage,
+} from "../imageValidation.js";
+
+import {
+  ImageProviderError,
+  type ImageProvider,
+  type ImageProviderRequest,
+  type ImageProviderResult,
+} from "./imageProvider.js";
+
+const IMAGE_ENDPOINT = "https://api.openai.com/v1/images/generations";
+
+const REQUEST_TIMEOUT_MS = 120_000;
+const MAX_RESPONSE_BYTES = 30 * 1024 * 1024;
+
+const IMAGE_SIZES = {
+  square: "1024x1024",
+  portrait: "1024x1536",
+  landscape: "1536x1024",
+} as const;
+
+type OpenAIImageProviderOptions = {
+  apiKey: string;
+  model: string;
+
+  /**
+   * Required injection:
+   * Tests provide a mock function.
+   * The trusted production factory will
+   * eventually provide global fetch.
+   */
+  fetchImpl: typeof fetch;
+};
+
+function providerError(
+  message: string,
+  outcome: "rejected" | "uncertain",
+): ImageProviderError {
+  return new ImageProviderError(message, outcome);
+}
+
+/**
+ * Log only safe diagnostic metadata.
+ *
+ * Never log:
+ * - API keys
+ * - prompts
+ * - response bodies
+ * - generated images
+ * - authorization headers
+ */
+function logProviderFailure(
+  stage: string,
+  details: {
+    httpStatus?: number;
+    errorType?: string;
+  } = {},
+): void {
+  console.error("[OpenAI Image Provider]", {
+    stage,
+    ...details,
+  });
+}
+
+/**
+ * Read a bounded response body.
+ *
+ * Rejecting oversized responses prevents a
+ * malformed upstream response from consuming
+ * unlimited API-server memory.
+ */
+async function readBoundedResponse(response: Response): Promise<string> {
+  if (!response.body) {
+    return "";
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  let total = 0;
+  let output = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) break;
+
+      total += value.byteLength;
+
+      if (total > MAX_RESPONSE_BYTES) {
+        throw providerError(
+          "Image provider response exceeded the allowed size.",
+          "uncertain",
+        );
+      }
+
+      output += decoder.decode(value, {
+        stream: true,
+      });
+    }
+
+    output += decoder.decode();
+    return output;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function classifyHttpError(status: number): ImageProviderError {
+  return providerError(
+    `Image provider request was not completed successfully (HTTP ${status}).`,
+    "uncertain",
+  );
+}
+
+function isStrictBase64(value: string): boolean {
+  if (
+    !value ||
+    value.length % 4 !== 0 ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      value,
+    )
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+export class OpenAIImageProvider implements ImageProvider {
+  readonly provider = "openai";
+  readonly model: string;
+
+  private readonly apiKey: string;
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(options: OpenAIImageProviderOptions) {
+    const apiKey = options.apiKey.trim();
+    const model = options.model.trim();
+
+    if (!apiKey) {
+      throw new Error("OpenAI image provider credentials are unavailable.");
+    }
+
+    if (!model || model.length > 120 || !/^[A-Za-z0-9._-]+$/.test(model)) {
+      throw new Error("Invalid OpenAI image model configuration.");
+    }
+
+    if (
+      !/^gpt-image-(?:1-mini|1\.5|2(?:-[A-Za-z0-9.-]+)?|2\.5-(?:sunburst|flare)(?:-[A-Za-z0-9.-]+)?|2\.6-(?:sunburst|flare)(?:-[A-Za-z0-9.-]+)?)$/.test(
+        model,
+      )
+    ) {
+      throw new Error("Unsupported OpenAI image model configuration.");
+    }
+
+    if (typeof options.fetchImpl !== "function") {
+      throw new Error("An HTTP transport is required.");
+    }
+
+    this.apiKey = apiKey;
+    this.model = model;
+    this.fetchImpl = options.fetchImpl;
+  }
+
+  async generate(request: ImageProviderRequest): Promise<ImageProviderResult> {
+    const parsed = generateImageSchema.safeParse(request);
+
+    if (!parsed.success) {
+      throw providerError("Invalid image generation request.", "rejected");
+    }
+
+    const expectedSize = IMAGE_SIZES[parsed.data.aspectRatio];
+
+    let response: Response;
+
+    try {
+      response = await this.fetchImpl(IMAGE_ENDPOINT, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          model: this.model,
+          prompt: parsed.data.prompt,
+          size: expectedSize,
+          quality: "low",
+          n: 1,
+          output_format: "png",
+        }),
+        redirect: "error",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (error: unknown) {
+      const errorType = error instanceof Error ? error.name : "UnknownError";
+
+      logProviderFailure("transport", {
+        errorType,
+      });
+
+      throw providerError(
+        "Image provider request outcome is uncertain.",
+        "uncertain",
+      );
+    }
+
+    if (!response.ok) {
+      logProviderFailure("http_response", {
+        httpStatus: response.status,
+      });
+
+      await response.body?.cancel().catch(() => undefined);
+
+      throw classifyHttpError(response.status);
+    }
+
+    let raw: string;
+
+    try {
+      raw = await readBoundedResponse(response);
+    } catch {
+      logProviderFailure("response_read");
+
+      throw providerError(
+        "Image provider response could not be read safely.",
+        "uncertain",
+      );
+    }
+
+    let payload: unknown;
+
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      logProviderFailure("invalid_json");
+
+      throw providerError("Image provider returned invalid JSON.", "uncertain");
+    }
+
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      !("data" in payload) ||
+      !Array.isArray(payload.data) ||
+      payload.data.length !== 1
+    ) {
+      throw providerError(
+        "Image provider returned an unexpected image count.",
+        "uncertain",
+      );
+    }
+
+    const item: unknown = payload.data[0];
+
+    if (
+      !item ||
+      typeof item !== "object" ||
+      !("b64_json" in item) ||
+      typeof item.b64_json !== "string"
+    ) {
+      throw providerError(
+        "Image provider returned no image data.",
+        "uncertain",
+      );
+    }
+
+    const base64 = item.b64_json;
+
+    if (
+      base64.length > Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 4 ||
+      !isStrictBase64(base64)
+    ) {
+      throw providerError(
+        "Image provider returned invalid image encoding.",
+        "uncertain",
+      );
+    }
+
+    const decoded = Buffer.from(base64, "base64");
+
+    if (decoded.length === 0 || decoded.length > MAX_IMAGE_BYTES) {
+      throw providerError(
+        "Image provider returned an oversized image.",
+        "uncertain",
+      );
+    }
+
+    try {
+      const validated = await validateGeneratedImage(decoded);
+
+      const [expectedWidth, expectedHeight] = expectedSize
+        .split("x")
+        .map(Number);
+
+      if (
+        validated.width !== expectedWidth ||
+        validated.height !== expectedHeight ||
+        validated.width > MAX_IMAGE_DIMENSION ||
+        validated.height > MAX_IMAGE_DIMENSION
+      ) {
+        throw new Error("Unexpected generated image dimensions.");
+      }
+
+      return {
+        bytes: validated.bytes,
+        mimeType: "image/png",
+        provider: this.provider,
+        model: this.model,
+      };
+    } catch {
+      logProviderFailure("image_validation");
+
+      throw providerError(
+        "Image provider returned an invalid or unexpected image.",
+        "uncertain",
+      );
+    }
+  }
+}
+
+===== apps/api/src/services/media/providers/openaiImageProvider.ts =====
+import { generateImageSchema } from "../../../schemas/aiImageSchema.js";
+
+import {
+  MAX_IMAGE_BYTES,
+  MAX_IMAGE_DIMENSION,
+  validateGeneratedImage,
+} from "../imageValidation.js";
+
+import {
+  ImageProviderError,
+  type ImageProvider,
+  type ImageProviderRequest,
+  type ImageProviderResult,
+} from "./imageProvider.js";
+
+const IMAGE_ENDPOINT = "https://api.openai.com/v1/images/generations";
+
+const REQUEST_TIMEOUT_MS = 120_000;
+const MAX_RESPONSE_BYTES = 30 * 1024 * 1024;
+
+const IMAGE_SIZES = {
+  square: "1024x1024",
+  portrait: "1024x1536",
+  landscape: "1536x1024",
+} as const;
+
+type OpenAIImageProviderOptions = {
+  apiKey: string;
+  model: string;
+
+  /**
+   * Required injection:
+   * Tests provide a mock function.
+   * The trusted production factory will
+   * eventually provide global fetch.
+   */
+  fetchImpl: typeof fetch;
+};
+
+function providerError(
+  message: string,
+  outcome: "rejected" | "uncertain",
+): ImageProviderError {
+  return new ImageProviderError(message, outcome);
+}
+
+/**
+ * Log only safe diagnostic metadata.
+ *
+ * Never log:
+ * - API keys
+ * - prompts
+ * - response bodies
+ * - generated images
+ * - authorization headers
+ */
+function logProviderFailure(
+  stage: string,
+  details: {
+    httpStatus?: number;
+    errorType?: string;
+  } = {},
+): void {
+  console.error("[OpenAI Image Provider]", {
+    stage,
+    ...details,
+  });
+}
+
+/**
+ * Read a bounded response body.
+ *
+ * Rejecting oversized responses prevents a
+ * malformed upstream response from consuming
+ * unlimited API-server memory.
+ */
+async function readBoundedResponse(response: Response): Promise<string> {
+  if (!response.body) {
+    return "";
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  let total = 0;
+  let output = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) break;
+
+      total += value.byteLength;
+
+      if (total > MAX_RESPONSE_BYTES) {
+        throw providerError(
+          "Image provider response exceeded the allowed size.",
+          "uncertain",
+        );
+      }
+
+      output += decoder.decode(value, {
+        stream: true,
+      });
+    }
+
+    output += decoder.decode();
+    return output;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function classifyHttpError(status: number): ImageProviderError {
+  return providerError(
+    `Image provider request was not completed successfully (HTTP ${status}).`,
+    "uncertain",
+  );
+}
+
+function isStrictBase64(value: string): boolean {
+  if (
+    !value ||
+    value.length % 4 !== 0 ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      value,
+    )
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+export class OpenAIImageProvider implements ImageProvider {
+  readonly provider = "openai";
+  readonly model: string;
+
+  private readonly apiKey: string;
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(options: OpenAIImageProviderOptions) {
+    const apiKey = options.apiKey.trim();
+    const model = options.model.trim();
+
+    if (!apiKey) {
+      throw new Error("OpenAI image provider credentials are unavailable.");
+    }
+
+    if (!model || model.length > 120 || !/^[A-Za-z0-9._-]+$/.test(model)) {
+      throw new Error("Invalid OpenAI image model configuration.");
+    }
+
+    if (
+      !/^gpt-image-(?:1-mini|1\.5|2(?:-[A-Za-z0-9.-]+)?|2\.5-(?:sunburst|flare)(?:-[A-Za-z0-9.-]+)?|2\.6-(?:sunburst|flare)(?:-[A-Za-z0-9.-]+)?)$/.test(
+        model,
+      )
+    ) {
+      throw new Error("Unsupported OpenAI image model configuration.");
+    }
+
+    if (typeof options.fetchImpl !== "function") {
+      throw new Error("An HTTP transport is required.");
+    }
+
+    this.apiKey = apiKey;
+    this.model = model;
+    this.fetchImpl = options.fetchImpl;
+  }
+
+  async generate(request: ImageProviderRequest): Promise<ImageProviderResult> {
+    const parsed = generateImageSchema.safeParse(request);
+
+    if (!parsed.success) {
+      throw providerError("Invalid image generation request.", "rejected");
+    }
+
+    const expectedSize = IMAGE_SIZES[parsed.data.aspectRatio];
+
+    let response: Response;
+
+    try {
+      response = await this.fetchImpl(IMAGE_ENDPOINT, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          model: this.model,
+          prompt: parsed.data.prompt,
+          size: expectedSize,
+          quality: "low",
+          n: 1,
+          output_format: "png",
+        }),
+        redirect: "error",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (error: unknown) {
+      const errorType = error instanceof Error ? error.name : "UnknownError";
+
+      logProviderFailure("transport", {
+        errorType,
+      });
+
+      throw providerError(
+        "Image provider request outcome is uncertain.",
+        "uncertain",
+      );
+    }
+
+    if (!response.ok) {
+      logProviderFailure("http_response", {
+        httpStatus: response.status,
+      });
+
+      await response.body?.cancel().catch(() => undefined);
+
+      throw classifyHttpError(response.status);
+    }
+
+    let raw: string;
+
+    try {
+      raw = await readBoundedResponse(response);
+    } catch {
+      logProviderFailure("response_read");
+
+      throw providerError(
+        "Image provider response could not be read safely.",
+        "uncertain",
+      );
+    }
+
+    let payload: unknown;
+
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      logProviderFailure("invalid_json");
+
+      throw providerError("Image provider returned invalid JSON.", "uncertain");
+    }
+
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      !("data" in payload) ||
+      !Array.isArray(payload.data) ||
+      payload.data.length !== 1
+    ) {
+      throw providerError(
+        "Image provider returned an unexpected image count.",
+        "uncertain",
+      );
+    }
+
+    const item: unknown = payload.data[0];
+
+    if (
+      !item ||
+      typeof item !== "object" ||
+      !("b64_json" in item) ||
+      typeof item.b64_json !== "string"
+    ) {
+      throw providerError(
+        "Image provider returned no image data.",
+        "uncertain",
+      );
+    }
+
+    const base64 = item.b64_json;
+
+    if (
+      base64.length > Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 4 ||
+      !isStrictBase64(base64)
+    ) {
+      throw providerError(
+        "Image provider returned invalid image encoding.",
+        "uncertain",
+      );
+    }
+
+    const decoded = Buffer.from(base64, "base64");
+
+    if (decoded.length === 0 || decoded.length > MAX_IMAGE_BYTES) {
+      throw providerError(
+        "Image provider returned an oversized image.",
+        "uncertain",
+      );
+    }
+
+    try {
+      const validated = await validateGeneratedImage(decoded);
+
+      const [expectedWidth, expectedHeight] = expectedSize
+        .split("x")
+        .map(Number);
+
+      if (
+        validated.width !== expectedWidth ||
+        validated.height !== expectedHeight ||
+        validated.width > MAX_IMAGE_DIMENSION ||
+        validated.height > MAX_IMAGE_DIMENSION
+      ) {
+        throw new Error("Unexpected generated image dimensions.");
+      }
+
+      return {
+        bytes: validated.bytes,
+        mimeType: "image/png",
+        provider: this.provider,
+        model: this.model,
+      };
+    } catch {
+      logProviderFailure("image_validation");
+
+      throw providerError(
+        "Image provider returned an invalid or unexpected image.",
+        "uncertain",
+      );
+    }
+  }
+}
+
+===== apps/api/src/services/media/providers/imageProvider.ts =====
+import type { GenerateImageInput } from "../../../schemas/aiImageSchema.js";
+
+export type ImageProviderRequest = {
+  prompt: GenerateImageInput["prompt"];
+  aspectRatio: GenerateImageInput["aspectRatio"];
+};
+
+export type ImageProviderResult = {
+  bytes: Uint8Array;
+  mimeType: "image/png";
+  provider: string;
+  model: string;
+};
+
+export interface ImageProvider {
+  readonly provider: string;
+  readonly model: string;
+
+  generate(request: ImageProviderRequest): Promise<ImageProviderResult>;
+}
+
+export class ImageProviderError extends Error {
+  constructor(
+    message: string,
+    public readonly outcome: "rejected" | "uncertain",
+  ) {
+    super(message);
+    this.name = "ImageProviderError";
+  }
+}
+
+===== apps/api/src/services/imageGenerationLiveGate.ts =====
+export const LIVE_IMAGE_MODEL = "gpt-image-2" as const;
+
+export type LiveRolloutMode = "off" | "internal" | "canary";
+
+export type LiveGateConfig = {
+  provider: "mock" | "openai";
+  liveEnabled: boolean;
+  workerEnabled: boolean;
+  rollout: LiveRolloutMode;
+  model: string;
+  workspaceAllowlist: ReadonlySet<string>;
+  maxActive: number;
+  dailyLimit: number;
+  creditCost: number;
+  hasApiKey: boolean;
+};
+
+export type LiveGateDecision =
+  | {
+      allowed: true;
+      model: typeof LIVE_IMAGE_MODEL;
+      creditCost: number;
+      maxActive: number;
+      dailyLimit: number;
+    }
+  | {
+      allowed: false;
+      reason: "disabled" | "configuration" | "workspace_not_allowed";
+    };
+
+const OBJECT_ID_PATTERN = /^[a-f0-9]{24}$/;
+
+function environmentBoolean(value: string | undefined): boolean {
+  return value === "true";
+}
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (!/^[1-9]\d*$/.test(value)) {
+    throw new Error("Invalid live image limit configuration.");
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error("Invalid live image limit configuration.");
+  }
+
+  return parsed;
+}
+
+function parseAllowlist(value: string | undefined): ReadonlySet<string> {
+  if (!value?.trim()) {
+    return new Set();
+  }
+
+  const ids = value.split(",").map((item) => item.trim());
+
+  if (ids.some((id) => !OBJECT_ID_PATTERN.test(id))) {
+    throw new Error("Invalid live image workspace allowlist.");
+  }
+
+  return new Set(ids);
+}
+
+/**
+ * Parse trusted server-side configuration.
+ *
+ * Invalid values fail closed.
+ * This function never reads browser input.
+ */
+export function parseLiveImageGateConfig(
+  source: NodeJS.ProcessEnv,
+): LiveGateConfig {
+  const provider = source.IMAGE_GENERATION_PROVIDER;
+
+  if (provider !== undefined && provider !== "mock" && provider !== "openai") {
+    throw new Error("Invalid image generation provider.");
+  }
+
+  const rollout = source.IMAGE_GENERATION_LIVE_ROLLOUT ?? "off";
+
+  if (rollout !== "off" && rollout !== "internal" && rollout !== "canary") {
+    throw new Error("Invalid live image rollout mode.");
+  }
+
+  for (const key of [
+    "IMAGE_GENERATION_LIVE_ENABLED",
+    "IMAGE_GENERATION_LIVE_WORKER_ENABLED",
+  ] as const) {
+    const value = source[key];
+
+    if (value !== undefined && value !== "true" && value !== "false") {
+      throw new Error(`Invalid boolean configuration: ${key}`);
+    }
+  }
+
+  const maxActive = positiveInteger(source.IMAGE_GENERATION_LIVE_MAX_ACTIVE, 1);
+
+  const dailyLimit = positiveInteger(
+    source.IMAGE_GENERATION_LIVE_DAILY_LIMIT,
+    2,
+  );
+
+  const creditCost = positiveInteger(
+    source.IMAGE_GENERATION_LIVE_CREDIT_COST,
+    1,
+  );
+
+  // Guardrail caps for initial canary rollout.
+  // Raising these requires a code review,
+  // not merely changing an environment variable.
+  if (maxActive > 1 || dailyLimit > 5 || creditCost > 100) {
+    throw new Error("Live image rollout limits exceed approved caps.");
+  }
+
+  return {
+    provider: provider ?? "mock",
+    liveEnabled: environmentBoolean(source.IMAGE_GENERATION_LIVE_ENABLED),
+    workerEnabled: environmentBoolean(
+      source.IMAGE_GENERATION_LIVE_WORKER_ENABLED,
+    ),
+    rollout,
+    model: source.IMAGE_GENERATION_MODEL ?? LIVE_IMAGE_MODEL,
+    workspaceAllowlist: parseAllowlist(
+      source.IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST,
+    ),
+    maxActive,
+    dailyLimit,
+    creditCost,
+    hasApiKey: Boolean(source.OPENAI_API_KEY?.trim()),
+  };
+}
+
+/**
+ * Pure decision function.
+ *
+ * It authorizes provider selection only.
+ * Workspace ownership and wallet checks
+ * remain mandatory in the admission service.
+ */
+export function evaluateLiveImageGate(
+  config: LiveGateConfig,
+  workspaceId: string,
+): LiveGateDecision {
+  if (
+    config.provider !== "openai" ||
+    !config.liveEnabled ||
+    !config.workerEnabled ||
+    config.rollout === "off"
+  ) {
+    return {
+      allowed: false,
+      reason: "disabled",
+    };
+  }
+
+  if (
+    !config.hasApiKey ||
+    config.model !== LIVE_IMAGE_MODEL ||
+    config.maxActive !== 1 ||
+    config.dailyLimit < 1 ||
+    config.dailyLimit > 5 ||
+    config.creditCost < 1 ||
+    !Number.isSafeInteger(config.creditCost)
+  ) {
+    return {
+      allowed: false,
+      reason: "configuration",
+    };
+  }
+
+  if (
+    !OBJECT_ID_PATTERN.test(workspaceId) ||
+    !config.workspaceAllowlist.has(workspaceId)
+  ) {
+    return {
+      allowed: false,
+      reason: "workspace_not_allowed",
+    };
+  }
+
+  return {
+    allowed: true,
+    model: LIVE_IMAGE_MODEL,
+    creditCost: config.creditCost,
+    maxActive: config.maxActive,
+    dailyLimit: config.dailyLimit,
+  };
+}
+
+/**
+ * A release-gate assertion for a future
+ * backend controller or worker.
+ *
+ * Never log the API key or raw environment.
+ */
+export function assertLiveImageAllowed(
+  config: LiveGateConfig,
+  workspaceId: string,
+) {
+  const decision = evaluateLiveImageGate(config, workspaceId);
+
+  if (!decision.allowed) {
+    const error = new Error("Live image generation is unavailable.");
+
+    Object.assign(error, {
+      statusCode: 503,
+    });
+
+    throw error;
+  }
+
+  return decision;
+}
+
+===== apps/api/src/services/imageGenerationLiveAdmissionReadiness.ts =====
+import { IMAGE_CREDIT_COST } from "./imageGenerationAdmissionService.js";
+
+import {
+  evaluateLiveImageGate,
+  type LiveGateConfig,
+} from "./imageGenerationLiveGate.js";
+
+import { LIVE_PAID_WORKER_ARMED } from "./imageGenerationWorkerProviderGate.js";
+
+export type LiveAdmissionReadiness =
+  | {
+      ready: true;
+      provider: "openai";
+      model: "gpt-image-2";
+      creditCost: number;
+      dailyLimit: number;
+      maxActive: number;
+    }
+  | {
+      ready: false;
+      reason: "release_gate_closed" | "worker_not_armed" | "billing_mismatch";
+    };
+
+/**
+ * Pure readiness decision.
+ *
+ * This is not workspace authorization.
+ * Authentication, workspace ownership,
+ * atomic wallet debit and idempotency
+ * remain in admitImageGeneration().
+ *
+ * Do not expose an alternative admission
+ * path that bypasses that transaction.
+ */
+export function evaluateLiveAdmissionReadiness(
+  config: LiveGateConfig,
+  workspaceId: string,
+): LiveAdmissionReadiness {
+  const release = evaluateLiveImageGate(config, workspaceId);
+
+  if (!release.allowed) {
+    return {
+      ready: false,
+      reason: "release_gate_closed",
+    };
+  }
+
+  // In Step 12.3.6.2 this is intentionally
+  // false, even with valid environment flags.
+  if (!LIVE_PAID_WORKER_ARMED) {
+    return {
+      ready: false,
+      reason: "worker_not_armed",
+    };
+  }
+
+  // Existing admission writes a fixed cost
+  // to the wallet and credit ledger.
+  // Do not admit jobs with a different price.
+  if (release.creditCost !== IMAGE_CREDIT_COST) {
+    return {
+      ready: false,
+      reason: "billing_mismatch",
+    };
+  }
+
+  return {
+    ready: true,
+    provider: "openai",
+    model: release.model,
+    creditCost: release.creditCost,
+    dailyLimit: release.dailyLimit,
+    maxActive: release.maxActive,
+  };
+}
+
+===== apps/api/src/services/imageGenerationWorkerProviderGate.ts =====
+import {
+  evaluateLiveImageGate,
+  type LiveGateConfig,
+} from "./imageGenerationLiveGate.js";
+
+export type PersistedImageProvider = {
+  workspaceId: string;
+  provider: string;
+  model: string;
+};
+
+export type WorkerProviderSelection =
+  | {
+      kind: "mock";
+    }
+  | {
+      kind: "openai";
+      model: "gpt-image-2";
+    };
+
+export class WorkerProviderNotAllowedError extends Error {
+  constructor() {
+    super("Image provider is not enabled for this worker.");
+    this.name = "WorkerProviderNotAllowedError";
+  }
+}
+
+/**
+ * This is a deliberate compile-time
+ * rollout barrier.
+ *
+ * It is NOT controlled by an environment
+ * variable during Step 12.3.6.2.
+ *
+ * We will review changing it only after
+ * admission, billing and recovery pass.
+ */
+export const LIVE_PAID_WORKER_ARMED = true;
+
+export function selectWorkerImageProvider(
+  persisted: PersistedImageProvider,
+  config: LiveGateConfig,
+): WorkerProviderSelection {
+  if (persisted.provider === "mock") {
+    // The existing worker remains responsible
+    // for verifying its approved mock model.
+    return {
+      kind: "mock",
+    };
+  }
+
+  if (persisted.provider !== "openai" || persisted.model !== "gpt-image-2") {
+    throw new WorkerProviderNotAllowedError();
+  }
+
+  const decision = evaluateLiveImageGate(config, persisted.workspaceId);
+
+  if (!decision.allowed || !LIVE_PAID_WORKER_ARMED) {
+    throw new WorkerProviderNotAllowedError();
+  }
+
+  return {
+    kind: "openai",
+    model: decision.model,
+  };
+}
+
+===== apps/api/src/services/imageGenerationWorkerService.ts =====
+import mongoose from "mongoose";
+
+import MediaAsset from "../models/MediaAsset.js";
+import UserProfile from "../models/UserProfile.js";
+
+import { ImageGenerationAdmission } from "../models/ImageGenerationAccounting.js";
+
+import type { AuthenticatedUser } from "./userProfileService.js";
+
+import {
+  claimImageGeneration,
+  beginImageProviderCall,
+} from "./mediaGenerationClaimService.js";
+
+import { releaseImageGenerationCapacity } from "./imageGenerationAdmissionService.js";
+
+import { withGenerationLeaseHeartbeat } from "./media/mediaGenerationLeaseService.js";
+
+import { completeClaimedImageGeneration } from "./media/mediaGenerationCompletionService.js";
+
+import {
+  getPrivateImageBucket,
+  type ImageStorageBucket,
+} from "./media/supabaseImageStorage.js";
+
+import { MockImageProvider } from "./media/providers/mockImageProvider.js";
+import { OpenAIImageProvider } from "./media/providers/openaiImageProvider.js";
+import { LIVE_PAID_WORKER_ARMED } from "./imageGenerationWorkerProviderGate.js";
+import {
+  parseLiveImageGateConfig,
+  evaluateLiveImageGate,
+} from "./imageGenerationLiveGate.js";
+import {
+  selectWorkerImageProvider,
+  WorkerProviderNotAllowedError,
+} from "./imageGenerationWorkerProviderGate.js";
+
+import {
+  ImageProviderError,
+  type ImageProvider,
+} from "./media/providers/imageProvider.js";
+
+import { verifyAdmittedImageBrandingPreflight } from "./media/verifyAdmittedImageBrandingPreflight.js";
+
+export class ImageGenerationWorkerError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode = 500,
+  ) {
+    super(message);
+    this.name = "ImageGenerationWorkerError";
+  }
+}
+
+export type ImageWorkerOutcome =
+  | "idle"
+  | "completed"
+  | "rejected"
+  | "claim_lost"
+  | "recovery_required";
+
+export type ImageWorkerResult = {
+  outcome: ImageWorkerOutcome;
+  assetId?: string;
+};
+
+export type ImageWorkerDependencies = {
+  provider?: ImageProvider;
+  bucket?: ImageStorageBucket;
+};
+
+type EligibleJob = {
+  _id: mongoose.Types.ObjectId;
+  workspaceId: mongoose.Types.ObjectId;
+  createdByUserId: mongoose.Types.ObjectId;
+};
+
+/**
+ * Query only reserved generations that have
+ * a committed active credit admission.
+ *
+ * The lookup is performed in MongoDB, avoiding
+ * a provider call for legacy/unpaid assets.
+ */
+export async function discoverReservedImageJobs(
+  limit = 10,
+): Promise<EligibleJob[]> {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+    throw new ImageGenerationWorkerError("Invalid worker batch size.", 400);
+  }
+
+  const liveConfig = parseLiveImageGateConfig(process.env);
+  const liveMode = liveConfig.provider === "openai";
+
+  // Do not even discover OpenAI jobs while the executable is unarmed.
+  // This must agree with the admission and startup gates.
+  if (liveMode && !LIVE_PAID_WORKER_ARMED) {
+    return [];
+  }
+
+  const approvedWorkspaces = liveMode
+    ? [...liveConfig.workspaceAllowlist]
+        .filter((id) => evaluateLiveImageGate(liveConfig, id).allowed)
+        .map((id) => new mongoose.Types.ObjectId(id))
+    : [];
+
+  if (liveMode && approvedWorkspaces.length === 0) {
+    return [];
+  }
+
+  const providerMatch = liveMode
+    ? {
+        "generation.provider": "openai",
+        "generation.model": "gpt-image-2",
+        workspaceId: { $in: approvedWorkspaces },
+      }
+    : {
+        "generation.provider": "mock",
+        "generation.model": "storm-mock-image-v1",
+      };
+
+  return MediaAsset.aggregate<EligibleJob>([
+    {
+      $match: {
+        status: "pending",
+
+        idempotencyKey: { $type: "string" },
+        requestFingerprint: { $type: "string" },
+
+        ...providerMatch,
+
+        $or: [
+          {
+            "generationExecution.phase": "reserved",
+          },
+          {
+            "generationExecution.phase": "claimed",
+
+            "generationExecution.leaseExpiresAt": {
+              $lte: new Date(),
+            },
+
+            "generationExecution.providerStartedAt": {
+              $exists: false,
+            },
+          },
+        ],
+      },
+    },
+    { $sort: { createdAt: 1, _id: 1 } },
+    {
+      $lookup: {
+        from: ImageGenerationAdmission.collection.name,
+        let: {
+          assetId: "$_id",
+          workspaceId: "$workspaceId",
+          userId: "$createdByUserId",
+        },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$assetId", "$$assetId"] },
+                  {
+                    $eq: ["$workspaceId", "$$workspaceId"],
+                  },
+                  { $eq: ["$userId", "$$userId"] },
+                  { $eq: ["$state", "active"] },
+                  liveMode
+                    ? { $eq: ["$creditsCharged", 1] }
+                    : { $gt: ["$creditsCharged", 0] },
+                ],
+              },
+            },
+          },
+          { $limit: 1 },
+        ],
+        as: "admission",
+      },
+    },
+    {
+      $match: {
+        "admission.0": { $exists: true },
+      },
+    },
+    { $limit: limit },
+    {
+      $project: {
+        _id: 1,
+        workspaceId: 1,
+        createdByUserId: 1,
+      },
+    },
+  ]);
+}
+
+async function resolveWorkerIdentity(
+  userId: mongoose.Types.ObjectId,
+): Promise<AuthenticatedUser> {
+  const profile = await UserProfile.findById(userId)
+    .select("supabaseUserId")
+    .lean();
+
+  if (
+    !profile ||
+    typeof profile.supabaseUserId !== "string" ||
+    !profile.supabaseUserId
+  ) {
+    throw new ImageGenerationWorkerError(
+      "Generation owner is unavailable.",
+      409,
+    );
+  }
+
+  return {
+    id: profile.supabaseUserId,
+  } as AuthenticatedUser;
+}
+
+/**
+ * Mark only a definitively rejected provider
+ * request as failed.
+ *
+ * A stale or expired worker cannot finalize it.
+ */
+async function markProviderRejected(
+  workspaceId: string,
+  assetId: string,
+  claimToken: string,
+) {
+  const failed = await MediaAsset.findOneAndUpdate(
+    {
+      _id: assetId,
+      workspaceId,
+      status: "pending",
+      "generationExecution.phase": "provider_started",
+      "generationExecution.claimToken": claimToken,
+      "generationExecution.leaseExpiresAt": {
+        $gt: new Date(),
+      },
+    },
+    {
+      $set: {
+        status: "failed",
+        failureReason: "The image provider rejected this generation.",
+      },
+    },
+    {
+      returnDocument: "after",
+      runValidators: true,
+    },
+  );
+
+  if (!failed) {
+    throw new ImageGenerationWorkerError(
+      "Provider rejection could not be finalized safely.",
+      409,
+    );
+  }
+
+  return failed;
+}
+
+/**
+ * Execute one eligible reserved job.
+ *
+ * This function never retries the provider
+ * after the provider_started transition.
+ */
+export async function executeReservedImageJob(
+  job: EligibleJob,
+  dependencies: ImageWorkerDependencies = {},
+): Promise<ImageWorkerResult> {
+  const assetId = String(job._id);
+  const workspaceId = String(job.workspaceId);
+
+  // PRE-CLAIM PREFLIGHT: check the actual persisted provider identity.
+  // Never claim a paid/unknown asset before it is supported by the worker.
+  // This read does not authorize execution: claim fencing and the re-read
+  // after provider_started below remain mandatory.
+  const persisted = await MediaAsset.findOne({
+    _id: job._id,
+    workspaceId: job.workspaceId,
+    createdByUserId: job.createdByUserId,
+    status: "pending",
+  })
+    .select("generation.provider generation.model")
+    .lean();
+
+  if (!persisted) {
+    return { outcome: "claim_lost", assetId };
+  }
+
+  // The existing provider gate is deliberately unarmed for paid calls.
+  // An OpenAI or unknown persisted job fails here BEFORE claim and BEFORE
+  // provider_started. Do not silently run a mock provider for that asset.
+  let selected;
+  try {
+    selected = selectWorkerImageProvider(
+      {
+        workspaceId,
+        provider: persisted.generation.provider,
+        model: persisted.generation.model,
+      },
+      parseLiveImageGateConfig(process.env),
+    );
+  } catch (error) {
+    if (error instanceof WorkerProviderNotAllowedError) {
+      throw new ImageGenerationWorkerError(
+        "Live image generation is disabled.",
+        503,
+      );
+    }
+    throw error;
+  }
+
+  // The provider-selection gate remains compile-time unarmed for paid calls.
+  // This branch cannot run until the explicit release-review switch is changed.
+  const provider: ImageProvider =
+    dependencies.provider ??
+    (selected.kind === "mock"
+      ? new MockImageProvider()
+      : new OpenAIImageProvider({
+          apiKey: process.env.OPENAI_API_KEY ?? "",
+          model: selected.model,
+          fetchImpl: fetch,
+        }));
+
+  if (
+    provider.provider !== persisted.generation.provider ||
+    provider.model !== persisted.generation.model ||
+    (selected.kind === "mock" &&
+      (provider.provider !== "mock" ||
+        provider.model !== "storm-mock-image-v1"))
+  ) {
+    throw new ImageGenerationWorkerError(
+      "Persisted image provider does not match the worker.",
+      503,
+    );
+  }
+
+  const authUser = await resolveWorkerIdentity(job.createdByUserId);
+
+  const context = {
+    authUser,
+    workspaceId,
+    assetId,
+  };
+
+  let claimToken: string;
+
+  try {
+    const claimed = await claimImageGeneration(context);
+
+    claimToken = claimed.claimToken;
+  } catch (error) {
+    // Another worker may have won the claim
+    // between discovery and execution.
+    if (
+      error instanceof Error &&
+      "statusCode" in error &&
+      error.statusCode === 409
+    ) {
+      return {
+        outcome: "claim_lost",
+        assetId,
+      };
+    }
+
+    throw error;
+  }
+
+  const owned = {
+    ...context,
+    claimToken,
+  };
+
+  // Verify persisted branding BEFORE the paid
+  // provider_started transition.
+  //
+  // Run under the existing generation lease
+  // heartbeat so a slow storage download cannot
+  // leave us executing under an expired claim.
+  try {
+    await withGenerationLeaseHeartbeat(owned, async () => {
+      const claimedAsset = await MediaAsset.findOne({
+        _id: job._id,
+        workspaceId: job.workspaceId,
+        createdByUserId: job.createdByUserId,
+        status: "pending",
+
+        "generationExecution.phase": "claimed",
+        "generationExecution.claimToken": claimToken,
+        "generationExecution.leaseExpiresAt": {
+          $gt: new Date(),
+        },
+      })
+        .select(
+          "generation.provider generation.model generation.aspectRatio " +
+            "logoOverlaySnapshot brandingSnapshot",
+        )
+        .lean();
+
+      if (!claimedAsset) {
+        throw new ImageGenerationWorkerError(
+          "Generation claim is no longer owned.",
+          409,
+        );
+      }
+
+      await verifyAdmittedImageBrandingPreflight(
+        {
+          workspaceId,
+
+          generation: {
+            provider: claimedAsset.generation.provider,
+            model: claimedAsset.generation.model,
+            aspectRatio: claimedAsset.generation.aspectRatio,
+          },
+
+          brandingSnapshot:
+            claimedAsset.brandingSnapshot?.toObject?.() ??
+            claimedAsset.brandingSnapshot ??
+            null,
+
+          logoOverlaySnapshot:
+            claimedAsset.logoOverlaySnapshot?.toObject?.() ??
+            claimedAsset.logoOverlaySnapshot ??
+            null,
+        },
+
+        dependencies.bucket ?? getPrivateImageBucket(),
+      );
+    });
+  } catch {
+    // No provider call was started.
+    // Preserve the admitted job for controlled
+    // retry/review; never silently remove branding.
+    return {
+      outcome: "recovery_required",
+      assetId,
+    };
+  }
+
+  /**
+   * Persist provider_started before the
+   * provider is ever invoked.
+   */
+  await beginImageProviderCall(owned);
+
+  // Reload the owned asset to obtain immutable
+  // generation instructions.
+  const asset = await MediaAsset.findOne({
+    _id: job._id,
+    workspaceId: job.workspaceId,
+    status: "pending",
+    "generationExecution.phase": "provider_started",
+    "generationExecution.claimToken": claimToken,
+    "generationExecution.leaseExpiresAt": {
+      $gt: new Date(),
+    },
+  });
+
+  if (!asset) {
+    return {
+      outcome: "claim_lost",
+      assetId,
+    };
+  }
+
+  if (
+    asset.generation.provider !== provider.provider ||
+    asset.generation.model !== provider.model
+  ) {
+    // Do not invoke a different provider or
+    // model from the one originally reserved.
+    return {
+      outcome: "recovery_required",
+      assetId,
+    };
+  }
+
+  let generated: Awaited<ReturnType<ImageProvider["generate"]>>;
+
+  try {
+    generated = await withGenerationLeaseHeartbeat(owned, () =>
+      provider.generate({
+        prompt: asset.generation.prompt,
+        aspectRatio: asset.generation.aspectRatio,
+      }),
+    );
+  } catch (error) {
+    if (error instanceof ImageProviderError && error.outcome === "rejected") {
+      await markProviderRejected(workspaceId, assetId, claimToken);
+
+      await releaseImageGenerationCapacity(authUser, workspaceId, assetId);
+
+      return {
+        outcome: "rejected",
+        assetId,
+      };
+    }
+
+    // Unknown/ambiguous outcomes are never
+    // retried. Leave pending for reconciliation.
+    return {
+      outcome: "recovery_required",
+      assetId,
+    };
+  }
+
+  if (
+    generated.provider !== provider.provider ||
+    generated.model !== provider.model ||
+    generated.mimeType !== "image/png"
+  ) {
+    return {
+      outcome: "recovery_required",
+      assetId,
+    };
+  }
+
+  try {
+    await completeClaimedImageGeneration(
+      {
+        ...owned,
+        bytes: generated.bytes,
+      },
+      dependencies.bucket ?? getPrivateImageBucket(),
+    );
+  } catch {
+    // Storage may already contain an uploaded
+    // object. Do not regenerate or delete it.
+    return {
+      outcome: "recovery_required",
+      assetId,
+    };
+  }
+
+  // If release fails, preserve the ready asset.
+  // Step 12.3.3 will reconcile the active slot.
+  await releaseImageGenerationCapacity(authUser, workspaceId, assetId);
+
+  return {
+    outcome: "completed",
+    assetId,
+  };
+}
+
+/**
+ * Process one bounded batch.
+ *
+ * The worker processes sequentially inside
+ * each instance; multiple instances may race
+ * safely through MongoDB claim fencing.
+ */
+export async function runImageGenerationWorkerOnce(
+  dependencies: ImageWorkerDependencies = {},
+  limit = 10,
+): Promise<ImageWorkerResult[]> {
+  const jobs = await discoverReservedImageJobs(limit);
+
+  if (jobs.length === 0) {
+    return [{ outcome: "idle" }];
+  }
+
+  const results: ImageWorkerResult[] = [];
+
+  for (const job of jobs) {
+    try {
+      results.push(await executeReservedImageJob(job, dependencies));
+    } catch {
+      // The job remains durably persisted.
+      // Do not automatically repeat it here.
+      results.push({
+        outcome: "recovery_required",
+        assetId: String(job._id),
+      });
+    }
+  }
+
+  return results;
+}
+
+===== apps/api/src/services/imageGenerationQueueService.ts =====
+import {
+  imageGenerationCommandSchema,
+  type ImageGenerationCommand,
+} from "../schemas/imageGenerationCommandSchema.js";
+
+import type { AuthenticatedUser } from "./userProfileService.js";
+
+import type { ImageGenerationConfig } from "../config/imageGenerationConfig.js";
+
+import { admitImageGeneration } from "./imageGenerationAdmissionService.js";
+
+import { MockImageProvider } from "./media/providers/mockImageProvider.js";
+import { IMAGE_CREDIT_COST } from "./imageGenerationAdmissionService.js";
+import { parseLiveImageGateConfig } from "./imageGenerationLiveGate.js";
+import { evaluateLiveAdmissionReadiness } from "./imageGenerationLiveAdmissionReadiness.js";
+
+export class ImageGenerationQueueError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+  ) {
+    super(message);
+    this.name = "ImageGenerationQueueError";
+  }
+}
+
+type EnqueueInput = {
+  authUser: AuthenticatedUser;
+  command: ImageGenerationCommand;
+  config: ImageGenerationConfig;
+};
+
+export type EnqueuedImageGeneration = {
+  assetId: string;
+  status: "pending" | "ready" | "failed";
+  created: boolean;
+  creditsChargedNow: number;
+};
+
+/**
+ * Accept one image generation request.
+ *
+ * This service:
+ * - validates the command
+ * - enforces the mock-only release gate
+ * - performs atomic credit-aware admission
+ * - returns the persisted asset
+ *
+ * It never calls an image provider.
+ */
+export async function enqueueImageGeneration(
+  input: EnqueueInput,
+): Promise<EnqueuedImageGeneration> {
+  const parsed = imageGenerationCommandSchema.safeParse(input.command);
+
+  if (!parsed.success) {
+    throw new ImageGenerationQueueError(
+      "Invalid image generation command.",
+      400,
+    );
+  }
+
+  /**
+   * Phase 12.3.1 is mock-only.
+   *
+   * Even if a developer enables the live
+   * feature flag, paid provider execution
+   * is unavailable through this service.
+   */
+  // Trust only backend configuration; never accept provider/model
+  // selection from the HTTP command.
+  let generation: { provider: string; model: string };
+  let policy: { dailyLimit: number; maxActive: number };
+
+  if (input.config.IMAGE_GENERATION_PROVIDER === "mock") {
+    const provider = new MockImageProvider();
+    generation = { provider: provider.provider, model: provider.model };
+    policy = {
+      dailyLimit: input.config.IMAGE_GENERATION_DAILY_WORKSPACE_LIMIT,
+      maxActive: input.config.IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE,
+    };
+  } else {
+    // Paid jobs remain blocked while LIVE_PAID_WORKER_ARMED=false.
+    // Readiness rejects nonallowlisted workspaces and billing mismatches.
+    const liveConfig = parseLiveImageGateConfig(process.env);
+    const readiness = evaluateLiveAdmissionReadiness(
+      liveConfig,
+      parsed.data.workspaceId,
+    );
+
+    if (!readiness.ready || readiness.creditCost !== IMAGE_CREDIT_COST) {
+      throw new ImageGenerationQueueError(
+        "Live image generation is not enabled.",
+        503,
+      );
+    }
+
+    generation = { provider: readiness.provider, model: readiness.model };
+    policy = {
+      dailyLimit: Math.min(
+        readiness.dailyLimit,
+        input.config.IMAGE_GENERATION_DAILY_WORKSPACE_LIMIT,
+      ),
+      maxActive: Math.min(
+        readiness.maxActive,
+        input.config.IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE,
+      ),
+    };
+  }
+
+  const admitted = await admitImageGeneration({
+    authUser: input.authUser,
+    workspaceId: parsed.data.workspaceId,
+    idempotencyKey: parsed.data.idempotencyKey,
+    image: parsed.data.image,
+
+    generation,
+
+    policy,
+  });
+
+  const status = admitted.asset.status;
+
+  if (status !== "pending" && status !== "ready" && status !== "failed") {
+    throw new ImageGenerationQueueError(
+      "Unexpected image generation status.",
+      500,
+    );
+  }
+
+  return {
+    assetId: String(admitted.asset._id),
+    status,
+    created: admitted.created,
+    creditsChargedNow: admitted.creditsChargedNow,
+  };
+}
+
+===== apps/api/src/workers/imageGenerationWorkerMain.ts =====
+import "dotenv/config";
+
+import mongoose from "mongoose";
+
+import { getImageGenerationConfig } from "../config/imageGenerationConfig.js";
+
+import { startImageGenerationWorker } from "./imageGenerationWorkerRunner.js";
+import { parseLiveImageGateConfig } from "../services/imageGenerationLiveGate.js";
+import { LIVE_PAID_WORKER_ARMED } from "../services/imageGenerationWorkerProviderGate.js";
+import { evaluateLiveAdmissionReadiness } from "../services/imageGenerationLiveAdmissionReadiness.js";
+
+async function main() {
+  if (process.env.IMAGE_GENERATION_WORKER_ENABLED !== "true") {
+    throw new Error("Image generation worker is disabled.");
+  }
+
+  const config = getImageGenerationConfig();
+
+  const liveMode = config.IMAGE_GENERATION_PROVIDER === "openai";
+  if (liveMode) {
+    const gate = parseLiveImageGateConfig(process.env);
+    if (
+      !LIVE_PAID_WORKER_ARMED ||
+      gate.workspaceAllowlist.size === 0 ||
+      ![...gate.workspaceAllowlist].every(
+        (id) => evaluateLiveAdmissionReadiness(gate, id).ready,
+      )
+    ) {
+      throw new Error("Live image worker is not armed or approved.");
+    }
+  } else if (config.IMAGE_GENERATION_LIVE_ENABLED) {
+    throw new Error("Mock worker refuses live-enabled configuration.");
+  }
+
+  /**
+   * Use the SAME development MongoDB database
+   * as the API, including replica-set support.
+   *
+   * A separate env name prevents us from
+   * assuming the existing API's DB variable.
+   */
+  const mongoUri = process.env.IMAGE_WORKER_MONGODB_URI;
+
+  if (!mongoUri) {
+    throw new Error("IMAGE_WORKER_MONGODB_URI is required.");
+  }
+
+  await mongoose.connect(mongoUri);
+
+  console.info(
+    liveMode
+      ? "Storm gated OpenAI image worker connected."
+      : "Storm mock image worker connected.",
+  );
+
+  const stop = startImageGenerationWorker({
+    intervalMs: 5000,
+    batchSize: liveMode ? 1 : 5,
+
+    onError: () => {
+      // No prompts, image bytes, access tokens,
+      // or internal provider responses in logs.
+      console.error("Image worker batch failed.");
+    },
+  });
+
+  let shuttingDown = false;
+
+  async function shutdown() {
+    if (shuttingDown) return;
+
+    shuttingDown = true;
+
+    await stop();
+    await mongoose.disconnect();
+
+    console.info("Storm image worker stopped.");
+  }
+
+  process.once("SIGINT", () => {
+    void shutdown()
+      .then(() => {
+        process.exitCode = 0;
+      })
+      .catch(() => {
+        process.exitCode = 1;
+      });
+  });
+
+  process.once("SIGTERM", () => {
+    void shutdown()
+      .then(() => {
+        process.exitCode = 0;
+      })
+      .catch(() => {
+        process.exitCode = 1;
+      });
+  });
+}
+
+void main().catch((error: unknown) => {
+  const safeKnownMessages = [
+    "This worker supports mock generation only.",
+    "Live image generation is disabled.",
+    "IMAGE_GENERATION_WORKER_ENABLED",
+    "IMAGE_WORKER_MONGODB_URI",
+    "Invalid image generation provider.",
+    "Invalid live image rollout mode.",
+    "Invalid live image workspace allowlist.",
+    "Live image generation is unavailable.",
+  ];
+
+  const message = error instanceof Error ? error.message : "";
+
+  const safeMessage = safeKnownMessages.some((known) =>
+    message.startsWith(known),
+  )
+    ? message
+    : `Worker startup failed: ${
+        error instanceof Error ? error.name : "UnknownError"
+      }`;
+
+  console.error("[Storm Image Worker]", safeMessage);
+
+  process.exitCode = 1;
+});
+
+===== apps/api/src/controllers/imageGenerationController.ts =====
+import type { RequestHandler } from "express";
+
+import { imageGenerationCommandSchema } from "../schemas/imageGenerationCommandSchema.js";
+
+import { getImageGenerationConfig } from "../config/imageGenerationConfig.js";
+
+import { enqueueImageGeneration } from "../services/imageGenerationQueueService.js";
+
+import {
+  getImageGenerationCredits,
+  getImageGenerationStatus,
+} from "../services/imageGenerationApiQueryService.js";
+
+import type { AuthenticatedUser } from "../services/userProfileService.js";
+
+import { createPrivateImageAccessUrl } from "../services/media/mediaImageAccessService.js";
+
+import { parseLiveImageGateConfig } from "../services/imageGenerationLiveGate.js";
+
+import { evaluateLiveAdmissionReadiness } from "../services/imageGenerationLiveAdmissionReadiness.js";
+
+function routeParam(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function isStatusError(
+  error: unknown,
+): error is Error & { statusCode: number } {
+  return (
+    error instanceof Error &&
+    "statusCode" in error &&
+    typeof error.statusCode === "number"
+  );
+}
+
+function respondError(
+  error: unknown,
+  res: Parameters<RequestHandler>[1],
+  next: Parameters<RequestHandler>[2],
+): void {
+  if (!isStatusError(error)) {
+    next(error);
+    return;
+  }
+
+  const status = error.statusCode;
+
+  // Never reflect arbitrary internal service
+  // messages in public API responses.
+  const message =
+    status === 402
+      ? "Insufficient image generation credits."
+      : status === 429
+        ? "Image generation limit reached."
+        : status === 404
+          ? "Resource not found."
+          : status === 409
+            ? "Image generation request conflict."
+            : status === 400
+              ? "Invalid image generation request."
+              : status === 503
+                ? "Image generation is unavailable."
+                : "Image generation request failed.";
+
+  res
+    .status(status >= 400 && status <= 599 ? status : 500)
+    .json({ error: message });
+}
+
+/**
+ * HTTP generation remains development-only.
+ *
+ * Mock generation follows the existing route.
+ * OpenAI generation requires the live admission
+ * gate and the exact allowlisted workspace.
+ */
+
+function assertImageGenerationHttpEnabled(
+  provider: "mock" | "openai",
+  workspaceId: string,
+): void {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.IMAGE_GENERATION_HTTP_ENABLED !== "true"
+  ) {
+    const error = new Error("Image generation HTTP is disabled.") as Error & {
+      statusCode: number;
+    };
+
+    error.statusCode = 503;
+    throw error;
+  }
+
+  if (provider === "openai") {
+    const gate = parseLiveImageGateConfig(process.env);
+
+    const readiness = evaluateLiveAdmissionReadiness(gate, workspaceId);
+
+    if (!readiness.ready) {
+      const error = new Error(
+        "Live image generation is unavailable.",
+      ) as Error & { statusCode: number };
+
+      error.statusCode = 503;
+      throw error;
+    }
+  }
+}
+
+export const generateWorkspaceImageController: RequestHandler = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const config = getImageGenerationConfig();
+
+    const workspaceId = routeParam(req.params.workspaceId);
+
+    // Temporary diagnostic for Step 12.3.6.7.
+    console.info("[Image HTTP Diagnostic]", {
+      provider: config.IMAGE_GENERATION_PROVIDER,
+      httpEnabled: process.env.IMAGE_GENERATION_HTTP_ENABLED === "true",
+      production: process.env.NODE_ENV === "production",
+      workspaceIdMatchesAllowlist: (
+        process.env.IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST ?? ""
+      )
+        .split(",")
+        .map((id) => id.trim())
+        .includes(workspaceId),
+    });
+
+    assertImageGenerationHttpEnabled(
+      config.IMAGE_GENERATION_PROVIDER,
+      workspaceId,
+    );
+
+    // The request body may only contain
+    // idempotencyKey and image.
+    if (
+      !req.body ||
+      typeof req.body !== "object" ||
+      Array.isArray(req.body) ||
+      Object.keys(req.body).some(
+        (key) => key !== "idempotencyKey" && key !== "image",
+      )
+    ) {
+      res.status(400).json({
+        error: "Invalid image generation request.",
+      });
+      return;
+    }
+
+    const parsed = imageGenerationCommandSchema.safeParse({
+      workspaceId: routeParam(req.params.workspaceId),
+      idempotencyKey: req.body.idempotencyKey,
+      image: req.body.image,
+    });
+
+    if (!parsed.success) {
+      res.status(400).json({
+        error: "Invalid image generation request.",
+      });
+      return;
+    }
+
+    let queued: Awaited<ReturnType<typeof enqueueImageGeneration>>;
+
+    try {
+      queued = await enqueueImageGeneration({
+        authUser: res.locals.authUser as AuthenticatedUser,
+        command: parsed.data,
+        config,
+      });
+    } catch (error) {
+      console.error("[Image Admission Diagnostic]", {
+        stage: "enqueueImageGeneration",
+        errorType:
+          error instanceof Error ? error.constructor.name : "UnknownError",
+        statusCode: isStatusError(error) ? error.statusCode : undefined,
+      });
+
+      throw error;
+    }
+
+    // HTTP 202 means the operation has been
+    // accepted but is not necessarily complete.
+    //
+    // Identical retries return HTTP 200.
+    res.setHeader("Cache-Control", "no-store");
+
+    res.status(queued.created ? 202 : 200).json({
+      assetId: queued.assetId,
+      status: queued.status,
+      created: queued.created,
+      creditsChargedNow: queued.creditsChargedNow,
+    });
+  } catch (error) {
+    respondError(error, res, next);
+  }
+};
+
+export const getWorkspaceImageController: RequestHandler = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const response = await getImageGenerationStatus(
+      res.locals.authUser as AuthenticatedUser,
+      routeParam(req.params.workspaceId),
+      routeParam(req.params.assetId),
+    );
+
+    res.status(200).json(response);
+  } catch (error) {
+    respondError(error, res, next);
+  }
+};
+
+export const getWorkspaceImageCreditsController: RequestHandler = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const response = await getImageGenerationCredits(
+      res.locals.authUser as AuthenticatedUser,
+      routeParam(req.params.workspaceId),
+      getImageGenerationConfig(),
+    );
+
+    res.status(200).json(response);
+  } catch (error) {
+    respondError(error, res, next);
+  }
+};
+
+export const getWorkspaceImageUrlController: RequestHandler = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const response = await createPrivateImageAccessUrl(
+      res.locals.authUser as AuthenticatedUser,
+      routeParam(req.params.workspaceId),
+      routeParam(req.params.assetId),
+    );
+
+    // Signed URLs are short-lived credentials.
+    // Do not let browsers or proxies cache
+    // the API's response.
+    res.setHeader("Cache-Control", "no-store");
+
+    res.setHeader("Pragma", "no-cache");
+
+    res.setHeader("Referrer-Policy", "no-referrer");
+
+    res.status(200).json(response);
+  } catch (error) {
+    respondError(error, res, next);
+  }
+};
+
+===== apps/api/src/config/imageGenerationConfig.ts =====
+import { z } from "zod";
+
+const integerSetting = (fallback: number, max: number) =>
+  z.coerce.number().int().min(1).max(max).default(fallback);
+
+const imageGenerationEnvSchema = z
+  .object({
+    IMAGE_GENERATION_PROVIDER: z.enum(["mock", "openai"]).default("mock"),
+
+    IMAGE_GENERATION_LIVE_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
+
+    IMAGE_GENERATION_MODEL: z
+      .string()
+      .trim()
+      .min(1)
+      .max(120)
+      .default("gpt-image-2"),
+
+    IMAGE_GENERATION_DAILY_WORKSPACE_LIMIT: integerSetting(10, 1000),
+
+    IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE: integerSetting(2, 20),
+  })
+  .strict();
+
+export type ImageGenerationConfig = z.infer<typeof imageGenerationEnvSchema>;
+
+export function parseImageGenerationConfig(
+  values: Record<string, unknown>,
+): ImageGenerationConfig {
+  return imageGenerationEnvSchema.parse(values);
+}
+
+/**
+ * Parse only the image-generation settings.
+ *
+ * Other existing Storm environment variables
+ * are intentionally ignored.
+ */
+export function getImageGenerationConfig(): ImageGenerationConfig {
+  return parseImageGenerationConfig({
+    IMAGE_GENERATION_PROVIDER: process.env.IMAGE_GENERATION_PROVIDER,
+
+    IMAGE_GENERATION_LIVE_ENABLED: process.env.IMAGE_GENERATION_LIVE_ENABLED,
+
+    IMAGE_GENERATION_MODEL: process.env.IMAGE_GENERATION_MODEL,
+
+    IMAGE_GENERATION_DAILY_WORKSPACE_LIMIT:
+      process.env.IMAGE_GENERATION_DAILY_WORKSPACE_LIMIT,
+
+    IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE:
+      process.env.IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE,
+  });
+}
+
+export function assertLiveImageGenerationAllowed(
+  config: ImageGenerationConfig,
+): void {
+  if (
+    config.IMAGE_GENERATION_PROVIDER === "openai" &&
+    !config.IMAGE_GENERATION_LIVE_ENABLED
+  ) {
+    throw new Error("Live image generation is disabled.");
+  }
+}

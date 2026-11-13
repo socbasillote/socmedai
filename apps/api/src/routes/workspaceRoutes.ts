@@ -9,6 +9,7 @@ import {
 
 import {
   getWorkspaceLogo,
+  getWorkspaceLogoPreview,
   uploadWorkspaceLogo,
   updateWorkspaceLogo,
 } from "../controllers/workspaceLogoController.js";
@@ -33,6 +34,8 @@ workspaceRoutes.post(
 workspaceRoutes.patch("/:workspaceId/logo", updateWorkspaceLogo);
 
 workspaceRoutes.get("/:workspaceId/logo", getWorkspaceLogo);
+
+workspaceRoutes.get("/:workspaceId/logo/preview", getWorkspaceLogoPreview);
 
 workspaceRoutes.get("/:workspaceId", getWorkspaceById);
 
