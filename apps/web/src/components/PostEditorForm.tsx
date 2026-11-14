@@ -1,12 +1,12 @@
-import type { FormEvent } from "react";
-import { ImagePlus, Video } from "lucide-react";
-
+import { useState, type FormEvent } from "react";
 import type { PostPlatform } from "@/lib/posts";
 
 import {
   FacebookPageConnectionSelect,
   type FacebookPageConnectionOption,
 } from "@/components/FacebookPageConnectionSelect";
+
+import { MediaLibraryPicker } from "@/features/publishing/components/MediaLibraryPicker";
 
 type PostMode = "draft" | "scheduled" | "immediate";
 
@@ -45,6 +45,11 @@ type PostEditorFormProps = {
   onCancel: () => void;
 
   locked?: boolean;
+
+  workspaceId: string | null;
+  selectedMediaAssetId: string | null;
+  onMediaSelect: (assetId: string) => void;
+  onMediaRemove: () => void;
 };
 
 const platforms: {
@@ -57,14 +62,11 @@ const platforms: {
 ];
 
 export function PostEditorForm({
-  mode,
   title,
   caption,
   locked = false,
   selectedPlatforms,
-  postMode,
-  scheduledAt,
-  minScheduledAt,
+
   saving,
   error,
   linkedInConnectionId,
@@ -78,11 +80,14 @@ export function PostEditorForm({
   onTitleChange,
   onCaptionChange,
   onPlatformsChange,
-  onPostModeChange,
-  onScheduledAtChange,
   onSave,
-  onCancel,
+  workspaceId,
+  selectedMediaAssetId,
+  onMediaSelect,
+  onMediaRemove,
 }: PostEditorFormProps) {
+  const [libraryOpen, setLibraryOpen] = useState(false);
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -100,7 +105,12 @@ export function PostEditorForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="space-y-6">
+    <form
+      id="storm-post-editor-form"
+      onSubmit={handleSubmit}
+      noValidate
+      className="space-y-6"
+    >
       {/* Title */}
       <div>
         <label
@@ -147,23 +157,104 @@ export function PostEditorForm({
       </div>
 
       {/* Media placeholder */}
-      <section>
-        <h3 className="mb-2 text-sm font-semibold text-slate-700">Media</h3>
-
-        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center">
-          <div className="mb-3 flex justify-center gap-3 text-slate-400">
-            <ImagePlus size={24} />
-            <Video size={24} />
-          </div>
-
-          <p className="text-sm font-medium text-slate-700">
-            Images and videos
-          </p>
+      <section aria-label="Post media" className="space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800">Media</h3>
 
           <p className="mt-1 text-xs text-slate-500">
-            Media uploads will be available in an upcoming step.
+            Choose an image generated in your workspace.
           </p>
         </div>
+
+        {selectedMediaAssetId ? (
+          <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
+            <p className="text-sm font-semibold text-violet-900">
+              Image selected
+            </p>
+
+            <p className="mt-1 text-xs text-violet-700">
+              Your selected image is ready for attachment once media saving is
+              enabled.
+            </p>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={saving || locked}
+                onClick={() => setLibraryOpen(true)}
+                className="rounded-lg border border-violet-300 bg-white px-3 py-2 text-xs font-medium text-violet-800 disabled:opacity-50"
+              >
+                Replace image
+              </button>
+
+              <button
+                type="button"
+                disabled={saving || locked}
+                onClick={() => {
+                  onMediaRemove();
+                  setLibraryOpen(false);
+                }}
+                className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700 disabled:opacity-50"
+              >
+                Remove image
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-5 text-center">
+            <p className="text-sm font-medium text-slate-700">
+              No image selected
+            </p>
+
+            <p className="mt-1 text-xs text-slate-500">
+              Select an existing AI-generated image.
+            </p>
+
+            <button
+              type="button"
+              disabled={!workspaceId || saving || locked}
+              onClick={() => setLibraryOpen(true)}
+              className="mt-4 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              Choose from Media Library
+            </button>
+          </div>
+        )}
+
+        {libraryOpen && (
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <h4 className="text-sm font-semibold text-slate-900">
+                Choose an image
+              </h4>
+
+              <button
+                type="button"
+                disabled={saving || locked}
+                onClick={() => setLibraryOpen(false)}
+                className="text-xs font-medium text-slate-600 underline"
+              >
+                Close
+              </button>
+            </div>
+
+            <MediaLibraryPicker
+              key={workspaceId ?? "no-workspace"}
+              workspaceId={workspaceId}
+              selectedAssetId={selectedMediaAssetId}
+              disabled={saving || locked}
+              onSelect={(assetId) => {
+                onMediaSelect(assetId);
+                setLibraryOpen(false);
+              }}
+            />
+          </div>
+        )}
+
+        <p className="text-xs leading-5 text-slate-500">
+          Image selection is currently an editor-only preview. Post persistence
+          will be connected after server-side media validation is added.
+        </p>
       </section>
 
       {/* Platforms */}
@@ -230,125 +321,12 @@ export function PostEditorForm({
         </section>
       )}
 
-      {/* Publishing mode */}
-      <fieldset disabled={saving || locked}>
-        <legend className="mb-3 text-sm font-semibold text-slate-700">
-          Publishing Options
-        </legend>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <button
-            type="button"
-            aria-pressed={postMode === "draft"}
-            onClick={() => onPostModeChange("draft")}
-            className={`rounded-xl border px-4 py-3 text-sm font-semibold ${
-              postMode === "draft"
-                ? "border-violet-300 bg-violet-50 text-violet-700"
-                : "border-slate-200 text-slate-600"
-            }`}
-          >
-            Save as Draft
-          </button>
-
-          <button
-            type="button"
-            aria-pressed={postMode === "scheduled"}
-            onClick={() => onPostModeChange("scheduled")}
-            title={
-              mode === "edit"
-                ? "Scheduling existing drafts is not available yet."
-                : undefined
-            }
-            className={`rounded-xl border px-4 py-3 text-sm font-semibold ${
-              postMode === "scheduled"
-                ? "border-violet-300 bg-violet-50 text-violet-700"
-                : "border-slate-200 text-slate-600"
-            }`}
-          >
-            Schedule Post
-          </button>
-
-          <button
-            type="button"
-            aria-pressed={postMode === "immediate"}
-            onClick={() => onPostModeChange("immediate")}
-            title="Publish immediately to your connected LinkedIn account."
-            className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
-              postMode === "immediate"
-                ? "border-violet-300 bg-violet-50 text-violet-700"
-                : "border-slate-200 text-slate-600 hover:bg-slate-50"
-            } disabled:cursor-not-allowed disabled:opacity-50`}
-          >
-            Publish Now
-          </button>
-        </div>
-      </fieldset>
-
-      {/* Schedule date */}
-      {postMode === "scheduled" && (
-        <div>
-          <label
-            htmlFor="editor-scheduled-at"
-            className="mb-2 block text-sm font-semibold text-slate-700"
-          >
-            Publish Date and Time
-          </label>
-
-          <input
-            id="editor-scheduled-at"
-            type="datetime-local"
-            value={scheduledAt}
-            min={minScheduledAt}
-            onChange={(event) => onScheduledAtChange(event.target.value)}
-            disabled={saving || locked}
-            required
-            className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
-          />
-
-          <p className="mt-2 text-xs text-slate-500">
-            Times are entered in your local timezone.
-          </p>
-        </div>
-      )}
-
       {/* Error */}
       {error && (
         <p role="alert" className="text-sm text-rose-600">
           {error}
         </p>
       )}
-
-      {/* Actions */}
-      <div className="flex flex-wrap justify-end gap-3 border-t border-slate-100 pt-5">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={saving || locked}
-          className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-        >
-          Cancel
-        </button>
-
-        <button
-          type="submit"
-          disabled={saving || locked}
-          className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
-        >
-          {saving
-            ? postMode === "immediate"
-              ? "Publishing..."
-              : "Saving..."
-            : locked
-              ? "Publishing Attempt Completed"
-              : postMode === "immediate"
-                ? "Review & Publish"
-                : mode === "edit"
-                  ? "Save Changes"
-                  : postMode === "scheduled"
-                    ? "Schedule Post"
-                    : "Save Draft"}
-        </button>
-      </div>
     </form>
   );
 }

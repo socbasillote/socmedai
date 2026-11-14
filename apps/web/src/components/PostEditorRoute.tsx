@@ -30,6 +30,23 @@ import {
 
 import { getPlannerReturnUrl } from "@/features/content-planner/utils/plannerNavigation";
 
+import {
+  addDestination,
+  createPublishingDraft,
+  setSharedCaption,
+  setSharedMedia,
+  type PublishingDestination,
+} from "@/features/publishing/publishingDraft";
+
+import {
+  evaluatePublishingReadiness,
+  type PublishingCapabilityContext,
+} from "@/features/publishing/publishingReadiness";
+
+import { PublishingChecklistPanel } from "@/features/publishing/components/PublishingChecklistPanel";
+
+import { PublishingControls } from "@/features/publishing/components/PublishingControls";
+
 type PostMode = "draft" | "scheduled" | "immediate";
 
 type PostEditorRouteProps = {
@@ -86,6 +103,10 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   // Editor content
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
+
+  const [selectedMediaAssetId, setSelectedMediaAssetId] = useState<
+    string | null
+  >(null);
 
   // Publishing platforms
   const [selectedPlatforms, setSelectedPlatforms] = useState<PostPlatform[]>([
@@ -235,6 +256,10 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     };
   }, [selectedWorkspaceId]);
 
+  useEffect(() => {
+    setSelectedMediaAssetId(null);
+  }, [selectedWorkspaceId]);
+
   async function handleSave() {
     if (saving || showPublishConfirmation) {
       return;
@@ -291,6 +316,15 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
       if (!selectedWorkspace) {
         setError("Select or create a workspace before creating a post.");
+        return;
+      }
+
+      if (selectedMediaAssetId) {
+        setError(
+          "Your image is selected but cannot be saved with " +
+            "the post yet. Remove it to continue, or complete " +
+            "the media attachment integration.",
+        );
         return;
       }
 
@@ -611,6 +645,14 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
     setError("");
 
+    if (selectedMediaAssetId) {
+      setError(
+        "Media publishing is not supported yet. " +
+          "Remove the selected image before publishing.",
+      );
+      return;
+    }
+
     if (mode === "edit" && !postId) {
       setError("Post ID is missing.");
       return;
@@ -687,15 +729,127 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
   const publishingPlatformLabel =
     selectedPlatforms[0] === "facebook" ? "Facebook" : "LinkedIn";
-  /* 
-  const selectedFacebookPage = facebookConnections.find(
-    (connection) => connection.id === selectedFacebookConnectionId,
+
+  // Phase 13.3.1:
+  // Derive checklist data from the existing editor state.
+  // Do not replace the current publishing submission flow.
+
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+  let checklistDraft = createPublishingDraft(
+    selectedWorkspaceId ?? "",
+    timezone,
   );
 
-  const publishingAccountName =
-    selectedPlatforms[0] === "facebook"
-      ? selectedFacebookPage?.pageName || "Connected Facebook Page"
-      : linkedInDisplayName || "Connected LinkedIn account"; */
+  checklistDraft = setSharedCaption(checklistDraft, caption);
+
+  // Existing drafts may have media IDs even though
+  // the current editor does not load the asset details.
+  // This marker is ONLY used for readiness evaluation.
+  // It must never be sent to the API or persisted.
+  if (existingDraftHasMedia) {
+    checklistDraft = setSharedMedia(checklistDraft, [
+      {
+        assetId: "existing-media-readiness-marker",
+        type: "image",
+      },
+    ]);
+  }
+
+  const accountCapabilities: PublishingCapabilityContext = {
+    accounts: {},
+  };
+
+  for (const platform of selectedPlatforms) {
+    let connectionId = "";
+    let accountName: string = platform;
+    let format: PublishingDestination["format"] = "text";
+    let connected = false;
+    let canPublish = false;
+
+    if (platform === "facebook") {
+      const connection = facebookConnections.find(
+        (item) => item.id === selectedFacebookConnectionId,
+      );
+
+      connectionId = connection?.id ?? "";
+      accountName = connection?.pageName ?? "Select a Facebook Page";
+
+      connected = connection?.status === "connected";
+      canPublish = connection?.canPublish === true;
+    }
+
+    if (platform === "linkedin") {
+      connectionId = linkedInConnectionId ?? "";
+      accountName = linkedInDisplayName ?? "LinkedIn account";
+
+      connected =
+        linkedInStatus === "connected" && Boolean(linkedInConnectionId);
+
+      canPublish = connected;
+    }
+
+    if (platform === "instagram") {
+      accountName = "Instagram connection unavailable";
+      format = "image";
+    }
+
+    const destination: PublishingDestination = {
+      id: `${platform}:${connectionId || "unconnected"}`,
+      platform,
+      connectionId,
+      accountName,
+      format,
+    };
+
+    checklistDraft = addDestination(checklistDraft, destination);
+
+    // Instagram is intentionally not given a verified
+    // publishing account until its integration exists.
+    if (platform !== "instagram" && connectionId) {
+      accountCapabilities.accounts[destination.id] = {
+        connectionId,
+        connected,
+        canPublish,
+      };
+    }
+  }
+
+  if (postMode === "scheduled" && scheduledAt) {
+    const parsed = parseLocalScheduleDate(scheduledAt);
+
+    checklistDraft.publishing.scheduledAt = parsed
+      ? toScheduledAtISOString(parsed)
+      : "";
+  }
+
+  const readiness = evaluatePublishingReadiness(
+    checklistDraft,
+    accountCapabilities,
+    postMode === "immediate"
+      ? "now"
+      : postMode === "scheduled"
+        ? "schedule"
+        : "draft",
+  );
+
+  const checklistBlockers: string[] = [];
+
+  if (mode === "edit" && postMode !== "draft") {
+    checklistBlockers.push(
+      "Scheduling an existing draft is not supported by " +
+        "the current editor.",
+    );
+  }
+
+  if (
+    postMode === "immediate" &&
+    (workspacesLoading || workspaceError || !selectedWorkspace)
+  ) {
+    checklistBlockers.push(
+      "Select a verified active workspace before publishing.",
+    );
+  }
 
   const editorContent = loadingPost ? (
     <div
@@ -775,6 +929,10 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         setSelectedFacebookConnectionId(connectionId);
         setError("");
       }}
+      workspaceId={selectedWorkspaceId}
+      selectedMediaAssetId={selectedMediaAssetId}
+      onMediaSelect={setSelectedMediaAssetId}
+      onMediaRemove={() => setSelectedMediaAssetId(null)}
       onSave={handleSave}
       onCancel={handleCancel}
     />
@@ -786,6 +944,37 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         <PostEditorPage
           mode={mode}
           onBack={handleCancel}
+          sidebar={
+            !loadingPost && !loadError ? (
+              <div className="space-y-5">
+                <PublishingChecklistPanel
+                  readiness={readiness}
+                  blockers={checklistBlockers}
+                />
+
+                <PublishingControls
+                  editorMode={mode}
+                  postMode={postMode}
+                  scheduledAt={scheduledAt}
+                  minScheduledAt={minScheduledAt}
+                  saving={saving || publishing}
+                  locked={savedPublishingPostId !== null}
+                  readiness={readiness}
+                  blockers={checklistBlockers}
+                  formId="storm-post-editor-form"
+                  onPostModeChange={(value) => {
+                    setPostMode(value);
+                    setError("");
+                  }}
+                  onScheduledAtChange={(value) => {
+                    setScheduledAt(value);
+                    setError("");
+                  }}
+                  onCancel={handleCancel}
+                />
+              </div>
+            ) : undefined
+          }
           preview={
             !loadingPost && !loadError ? (
               <PostPreview
