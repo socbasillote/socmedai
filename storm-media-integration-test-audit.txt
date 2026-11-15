@@ -1,0 +1,2185 @@
+STORM MEDIA PERSISTENCE INTEGRATION AUDIT
+
+===== apps/api/package.json =====
+{
+  "name": "@storm/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "start:image-worker": "node dist/workers/imageGenerationWorkerMain.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.7",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "mongoose": "^9.11.2",
+    "sharp": "^0.35.5",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.19.2",
+    "@types/supertest": "^7.2.1",
+    "mongodb-memory-server": "^11.3.0",
+    "supertest": "^7.3.1",
+    "tsx": "^4.23.15",
+    "vitest": "^5.0.4"
+  }
+}
+
+===== apps/api/vitest.config.ts =====
+FILE NOT FOUND
+
+===== apps/api/src/services/postService.ts =====
+import mongoose from "mongoose";
+
+import Post from "../models/Post.js";
+import FacebookConnection from "../models/FacebookConnection.js";
+import UserProfile from "../models/UserProfile.js";
+import Workspace from "../models/Workspace.js";
+import type { AuthenticatedUser } from "./userProfileService.js";
+import type {
+  CreatePostInput,
+  UpdateDraftPostInput,
+} from "../schemas/postSchema.js";
+import {
+  validateLinkedInConnectionSelection,
+  LinkedInConnectionSelectionError,
+} from "./linkedin/linkedinConnectionSelectionService.js";
+
+import { findAuthorizedCalendarPosts } from "./calendarPostService.js";
+
+import type { CalendarQuery } from "../schemas/calendarQuerySchema.js";
+
+import {
+  validateDraftMediaAttachments,
+  DraftMediaAttachmentError,
+} from "./media/validateDraftMediaAttachments.js";
+
+export class PostServiceError extends Error {
+  statusCode: number;
+
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.name = "PostServiceError";
+    this.statusCode = statusCode;
+  }
+}
+
+async function validatePostDraftMedia(
+  authUser: AuthenticatedUser,
+  workspaceId: string,
+  mediaIds: readonly string[],
+): Promise<string[]> {
+  try {
+    return await validateDraftMediaAttachments({
+      authUser,
+      destinationWorkspaceId: workspaceId,
+      mediaIds,
+    });
+  } catch (error) {
+    if (error instanceof DraftMediaAttachmentError) {
+      throw new PostServiceError(error.message, error.statusCode);
+    }
+
+    throw error;
+  }
+}
+
+async function getAuthorizedWorkspace(
+  authUser: AuthenticatedUser,
+  workspaceId: string,
+) {
+  if (!mongoose.isValidObjectId(workspaceId)) {
+    return null;
+  }
+
+  const profile = await UserProfile.findOne({
+    supabaseUserId: authUser.id,
+  }).select("_id");
+
+  if (!profile) {
+    return null;
+  }
+
+  const workspace = await Workspace.findOne({
+    _id: workspaceId,
+    ownerUserId: profile._id,
+  }).select("_id");
+
+  if (!workspace) {
+    return null;
+  }
+
+  return { profile, workspace };
+}
+
+async function validatePostLinkedInSelection(
+  workspaceId: string,
+  platforms: readonly string[],
+  connectionId?: string,
+): Promise<string | undefined> {
+  if (!connectionId) {
+    return undefined;
+  }
+
+  if (!platforms.includes("linkedin")) {
+    throw new PostServiceError(
+      "A LinkedIn account can only be selected when LinkedIn is a publishing platform.",
+      400,
+    );
+  }
+
+  try {
+    return await validateLinkedInConnectionSelection({
+      workspaceId,
+      connectionId,
+    });
+  } catch (error) {
+    if (error instanceof LinkedInConnectionSelectionError) {
+      throw new PostServiceError(error.message, error.statusCode);
+    }
+
+    throw error;
+  }
+}
+
+async function validatePostFacebookSelection(
+  workspaceId: string,
+  platforms: readonly string[],
+  connectionId?: string,
+): Promise<string | undefined> {
+  // No automatic Page selection.
+  if (connectionId === undefined) {
+    return undefined;
+  }
+
+  // A Page can only be selected for Facebook posts.
+  if (!platforms.includes("facebook")) {
+    throw new PostServiceError(
+      "A Facebook Page can only be selected when Facebook is a publishing platform.",
+      400,
+    );
+  }
+
+  // Validate both identifiers.
+  if (
+    !mongoose.isObjectIdOrHexString(workspaceId) ||
+    !mongoose.isObjectIdOrHexString(connectionId)
+  ) {
+    throw new PostServiceError("A valid Facebook connection is required.", 400);
+  }
+
+  // The workspace must already be authorized by the caller.
+  // Never query the connection by its ID alone.
+  const connection = await FacebookConnection.findOne({
+    _id: connectionId,
+    workspaceId,
+  })
+    .select("_id status tasks")
+    .lean();
+
+  if (!connection) {
+    throw new PostServiceError(
+      "Facebook Page connection not found in this workspace.",
+      404,
+    );
+  }
+
+  if (connection.status !== "connected") {
+    throw new PostServiceError(
+      "Facebook Page connection is not active. Reconnect the Page.",
+      409,
+    );
+  }
+
+  if (
+    !Array.isArray(connection.tasks) ||
+    !connection.tasks.includes("CREATE_CONTENT")
+  ) {
+    throw new PostServiceError(
+      "Facebook Page publishing permission is unavailable.",
+      403,
+    );
+  }
+
+  return String(connection._id);
+}
+
+export async function createWorkspacePost(
+  authUser: AuthenticatedUser,
+  input: CreatePostInput,
+) {
+  const authorization = await getAuthorizedWorkspace(
+    authUser,
+    input.workspaceId,
+  );
+
+  if (!authorization) {
+    throw new PostServiceError("Workspace not found.", 404);
+  }
+
+  // Validate scheduled publishing separately from drafts.
+  const isScheduled = input.scheduledAt !== undefined;
+
+  const scheduledAt = isScheduled ? new Date(input.scheduledAt!) : undefined;
+
+  if (isScheduled) {
+    // 1. Require a valid future date.
+    if (
+      !scheduledAt ||
+      !Number.isFinite(scheduledAt.getTime()) ||
+      scheduledAt.getTime() <= Date.now()
+    ) {
+      throw new PostServiceError(
+        "Scheduled publishing requires a valid future date.",
+        400,
+      );
+    }
+
+    // 2. Allow exactly one supported destination.
+    if (
+      input.platforms.length !== 1 ||
+      !["facebook", "linkedin"].includes(input.platforms[0])
+    ) {
+      throw new PostServiceError(
+        "Scheduled publishing requires exactly one Facebook or LinkedIn platform.",
+        400,
+      );
+    }
+
+    // 3. Require a nonempty caption.
+    if (typeof input.caption !== "string" || !input.caption.trim()) {
+      throw new PostServiceError(
+        "Scheduled publishing requires a caption.",
+        400,
+      );
+    }
+
+    // 4. Require an explicitly selected connection.
+    const platform = input.platforms[0];
+
+    const selectedConnection =
+      platform === "facebook"
+        ? input.platformConnections?.facebook
+        : input.platformConnections?.linkedin;
+
+    if (typeof selectedConnection !== "string" || !selectedConnection.trim()) {
+      throw new PostServiceError(
+        `Select a ${platform === "facebook" ? "Facebook Page" : "LinkedIn account"} before scheduling.`,
+        400,
+      );
+    }
+  }
+
+  // Media may be attached to drafts only.
+  // Scheduled publishing remains text-only.
+  if (isScheduled && input.mediaIds.length > 0) {
+    throw new PostServiceError(
+      "Scheduled media publishing is not supported yet.",
+      400,
+    );
+  }
+
+  const validatedMediaIds = await validatePostDraftMedia(
+    authUser,
+    String(authorization.workspace._id),
+    input.mediaIds,
+  );
+
+  const linkedinConnectionId = await validatePostLinkedInSelection(
+    String(authorization.workspace._id),
+    input.platforms,
+    input.platformConnections?.linkedin,
+  );
+
+  const facebookConnectionId = await validatePostFacebookSelection(
+    String(authorization.workspace._id),
+    input.platforms,
+    input.platformConnections?.facebook,
+  );
+
+  if (isScheduled) {
+    const platform = input.platforms[0];
+
+    const validatedConnectionId =
+      platform === "facebook" ? facebookConnectionId : linkedinConnectionId;
+
+    if (!validatedConnectionId) {
+      throw new PostServiceError(
+        "Scheduled publishing requires a valid, authorized publishing connection.",
+        400,
+      );
+    }
+  }
+
+  const post = await Post.create({
+    workspaceId: authorization.workspace._id,
+    createdByUserId: authorization.profile._id,
+
+    ...(input.title !== undefined ? { title: input.title } : {}),
+
+    caption: input.caption,
+    mediaIds: validatedMediaIds,
+    platforms: input.platforms,
+
+    ...(linkedinConnectionId || facebookConnectionId
+      ? {
+          platformConnections: {
+            ...(linkedinConnectionId ? { linkedin: linkedinConnectionId } : {}),
+
+            ...(facebookConnectionId ? { facebook: facebookConnectionId } : {}),
+          },
+        }
+      : {}),
+
+    status: isScheduled ? "scheduled" : "draft",
+
+    attemptCount: 0,
+
+    ...(scheduledAt ? { scheduledAt } : {}),
+  });
+
+  return post.toObject();
+}
+
+export async function listWorkspacePosts(
+  authUser: AuthenticatedUser,
+  workspaceId: string,
+  pagination?: {
+    limit: number;
+    cursor?: string;
+    search?: string;
+    status?:
+      | "all"
+      | "draft"
+      | "scheduled"
+      | "publishing"
+      | "published"
+      | "failed";
+    platform?: "all" | "facebook" | "instagram" | "linkedin";
+  },
+) {
+  const authorization = await getAuthorizedWorkspace(authUser, workspaceId);
+
+  if (!authorization) {
+    throw new PostServiceError("Workspace not found.", 404);
+  }
+
+  const fields =
+    "_id workspaceId createdByUserId title caption mediaIds platforms status scheduledAt publishedAt platformResults createdAt updatedAt";
+
+  const workspaceFilter = {
+    workspaceId: authorization.workspace._id,
+  };
+
+  // Preserve the existing full-list behavior for callers without pagination.
+  if (!pagination) {
+    return Post.find(workspaceFilter)
+      .select(fields)
+      .sort({ updatedAt: -1, _id: -1 })
+      .lean();
+  }
+
+  const filter: Record<string, unknown> = {
+    ...workspaceFilter,
+  };
+
+  if (pagination.status && pagination.status !== "all") {
+    filter.status = pagination.status;
+  }
+
+  if (pagination.platform && pagination.platform !== "all") {
+    filter.platforms = pagination.platform;
+  }
+
+  const search = pagination.search?.trim();
+
+  if (search) {
+    const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const searchRegex = new RegExp(escapedSearch, "i");
+
+    filter.$and = [
+      {
+        $or: [
+          { title: searchRegex },
+          { caption: searchRegex },
+          { platforms: searchRegex },
+          { status: searchRegex },
+        ],
+      },
+    ];
+  }
+
+  const draftCountPromise = Post.countDocuments({
+    ...workspaceFilter,
+    status: "draft",
+  });
+
+  if (pagination.cursor) {
+    const cursorPost = await Post.findOne({
+      _id: pagination.cursor,
+      ...workspaceFilter,
+    })
+      .select("_id updatedAt")
+      .lean();
+
+    if (!cursorPost) {
+      throw new PostServiceError("Invalid post cursor.", 400);
+    }
+
+    filter.$and = [
+      ...(Array.isArray(filter.$and) ? filter.$and : []),
+      {
+        $or: [
+          { updatedAt: { $lt: cursorPost.updatedAt } },
+          {
+            updatedAt: cursorPost.updatedAt,
+            _id: { $lt: cursorPost._id },
+          },
+        ],
+      },
+    ];
+  }
+
+  const [results, draftCount] = await Promise.all([
+    Post.find(filter)
+      .select(fields)
+      .sort({ updatedAt: -1, _id: -1 })
+      .limit(pagination.limit + 1)
+      .lean(),
+    draftCountPromise,
+  ]);
+
+  const hasMore = results.length > pagination.limit;
+  const posts = hasMore ? results.slice(0, pagination.limit) : results;
+  const lastPost = posts[posts.length - 1];
+
+  return {
+    posts,
+    nextCursor: hasMore && lastPost ? String(lastPost._id) : null,
+    hasMore,
+    draftCount,
+  };
+}
+
+export async function getWorkspacePostById(
+  authUser: AuthenticatedUser,
+  postId: string,
+) {
+  // Reject invalid MongoDB IDs.
+  if (!mongoose.isValidObjectId(postId)) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  // Locate the post to determine its workspace.
+  const post = await Post.findById(postId).select("_id workspaceId").lean();
+
+  if (!post) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  // Reuse the existing workspace authorization.
+  const authorization = await getAuthorizedWorkspace(
+    authUser,
+    String(post.workspaceId),
+  );
+
+  if (!authorization) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  // Return only a post belonging to the authorized workspace.
+  const authorizedPost = await Post.findOne({
+    _id: postId,
+    workspaceId: authorization.workspace._id,
+  })
+    .select(
+      "_id workspaceId createdByUserId title caption mediaIds platforms platformConnections status scheduledAt publishedAt lastError createdAt updatedAt",
+    )
+    .lean();
+
+  if (!authorizedPost) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  return authorizedPost;
+}
+
+export async function deleteWorkspaceDraft(
+  authUser: AuthenticatedUser,
+  postId: string,
+) {
+  if (!mongoose.isValidObjectId(postId)) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  const profile = await UserProfile.findOne({
+    supabaseUserId: authUser.id,
+  }).select("_id");
+
+  if (!profile) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  const post = await Post.findOne({
+    _id: postId,
+    createdByUserId: profile._id,
+  }).select("_id workspaceId status");
+
+  if (!post) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  const workspace = await Workspace.findOne({
+    _id: post.workspaceId,
+    ownerUserId: profile._id,
+  }).select("_id");
+
+  if (!workspace) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  if (post.status !== "draft") {
+    throw new PostServiceError("Only draft posts can be deleted.", 409);
+  }
+
+  const deletion = await Post.deleteOne({
+    _id: post._id,
+    workspaceId: workspace._id,
+    createdByUserId: profile._id,
+    status: "draft",
+  });
+
+  if (deletion.deletedCount !== 1) {
+    throw new PostServiceError(
+      "The draft could not be deleted because its status changed or it no longer exists.",
+      409,
+    );
+  }
+
+  return { id: postId };
+}
+
+export async function updateWorkspaceDraft(
+  authUser: AuthenticatedUser,
+  postId: string,
+  input: UpdateDraftPostInput,
+) {
+  if (!mongoose.isValidObjectId(postId)) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  const profile = await UserProfile.findOne({
+    supabaseUserId: authUser.id,
+  }).select("_id");
+
+  if (!profile) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  const post = await Post.findOne({
+    _id: postId,
+    createdByUserId: profile._id,
+  }).select("_id workspaceId status platforms platformConnections __v");
+
+  if (!post) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  const workspace = await Workspace.findOne({
+    _id: post.workspaceId,
+    ownerUserId: profile._id,
+  }).select("_id");
+
+  if (!workspace) {
+    throw new PostServiceError("Post not found.", 404);
+  }
+
+  if (post.status !== "draft") {
+    throw new PostServiceError("Only draft posts can be edited.", 409);
+  }
+
+  if (!Number.isSafeInteger(post.__v) || post.__v < 0) {
+    throw new PostServiceError(
+      "The draft version is unavailable. Refresh the post and try again.",
+      409,
+    );
+  }
+
+  const finalPlatforms = input.platforms ?? post.platforms;
+
+  // Undefined means preserve existing attachments.
+  // An empty array means explicitly remove them.
+  const validatedMediaIds =
+    input.mediaIds === undefined
+      ? undefined
+      : await validatePostDraftMedia(
+          authUser,
+          String(workspace._id),
+          input.mediaIds,
+        );
+
+  const linkedinIsSelected = finalPlatforms.includes("linkedin");
+
+  const facebookIsSelected = finalPlatforms.includes("facebook");
+
+  const requestedFacebookConnection = input.platformConnections?.facebook;
+
+  const validatedFacebookConnection = await validatePostFacebookSelection(
+    String(workspace._id),
+    finalPlatforms,
+    requestedFacebookConnection,
+  );
+
+  const requestedLinkedInConnection = input.platformConnections?.linkedin;
+
+  if (requestedLinkedInConnection && !linkedinIsSelected) {
+    throw new PostServiceError(
+      "A LinkedIn account can only be selected when LinkedIn is a publishing platform.",
+      400,
+    );
+  }
+
+  let validatedLinkedInConnection: string | undefined;
+
+  if (requestedLinkedInConnection) {
+    validatedLinkedInConnection = await validatePostLinkedInSelection(
+      String(workspace._id),
+      finalPlatforms,
+      requestedLinkedInConnection,
+    );
+  }
+
+  const update: {
+    title?: string;
+    caption?: string;
+    mediaIds?: string[];
+    platforms?: UpdateDraftPostInput["platforms"];
+    "platformConnections.linkedin"?: string;
+    "platformConnections.facebook"?: string;
+  } = {};
+
+  const unset: Record<string, ""> = {};
+
+  if (input.title !== undefined) {
+    update.title = input.title;
+  }
+
+  if (input.caption !== undefined) {
+    update.caption = input.caption;
+  }
+
+  if (validatedMediaIds !== undefined) {
+    update.mediaIds = validatedMediaIds;
+  }
+
+  if (input.platforms !== undefined) {
+    update.platforms = input.platforms;
+  }
+
+  if (!linkedinIsSelected) {
+    unset["platformConnections.linkedin"] = "";
+  } else if (validatedLinkedInConnection) {
+    update["platformConnections.linkedin"] = validatedLinkedInConnection;
+  }
+
+  if (!facebookIsSelected) {
+    unset["platformConnections.facebook"] = "";
+  } else if (validatedFacebookConnection) {
+    update["platformConnections.facebook"] = validatedFacebookConnection;
+  }
+
+  const mongoUpdate: {
+    $set: typeof update;
+    $unset?: Record<string, "">;
+    $inc: {
+      __v: number;
+    };
+  } = {
+    $set: update,
+    $inc: {
+      __v: 1,
+    },
+  };
+
+  if (Object.keys(unset).length > 0) {
+    mongoUpdate.$unset = unset;
+  }
+
+  const updatedPost = await Post.findOneAndUpdate(
+    {
+      _id: post._id,
+      workspaceId: workspace._id,
+      createdByUserId: profile._id,
+      status: "draft",
+      __v: post.__v,
+    },
+    mongoUpdate,
+    {
+      new: true,
+      runValidators: true,
+    },
+  )
+    .select(
+      "_id workspaceId createdByUserId title caption mediaIds platforms platformConnections status scheduledAt publishedAt createdAt updatedAt __v",
+    )
+    .lean();
+
+  if (!updatedPost) {
+    throw new PostServiceError(
+      "The draft could not be updated because its status changed or it no longer exists.",
+      409,
+    );
+  }
+
+  return updatedPost;
+}
+
+/**
+ * List calendar posts for an authorized workspace.
+ *
+ * Reuses Storm's existing workspace authorization.
+ */
+export async function listWorkspaceCalendarPosts(
+  authUser: AuthenticatedUser,
+  workspaceId: string,
+  range: CalendarQuery,
+) {
+  const authorization = await getAuthorizedWorkspace(authUser, workspaceId);
+
+  if (!authorization) {
+    throw new PostServiceError("Workspace not found.", 404);
+  }
+
+  return findAuthorizedCalendarPosts(
+    String(authorization.workspace._id),
+    range,
+  );
+}
+
+===== apps/api/src/services/media/validateDraftMediaAttachments.ts =====
+import mongoose from "mongoose";
+
+import MediaAsset from "../../models/MediaAsset.js";
+import UserProfile from "../../models/UserProfile.js";
+import Workspace from "../../models/Workspace.js";
+
+import type { AuthenticatedUser } from "../userProfileService.js";
+
+export class DraftMediaAttachmentError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+  ) {
+    super(message);
+    this.name = "DraftMediaAttachmentError";
+  }
+}
+
+const OBJECT_ID_PATTERN = /^[a-fA-F0-9]{24}$/;
+const MAX_MEDIA_ITEMS = 20;
+
+export type ValidateDraftMediaAttachmentsInput = {
+  authUser: AuthenticatedUser;
+  destinationWorkspaceId: string;
+  mediaIds: readonly string[];
+};
+
+export async function validateDraftMediaAttachments({
+  authUser,
+  destinationWorkspaceId,
+  mediaIds,
+}: ValidateDraftMediaAttachmentsInput): Promise<string[]> {
+  if (!authUser?.id || !OBJECT_ID_PATTERN.test(destinationWorkspaceId)) {
+    throw new DraftMediaAttachmentError("Workspace not found.", 404);
+  }
+
+  if (!Array.isArray(mediaIds) || mediaIds.length > MAX_MEDIA_ITEMS) {
+    throw new DraftMediaAttachmentError(
+      "A draft can contain at most 20 media items.",
+      400,
+    );
+  }
+
+  if (
+    mediaIds.some((id) => typeof id !== "string" || !OBJECT_ID_PATTERN.test(id))
+  ) {
+    throw new DraftMediaAttachmentError("Invalid media attachment ID.", 400);
+  }
+
+  const normalizedIds = mediaIds.map((id) => id.toLowerCase());
+
+  if (new Set(normalizedIds).size !== normalizedIds.length) {
+    throw new DraftMediaAttachmentError(
+      "Duplicate media attachments are not allowed.",
+      400,
+    );
+  }
+
+  const profile = await UserProfile.findOne({
+    supabaseUserId: authUser.id,
+  })
+    .select("_id")
+    .lean();
+
+  if (!profile) {
+    throw new DraftMediaAttachmentError("Workspace not found.", 404);
+  }
+
+  // Authorize the destination workspace first.
+  const destinationWorkspace = await Workspace.findOne({
+    _id: destinationWorkspaceId,
+    ownerUserId: profile._id,
+  })
+    .select("_id")
+    .lean();
+
+  if (!destinationWorkspace) {
+    throw new DraftMediaAttachmentError("Workspace not found.", 404);
+  }
+
+  if (normalizedIds.length === 0) {
+    return [];
+  }
+
+  // Derive authorized source workspaces from
+  // the authenticated user's ownership.
+  //
+  // Never accept client-supplied source workspace IDs
+  // as proof of authorization.
+  const authorizedWorkspaces = await Workspace.find({
+    ownerUserId: profile._id,
+  })
+    .select("_id")
+    .lean();
+
+  const authorizedWorkspaceIds = authorizedWorkspaces.map(
+    (workspace) => workspace._id,
+  );
+
+  const assets = await MediaAsset.find({
+    _id: {
+      $in: normalizedIds.map((id) => new mongoose.Types.ObjectId(id)),
+    },
+    workspaceId: {
+      $in: authorizedWorkspaceIds,
+    },
+    createdByUserId: profile._id,
+    type: "image",
+    source: "ai-generated",
+    status: "ready",
+    storageProvider: "supabase",
+    storageKey: {
+      $type: "string",
+      $ne: "",
+    },
+    mimeType: {
+      $in: ["image/png", "image/jpeg", "image/webp"],
+    },
+    width: { $gte: 1 },
+    height: { $gte: 1 },
+    fileSize: { $gte: 1 },
+  })
+    .select("_id")
+    .lean();
+
+  // Fail the entire request when even one media
+  // reference cannot be validated.
+  //
+  // Do not reveal whether an unauthorized asset
+  // exists in another workspace.
+  if (assets.length !== normalizedIds.length) {
+    throw new DraftMediaAttachmentError(
+      "One or more media attachments are unavailable.",
+      400,
+    );
+  }
+
+  return normalizedIds;
+}
+
+===== apps/api/src/services/media/mediaLibraryService.ts =====
+import mongoose from "mongoose";
+
+import MediaAsset from "../../models/MediaAsset.js";
+import UserProfile from "../../models/UserProfile.js";
+import Workspace from "../../models/Workspace.js";
+
+import type { AuthenticatedUser } from "../userProfileService.js";
+
+export type MediaLibraryScope = "current" | "all";
+
+export type MediaLibraryInput = {
+  authUser: AuthenticatedUser;
+  workspaceId: string;
+  scope: MediaLibraryScope;
+  limit?: number;
+};
+
+export class MediaLibraryError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+  ) {
+    super(message);
+    this.name = "MediaLibraryError";
+  }
+}
+
+const OBJECT_ID = /^[a-fA-F0-9]{24}$/;
+
+export async function listAuthorizedMediaLibrary({
+  authUser,
+  workspaceId,
+  scope,
+  limit = 12,
+}: MediaLibraryInput) {
+  if (!authUser?.id || !OBJECT_ID.test(workspaceId)) {
+    throw new MediaLibraryError("Workspace not found.", 404);
+  }
+
+  if (scope !== "current" && scope !== "all") {
+    throw new MediaLibraryError("Invalid media library scope.", 400);
+  }
+
+  if (!Number.isInteger(limit) || limit < 1 || limit > 30) {
+    throw new MediaLibraryError("Limit must be between 1 and 30.", 400);
+  }
+
+  // Resolve the authenticated user to the
+  // internal MongoDB profile identity.
+  const profile = await UserProfile.findOne({
+    supabaseUserId: authUser.id,
+  })
+    .select("_id")
+    .lean();
+
+  if (!profile) {
+    throw new MediaLibraryError("Workspace not found.", 404);
+  }
+
+  // Verify access to the active workspace
+  // regardless of the requested library scope.
+  const activeWorkspace = await Workspace.findOne({
+    _id: workspaceId,
+    ownerUserId: profile._id,
+  })
+    .select("_id name")
+    .lean();
+
+  if (!activeWorkspace) {
+    throw new MediaLibraryError("Workspace not found.", 404);
+  }
+
+  const workspaces =
+    scope === "current"
+      ? [activeWorkspace]
+      : await Workspace.find({
+          ownerUserId: profile._id,
+        })
+          .select("_id name")
+          .lean();
+
+  const workspaceIds = workspaces.map((workspace) => workspace._id);
+
+  const workspaceNames = new Map(
+    workspaces.map((workspace) => [String(workspace._id), workspace.name]),
+  );
+
+  // Only images created by this user in
+  // their currently authorized workspaces.
+  //
+  // Do not return storage keys, prompts,
+  // signing credentials, or private URLs.
+  const assets = await MediaAsset.find({
+    workspaceId: {
+      $in: workspaceIds,
+    },
+    createdByUserId: profile._id,
+    type: "image",
+    source: "ai-generated",
+    status: "ready",
+    storageKey: {
+      $type: "string",
+      $ne: "",
+    },
+    mimeType: "image/png",
+    width: { $gte: 1 },
+    height: { $gte: 1 },
+    fileSize: { $gte: 1 },
+  })
+    .select("_id workspaceId mimeType width height createdAt")
+    .sort({
+      createdAt: -1,
+      _id: -1,
+    })
+    .limit(limit)
+    .lean();
+
+  return {
+    scope,
+    activeWorkspaceId: String(activeWorkspace._id),
+
+    images: assets.map((asset) => {
+      const sourceWorkspaceId = String(asset.workspaceId);
+
+      return {
+        assetId: String(asset._id),
+        sourceWorkspaceId,
+        sourceWorkspaceName:
+          workspaceNames.get(sourceWorkspaceId) ?? "Workspace",
+        type: "image" as const,
+        mimeType: asset.mimeType,
+        width: asset.width,
+        height: asset.height,
+        createdAt: asset.createdAt.toISOString(),
+      };
+    }),
+  };
+}
+
+export async function getAuthorizedMediaLibraryItem(
+  authUser: AuthenticatedUser,
+  assetId: string,
+) {
+  if (!authUser?.id || !OBJECT_ID.test(assetId)) {
+    throw new MediaLibraryError("Media asset not found.", 404);
+  }
+
+  const profile = await UserProfile.findOne({
+    supabaseUserId: authUser.id,
+  })
+    .select("_id")
+    .lean();
+
+  if (!profile) {
+    throw new MediaLibraryError("Media asset not found.", 404);
+  }
+
+  // Require a ready, complete image owned by
+  // the authenticated user.
+  const asset = await MediaAsset.findOne({
+    _id: assetId,
+    createdByUserId: profile._id,
+    type: "image",
+    source: "ai-generated",
+    status: "ready",
+    storageProvider: "supabase",
+    storageKey: {
+      $type: "string",
+      $ne: "",
+    },
+    mimeType: {
+      $in: ["image/png", "image/jpeg", "image/webp"],
+    },
+    width: { $gte: 1 },
+    height: { $gte: 1 },
+    fileSize: { $gte: 1 },
+  })
+    .select("_id workspaceId mimeType width height createdAt")
+    .lean();
+
+  if (!asset) {
+    throw new MediaLibraryError("Media asset not found.", 404);
+  }
+
+  // Reauthorize the image's ORIGINAL workspace.
+  // This prevents access after workspace ownership
+  // changes or the source workspace is deleted.
+  const sourceWorkspace = await Workspace.findOne({
+    _id: asset.workspaceId,
+    ownerUserId: profile._id,
+  })
+    .select("_id name")
+    .lean();
+
+  if (!sourceWorkspace) {
+    throw new MediaLibraryError("Media asset not found.", 404);
+  }
+
+  return {
+    assetId: String(asset._id),
+    sourceWorkspaceId: String(sourceWorkspace._id),
+    sourceWorkspaceName: sourceWorkspace.name,
+    type: "image" as const,
+    mimeType: asset.mimeType,
+    width: asset.width,
+    height: asset.height,
+    createdAt: asset.createdAt.toISOString(),
+  };
+}
+
+===== apps/api/src/services/media/mediaImageAccessService.ts =====
+import { createClient } from "@supabase/supabase-js";
+
+import { env } from "../../config/env.js";
+
+import type { AuthenticatedUser } from "../userProfileService.js";
+
+import { getWorkspaceMediaAsset } from "../mediaAssetService.js";
+
+import { getImageStorageKey, IMAGE_BUCKET } from "./supabaseImageStorage.js";
+
+export const IMAGE_URL_EXPIRY_SECONDS = 60;
+
+export class MediaImageAccessError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+  ) {
+    super(message);
+    this.name = "MediaImageAccessError";
+  }
+}
+
+export type ImageUrlSigner = {
+  createSignedUrl(
+    path: string,
+    expiresIn: number,
+  ): Promise<{
+    data: { signedUrl: string } | null;
+    error: { message: string } | null;
+  }>;
+};
+
+/**
+ * Server-only Supabase service-role client.
+ *
+ * No Supabase credentials are returned
+ * to the browser.
+ */
+function getImageUrlSigner(): ImageUrlSigner {
+  const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!serviceRoleKey) {
+    throw new MediaImageAccessError(
+      "Private image access is unavailable.",
+      503,
+    );
+  }
+
+  const supabase = createClient(env.SUPABASE_URL, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+
+  return supabase.storage.from(IMAGE_BUCKET);
+}
+
+export async function createPrivateImageAccessUrl(
+  authUser: AuthenticatedUser,
+  workspaceId: string,
+  assetId: string,
+  signer?: ImageUrlSigner,
+) {
+  // Reuse the existing workspace ownership
+  // and asset authorization checks.
+  const asset = await getWorkspaceMediaAsset(authUser, workspaceId, assetId);
+
+  if (
+    asset.status !== "ready" ||
+    asset.type !== "image" ||
+    asset.source !== "ai-generated" ||
+    !asset.idempotencyKey ||
+    !asset.generationExecution
+  ) {
+    throw new MediaImageAccessError("Image is not available.", 409);
+  }
+
+  const expectedKey = getImageStorageKey(workspaceId, String(asset._id));
+
+  if (
+    asset.storageProvider !== "supabase" ||
+    asset.storageKey !== expectedKey ||
+    asset.mimeType !== "image/png" ||
+    !asset.contentSha256 ||
+    !/^[a-f0-9]{64}$/.test(asset.contentSha256)
+  ) {
+    throw new MediaImageAccessError(
+      "Image storage metadata is inconsistent.",
+      409,
+    );
+  }
+
+  const imageSigner = signer ?? getImageUrlSigner();
+
+  let signed: Awaited<ReturnType<ImageUrlSigner["createSignedUrl"]>>;
+
+  try {
+    signed = await imageSigner.createSignedUrl(
+      expectedKey,
+      IMAGE_URL_EXPIRY_SECONDS,
+    );
+  } catch {
+    throw new MediaImageAccessError(
+      "Private image access is temporarily unavailable.",
+      503,
+    );
+  }
+
+  if (signed.error || !signed.data?.signedUrl) {
+    throw new MediaImageAccessError(
+      "Private image access is temporarily unavailable.",
+      503,
+    );
+  }
+
+  // Never include the storage key,
+  // service-role token, or checksum here.
+  return {
+    assetId: String(asset._id),
+    url: signed.data.signedUrl,
+    expiresIn: IMAGE_URL_EXPIRY_SECONDS,
+  };
+}
+
+===== apps/api/src/models/MediaAsset.ts =====
+import mongoose, { Schema } from "mongoose";
+
+export const MEDIA_ASSET_STATUSES = ["pending", "ready", "failed"] as const;
+
+export type MediaAssetStatus = (typeof MEDIA_ASSET_STATUSES)[number];
+
+export const MEDIA_ASSET_MIME_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+] as const;
+
+export type MediaAssetMimeType = (typeof MEDIA_ASSET_MIME_TYPES)[number];
+
+export const MEDIA_ASSET_SOURCES = ["ai-generated"] as const;
+
+export const MEDIA_STORAGE_PROVIDERS = ["supabase"] as const;
+
+export const MEDIA_ASPECT_RATIOS = ["square", "portrait", "landscape"] as const;
+
+export const MEDIA_GENERATION_PHASES = [
+  "reserved",
+  "claimed",
+  "provider_started",
+  "storage_pending",
+  "recovery_required",
+] as const;
+
+export type MediaGenerationPhase = (typeof MEDIA_GENERATION_PHASES)[number];
+
+const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
+const CLAIM_TOKEN_PATTERN =
+  /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+const generationSchema = new Schema(
+  {
+    provider: {
+      type: String,
+      required: true,
+      trim: true,
+      minlength: 1,
+      maxlength: 80,
+    },
+
+    model: {
+      type: String,
+      required: true,
+      trim: true,
+      minlength: 1,
+      maxlength: 120,
+    },
+
+    prompt: {
+      type: String,
+      required: true,
+      trim: true,
+      minlength: 10,
+      maxlength: 3000,
+    },
+
+    aspectRatio: {
+      type: String,
+      enum: MEDIA_ASPECT_RATIOS,
+      required: true,
+    },
+  },
+  {
+    _id: false,
+    id: false,
+  },
+);
+
+/**
+ * Durable metadata for an image-generation operation.
+ *
+ * Optional for legacy assets created before
+ * the idempotency and lease system existed.
+ */
+const generationExecutionSchema = new Schema(
+  {
+    phase: {
+      type: String,
+      enum: MEDIA_GENERATION_PHASES,
+      required: true,
+      default: "reserved",
+    },
+
+    claimToken: {
+      type: String,
+      trim: true,
+      match: CLAIM_TOKEN_PATTERN,
+      default: undefined,
+    },
+
+    leaseExpiresAt: {
+      type: Date,
+      default: undefined,
+    },
+
+    providerStartedAt: {
+      type: Date,
+      default: undefined,
+    },
+
+    attemptCount: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+      validate: Number.isInteger,
+    },
+  },
+  {
+    _id: false,
+    id: false,
+    strict: "throw",
+  },
+);
+
+/**
+ * Persisted branding instructions captured when
+ * the image-generation admission is created.
+ *
+ * Null logo means the generation is unbranded.
+ * A non-null logo pins an immutable private
+ * object version and its expected checksum.
+ */
+const logoOverlaySnapshotSchema = new Schema(
+  {
+    enabled: {
+      type: Boolean,
+      required: true,
+    },
+
+    logo: {
+      type: new Schema(
+        {
+          storageKey: {
+            type: String,
+            required: true,
+            trim: true,
+            maxlength: 1024,
+          },
+
+          sha256: {
+            type: String,
+            required: true,
+            match: SHA256_HEX_PATTERN,
+          },
+        },
+        {
+          _id: false,
+          id: false,
+          strict: "throw",
+        },
+      ),
+      default: null,
+    },
+
+    position: {
+      type: String,
+      enum: ["top-left", "top-right", "bottom-left", "bottom-right"],
+      required: true,
+    },
+
+    sizePercent: {
+      type: Number,
+      required: true,
+      min: 5,
+      max: 30,
+      validate: Number.isInteger,
+    },
+
+    opacity: {
+      type: Number,
+      required: true,
+      min: 0.1,
+      max: 1,
+    },
+  },
+  {
+    _id: false,
+    id: false,
+    strict: "throw",
+  },
+);
+
+/**
+ * Per-image branding instructions captured at admission.
+ *
+ * New format:
+ * - none: explicitly unbranded
+ * - logo: immutable logo reference and appearance
+ * - text: immutable label and appearance
+ *
+ * Older assets may not contain this field.
+ */
+const brandingSnapshotSchema = new Schema(
+  {
+    type: {
+      type: String,
+      enum: ["none", "logo", "text"],
+      required: true,
+    },
+
+    logo: {
+      type: new Schema(
+        {
+          storageKey: {
+            type: String,
+            required: true,
+            trim: true,
+            maxlength: 1024,
+          },
+
+          sha256: {
+            type: String,
+            required: true,
+            match: SHA256_HEX_PATTERN,
+          },
+        },
+        {
+          _id: false,
+          id: false,
+          strict: "throw",
+        },
+      ),
+      default: undefined,
+    },
+
+    text: {
+      type: String,
+      trim: true,
+      minlength: 1,
+      maxlength: 80,
+      default: undefined,
+    },
+
+    position: {
+      type: String,
+      enum: ["top-left", "top-right", "bottom-left", "bottom-right"],
+      default: undefined,
+    },
+
+    sizePercent: {
+      type: Number,
+      min: 5,
+      max: 30,
+      validate: Number.isInteger,
+      default: undefined,
+    },
+
+    opacity: {
+      type: Number,
+      min: 0.1,
+      max: 1,
+      default: undefined,
+    },
+  },
+  {
+    _id: false,
+    id: false,
+    strict: "throw",
+  },
+);
+
+const mediaAssetSchema = new Schema(
+  {
+    workspaceId: {
+      type: Schema.Types.ObjectId,
+      ref: "Workspace",
+      required: true,
+      immutable: true,
+    },
+
+    createdByUserId: {
+      type: Schema.Types.ObjectId,
+      ref: "UserProfile",
+      required: true,
+      immutable: true,
+    },
+
+    type: {
+      type: String,
+      enum: ["image"],
+      default: "image",
+      required: true,
+      immutable: true,
+    },
+
+    source: {
+      type: String,
+      enum: MEDIA_ASSET_SOURCES,
+      default: "ai-generated",
+      required: true,
+      immutable: true,
+    },
+
+    status: {
+      type: String,
+      enum: MEDIA_ASSET_STATUSES,
+      default: "pending",
+      required: true,
+    },
+
+    storageProvider: {
+      type: String,
+      enum: MEDIA_STORAGE_PROVIDERS,
+      default: "supabase",
+      required: true,
+    },
+
+    /**
+     * Private object-storage key.
+     *
+     * Do not store public URLs or signed URLs here.
+     */
+    storageKey: {
+      type: String,
+      trim: true,
+      minlength: 1,
+      maxlength: 1024,
+      default: undefined,
+    },
+
+    mimeType: {
+      type: String,
+      enum: MEDIA_ASSET_MIME_TYPES,
+      default: undefined,
+    },
+
+    width: {
+      type: Number,
+      min: 1,
+      max: 16384,
+      validate: Number.isInteger,
+      default: undefined,
+    },
+
+    height: {
+      type: Number,
+      min: 1,
+      max: 16384,
+      validate: Number.isInteger,
+      default: undefined,
+    },
+
+    fileSize: {
+      type: Number,
+      min: 1,
+      max: MAX_IMAGE_BYTES,
+      validate: Number.isInteger,
+      default: undefined,
+    },
+
+    generation: {
+      type: generationSchema,
+      required: true,
+    },
+
+    /**
+     * A client-provided request identifier scoped
+     * to one workspace.
+     *
+     * Assigned on creation, never reassigned.
+     */
+    idempotencyKey: {
+      type: String,
+      trim: true,
+      minlength: 16,
+      maxlength: 128,
+      immutable: true,
+      default: undefined,
+    },
+
+    /**
+     * SHA-256 of the canonical generation request.
+     *
+     * This detects reuse of the same key with
+     * different generation parameters.
+     */
+    requestFingerprint: {
+      type: String,
+      match: SHA256_HEX_PATTERN,
+      immutable: true,
+      default: undefined,
+    },
+
+    /**
+     * Internal operation tracking.
+     *
+     * Legacy records do not automatically gain
+     * a generation execution record.
+     */
+    generationExecution: {
+      type: generationExecutionSchema,
+      default: undefined,
+    },
+
+    logoOverlaySnapshot: {
+      type: logoOverlaySnapshotSchema,
+      default: undefined,
+      immutable: true,
+    },
+
+    /**
+     * New per-image branding snapshot.
+     *
+     * Optional so existing assets remain valid.
+     * Created at admission, never intentionally updated.
+     */
+    brandingSnapshot: {
+      type: brandingSnapshotSchema,
+      default: undefined,
+      immutable: true,
+    },
+
+    /**
+     * SHA-256 of the verified, normalized PNG bytes.
+     *
+     * Populated by a future claim-aware completion
+     * service, not from client input.
+     */
+    contentSha256: {
+      type: String,
+      match: SHA256_HEX_PATTERN,
+      default: undefined,
+    },
+
+    failureReason: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: undefined,
+    },
+  },
+  {
+    collection: "media_assets",
+    timestamps: true,
+    versionKey: false,
+    strict: "throw",
+  },
+);
+
+/**
+ * A ready image must have an identifiable
+ * storage object and valid file metadata.
+ */
+mediaAssetSchema.pre("validate", function () {
+  const hasKey = this.idempotencyKey != null;
+  const hasFingerprint = this.requestFingerprint != null;
+  const hasExecution = this.generationExecution != null;
+
+  // New operation metadata is all-or-nothing.
+  // Legacy assets without it remain valid.
+  if (
+    [hasKey, hasFingerprint, hasExecution].some((value) => value !== hasKey)
+  ) {
+    this.invalidate(
+      "generationExecution",
+      "Generation idempotency metadata must be complete.",
+    );
+  }
+
+  const execution = this.generationExecution;
+
+  if (execution) {
+    const hasClaim = Boolean(execution.claimToken);
+    const hasLease = Boolean(execution.leaseExpiresAt);
+
+    if (hasClaim !== hasLease) {
+      this.invalidate(
+        "generationExecution",
+        "Claim token and lease expiration must be paired.",
+      );
+    }
+
+    if (execution.phase === "claimed" && (!hasClaim || !hasLease)) {
+      this.invalidate(
+        "generationExecution",
+        "A claimed operation requires a lease.",
+      );
+    }
+
+    if (
+      execution.phase === "provider_started" &&
+      !execution.providerStartedAt
+    ) {
+      this.invalidate(
+        "generationExecution.providerStartedAt",
+        "Provider start time is required.",
+      );
+    }
+  }
+
+  const snapshot = this.logoOverlaySnapshot;
+
+  if (snapshot) {
+    if (snapshot.enabled && !snapshot.logo) {
+      this.invalidate(
+        "logoOverlaySnapshot",
+        "Enabled branding requires a logo snapshot.",
+      );
+    }
+
+    if (snapshot.logo) {
+      const workspaceId = String(this.workspaceId).toLowerCase();
+
+      const expectedPattern = new RegExp(
+        `^workspaces/${workspaceId}/logos/[a-f0-9]{24}\\.png$`,
+      );
+
+      if (!expectedPattern.test(snapshot.logo.storageKey)) {
+        this.invalidate(
+          "logoOverlaySnapshot.logo.storageKey",
+          "Snapshot logo must belong to the asset workspace.",
+        );
+      }
+    }
+  }
+
+  /**
+   * Validate the new per-image branding snapshot.
+   *
+   * Legacy assets without brandingSnapshot continue
+   * using their existing logoOverlaySnapshot.
+   */
+  const branding = this.brandingSnapshot;
+
+  if (branding) {
+    const hasLogo = branding.logo != null;
+    const hasText = branding.text != null;
+
+    const hasAnyAppearance =
+      branding.position != null ||
+      branding.sizePercent != null ||
+      branding.opacity != null;
+
+    const hasCompleteAppearance =
+      branding.position != null &&
+      branding.sizePercent != null &&
+      branding.opacity != null;
+
+    if (branding.type === "none") {
+      if (hasLogo || hasText || hasAnyAppearance) {
+        this.invalidate(
+          "brandingSnapshot",
+          "Unbranded images cannot contain logo, text, or appearance settings.",
+        );
+      }
+    }
+
+    if (branding.type === "logo") {
+      if (!hasLogo || hasText || !hasCompleteAppearance) {
+        this.invalidate(
+          "brandingSnapshot",
+          "Logo branding requires a logo and complete appearance settings.",
+        );
+      }
+
+      if (branding.logo) {
+        const workspaceId = String(this.workspaceId).toLowerCase();
+
+        const expectedPattern = new RegExp(
+          `^workspaces/${workspaceId}/logos/[a-f0-9]{24}\\.png$`,
+        );
+
+        if (!expectedPattern.test(branding.logo.storageKey)) {
+          this.invalidate(
+            "brandingSnapshot.logo.storageKey",
+            "Branding logo must belong to the asset workspace.",
+          );
+        }
+      }
+    }
+
+    if (branding.type === "text") {
+      if (
+        hasLogo ||
+        !hasText ||
+        !branding.text?.trim() ||
+        !hasCompleteAppearance
+      ) {
+        this.invalidate(
+          "brandingSnapshot",
+          "Text branding requires a non-empty label and complete appearance settings.",
+        );
+      }
+    }
+  }
+
+  if (this.status !== "ready") {
+    return;
+  }
+
+  if (!this.storageKey) {
+    this.invalidate("storageKey", "A ready image requires a storage key.");
+  }
+
+  if (!this.mimeType) {
+    this.invalidate("mimeType", "A ready image requires a MIME type.");
+  }
+
+  if (!this.width) {
+    this.invalidate("width", "A ready image requires a width.");
+  }
+
+  if (!this.height) {
+    this.invalidate("height", "A ready image requires a height.");
+  }
+
+  if (!this.fileSize) {
+    this.invalidate("fileSize", "A ready image requires a file size.");
+  }
+});
+
+/**
+ * Efficient workspace Media Library queries.
+ * Most recently created images first.
+ */
+mediaAssetSchema.index({
+  workspaceId: 1,
+  createdAt: -1,
+  _id: -1,
+});
+
+/**
+ * Workspace-scoped status and history queries.
+ */
+mediaAssetSchema.index({
+  workspaceId: 1,
+  status: 1,
+  createdAt: -1,
+});
+
+/**
+ * One database asset per stored object key.
+ * Only records with string keys are indexed.
+ */
+mediaAssetSchema.index(
+  { storageKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      storageKey: { $type: "string" },
+    },
+  },
+);
+
+/**
+ * One durable generation request per
+ * workspace and idempotency key.
+ *
+ * Legacy assets lacking the key are excluded.
+ */
+mediaAssetSchema.index(
+  {
+    workspaceId: 1,
+    idempotencyKey: 1,
+  },
+  {
+    unique: true,
+    partialFilterExpression: {
+      idempotencyKey: {
+        $type: "string",
+      },
+    },
+  },
+);
+
+mediaAssetSchema.index({
+  status: 1,
+  "generationExecution.phase": 1,
+  "generationExecution.leaseExpiresAt": 1,
+});
+
+mediaAssetSchema.index(
+  {
+    workspaceId: 1,
+    createdByUserId: 1,
+    createdAt: -1,
+    _id: -1,
+  },
+  {
+    name: "image_history_workspace_owner_order",
+    partialFilterExpression: {
+      type: "image",
+      source: "ai-generated",
+    },
+  },
+);
+
+const MediaAsset =
+  mongoose.models.MediaAsset ?? mongoose.model("MediaAsset", mediaAssetSchema);
+
+export default MediaAsset;
+
+===== EXISTING TEST FILES =====
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\config\imageGenerationConfig.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\controllers\facebookConnectionsController.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\controllers\facebookController.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\controllers\facebookOAuthSessionController.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\controllers\facebookPageConnectionController.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\controllers\linkedinController.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\models\CreditTransaction.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\models\MediaAsset.brandingSnapshot.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\models\MediaAsset.logoSnapshot.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\models\MediaAsset.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\models\MediaAssetGeneration.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\models\MediaAssetGeneration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\models\Post.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\routes\aiContentRoutes.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\routes\calendarRoutes.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\routes\facebookRoutes.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\routes\imageGenerationRoutes.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\schemas\aiImageSchema.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\schemas\calendarQuerySchema.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\schemas\imageGenerationCommandSchema.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\schemas\postMediaAttachments.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\schemas\postSchema.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookAuthorizationService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookCallbackService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookConnectionQueryService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookLongLivedTokenService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookOAuthCookieReader.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookOAuthCookieService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookOAuthSessionService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookOAuthStateService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookOriginValidationService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookPageConnectionOrchestrator.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookPageConnectionService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookPageDiscoveryService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookPostService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookPublishAuthorizationService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookPublishingTokenService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookPublishInput.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookTokenEncryptionService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookTokenService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookUserIdentityService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\linkedin\linkedinAuthorizationService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\linkedin\linkedinCallbackService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\linkedin\linkedinConnectionSelectionService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\linkedin\linkedinConnectionService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\linkedin\linkedinConnectionStatusService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\linkedin\linkedinOAuthStateService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\linkedin\linkedinPostService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\linkedin\linkedinProfileService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\linkedin\linkedinPublishingTokenService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\linkedin\linkedinTokenEncryptionService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\linkedin\linkedinTokenService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\providers\mockImageProvider.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\providers\openaiImageProvider.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\imageValidation.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaAssetStorageService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationCompletionService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationRecoveryService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaImageAccessService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaImageAccessService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaLibraryItem.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\prepareBrandedGeneratedImage.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\resolveAdmittedImageBranding.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\supabaseImageStorage.real.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\supabaseImageStorage.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\textLabelAspectRatio.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\textLabelFontMetrics.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\textLabelLayout.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\textLabelOverlay.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\textLabelRuntimeFont.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\validateDraftMediaAttachments.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\workspaceLogoConfig.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\workspaceLogoOverlay.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\workspaceLogoStorage.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\dryRunPublishingAdapter.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookImmediatePublishingExecutionService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookImmediatePublishingExecutionService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookImmediatePublishingService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookImmediatePublishingService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookPublishingAdapter.connectionSelection.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookPublishingAdapter.orchestrator.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookPublishingAdapter.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookPublishingAuthorizationService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\immediatePublishingService.claim.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\immediatePublishingService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\linkedinPublishingAdapter.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\platformPublishingAdapterRouter.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\platformResultService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\platformResultService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\platformResultTransitions.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\postStatusReconciliationService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\postStatusReconciliationService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\publishingAdapterFactory.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\publishingAuthorizationService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\publishingCoordinator.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\publishingFactoryOrchestrator.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\publishingOrchestrator.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\publishingService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\calendarAuthorization.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\calendarPostService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\calendarPostService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageCreditLifecycle.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationAdministrativeSettlementService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationAdmissionService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationLiveAdmissionReadiness.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationLiveGate.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationLiveWorker.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationOrchestrationService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationQueueService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationReconciliation.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationWorkerProviderGate.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationWorkerService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\mediaAssetService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\mediaGenerationClaimService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\openaiImageTransport.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\postService.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\postService.service.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\postService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\scheduledPostWorker.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\scheduledPostWorkerRunner.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\workspaceLogoPreviewService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\tests\integration\facebookPageConnection.integration.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\tests\aiCaptionVariations.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\tests\aiPlatformCaptionsRoute.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\tests\aiPlatformCaptionsSchema.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\tests\aiPlatformCaptionsService.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\tests\scheduledClaimSafety.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\tests\scheduledDispatcherSafety.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\tests\scheduledFailurePersistence.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\tests\scheduledOrchestratorLease.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\tests\scheduledPostCreation.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\tests\scheduledPostSchema.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\tests\scheduledWorkerRunner.test.ts
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\app.test.ts
+
+===== DATABASE TEST UTILITIES =====
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\controllers\facebookController.test.ts:2 import request from "supertest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\controllers\facebookController.test.ts:3 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\controllers\facebookController.test.ts:238 afterAll(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\controllers\facebookOAuthSessionController.test.ts:3 import request from "supertest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\controllers\facebookPageConnectionController.test.ts:1 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\controllers\facebookPageConnectionController.test.ts:4 import request from "supertest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\controllers\facebookPageConnectionController.test.ts:103 afterAll(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\controllers\linkedinController.test.ts:3 import request from "supertest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\models\MediaAssetGeneration.integration.test.ts:2 import { MongoMemoryServer } from "mongodb-memory-server";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\models\MediaAssetGeneration.integration.test.ts:4 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\models\MediaAssetGeneration.integration.test.ts:8 let mongo: MongoMemoryServer;
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\models\MediaAssetGeneration.integration.test.ts:43 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\models\MediaAssetGeneration.integration.test.ts:44 mongo = await MongoMemoryServer.create();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\models\MediaAssetGeneration.integration.test.ts:55 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\routes\aiContentRoutes.test.ts:2 import request from "supertest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\routes\calendarRoutes.test.ts:7 import request from "supertest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\routes\facebookRoutes.test.ts:3 import request from "supertest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\routes\imageGenerationRoutes.test.ts:2 import request from "supertest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookOAuthCookieService.test.ts:1 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookOAuthCookieService.test.ts:34 afterAll(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookOriginValidationService.test.ts:1 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\facebook\facebookOriginValidationService.test.ts:30 afterAll(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaAssetStorageService.integration.test.ts:3 import { MongoMemoryServer } from "mongodb-memory-server";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaAssetStorageService.integration.test.ts:6 afterAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaAssetStorageService.integration.test.ts:7 beforeAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaAssetStorageService.integration.test.ts:33 let mongo: MongoMemoryServer;
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaAssetStorageService.integration.test.ts:141 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaAssetStorageService.integration.test.ts:142 mongo = await MongoMemoryServer.create();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaAssetStorageService.integration.test.ts:186 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationCompletionService.integration.test.ts:3 import { MongoMemoryServer } from "mongodb-memory-server";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationCompletionService.integration.test.ts:7 afterAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationCompletionService.integration.test.ts:8 beforeAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationCompletionService.integration.test.ts:50 let mongo: MongoMemoryServer;
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationCompletionService.integration.test.ts:234 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationCompletionService.integration.test.ts:235 mongo = await MongoMemoryServer.create();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationCompletionService.integration.test.ts:279 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationRecoveryService.integration.test.ts:4 import { MongoMemoryServer } from "mongodb-memory-server";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationRecoveryService.integration.test.ts:7 afterAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationRecoveryService.integration.test.ts:8 beforeAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationRecoveryService.integration.test.ts:40 let mongo: MongoMemoryServer;
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationRecoveryService.integration.test.ts:173 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationRecoveryService.integration.test.ts:174 mongo = await MongoMemoryServer.create();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaGenerationRecoveryService.integration.test.ts:218 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaImageAccessService.integration.test.ts:2 import { MongoMemoryServer } from "mongodb-memory-server";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaImageAccessService.integration.test.ts:5 afterAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaImageAccessService.integration.test.ts:6 beforeAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaImageAccessService.integration.test.ts:28 let mongo: MongoMemoryServer;
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaImageAccessService.integration.test.ts:106 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaImageAccessService.integration.test.ts:107 mongo = await MongoMemoryServer.create();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\media\mediaImageAccessService.integration.test.ts:141 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookImmediatePublishingExecutionService.integration.test.ts:4 afterAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookImmediatePublishingExecutionService.integration.test.ts:5 beforeAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookImmediatePublishingExecutionService.integration.test.ts:75 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookImmediatePublishingExecutionService.integration.test.ts:91 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookImmediatePublishingService.integration.test.ts:4 afterAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookImmediatePublishingService.integration.test.ts:6 beforeAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookImmediatePublishingService.integration.test.ts:49 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\facebookImmediatePublishingService.integration.test.ts:64 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\immediatePublishingService.integration.test.ts:4 afterAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\immediatePublishingService.integration.test.ts:6 beforeAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\immediatePublishingService.integration.test.ts:56 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\immediatePublishingService.integration.test.ts:73 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\platformResultService.integration.test.ts:2 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\platformResultService.integration.test.ts:31 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\platformResultService.integration.test.ts:41 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\postStatusReconciliationService.integration.test.ts:3 afterAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\postStatusReconciliationService.integration.test.ts:4 beforeAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\postStatusReconciliationService.integration.test.ts:28 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\publishing\postStatusReconciliationService.integration.test.ts:38 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\calendarPostService.integration.test.ts:2 import { MongoMemoryServer } from "mongodb-memory-server";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\calendarPostService.integration.test.ts:4 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\calendarPostService.integration.test.ts:21 let mongo: MongoMemoryServer;
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\calendarPostService.integration.test.ts:51 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\calendarPostService.integration.test.ts:52 mongo = await MongoMemoryServer.create();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\calendarPostService.integration.test.ts:61 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageCreditLifecycle.integration.test.ts:2 import { MongoMemoryReplSet } from "mongodb-memory-server";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageCreditLifecycle.integration.test.ts:5 afterAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageCreditLifecycle.integration.test.ts:6 beforeAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageCreditLifecycle.integration.test.ts:110 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageCreditLifecycle.integration.test.ts:167 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationAdministrativeSettlementService.integration.test.ts:2 import { MongoMemoryReplSet } from "mongodb-memory-server";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationAdministrativeSettlementService.integration.test.ts:3 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationAdministrativeSettlementService.integration.test.ts:89 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationAdministrativeSettlementService.integration.test.ts:114 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationAdmissionService.integration.test.ts:2 import { MongoMemoryReplSet } from "mongodb-memory-server";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationAdmissionService.integration.test.ts:4 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationAdmissionService.integration.test.ts:138 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationAdmissionService.integration.test.ts:190 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationLiveWorker.integration.test.ts:9 import { MongoMemoryReplSet } from "mongodb-memory-server";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationLiveWorker.integration.test.ts:11 afterAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationLiveWorker.integration.test.ts:12 beforeAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationLiveWorker.integration.test.ts:318 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationLiveWorker.integration.test.ts:359 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationOrchestrationService.integration.test.ts:2 import { MongoMemoryReplSet } from "mongodb-memory-server";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationOrchestrationService.integration.test.ts:5 afterAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationOrchestrationService.integration.test.ts:6 beforeAll,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationOrchestrationService.integration.test.ts:204 beforeAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationOrchestrationService.integration.test.ts:255 afterAll(async () => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationQueueService.integration.test.ts:2 import { MongoMemoryReplSet } from "mongodb-memory-server";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\api\src\services\imageGenerationQueueService.integration.test.ts:4 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";

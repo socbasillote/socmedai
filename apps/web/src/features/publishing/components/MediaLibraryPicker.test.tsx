@@ -6,97 +6,172 @@ import userEvent from "@testing-library/user-event";
 
 import { MediaLibraryPicker } from "./MediaLibraryPicker";
 
-import {
-  getWorkspaceImageHistory,
-  getWorkspaceImageUrl,
-} from "@/lib/imageGeneration";
+import { getMediaLibrary } from "@/lib/mediaLibrary";
+import { getWorkspaceImageUrl } from "@/lib/imageGeneration";
+
+vi.mock("@/lib/mediaLibrary", () => ({
+  getMediaLibrary: vi.fn(),
+}));
 
 vi.mock("@/lib/imageGeneration", () => ({
-  getWorkspaceImageHistory: vi.fn(),
   getWorkspaceImageUrl: vi.fn(),
 }));
 
-const WORKSPACE_ID = "507f1f77bcf86cd799439011";
-const ASSET_ID = "507f1f77bcf86cd799439012";
+const WORKSPACE_A = "507f1f77bcf86cd799439011";
+const WORKSPACE_B = "507f1f77bcf86cd799439012";
+const ASSET_A = "507f1f77bcf86cd799439013";
+const ASSET_B = "507f1f77bcf86cd799439014";
 
-const readyImage = {
-  assetId: ASSET_ID,
-  status: "ready" as const,
-  state: "ready" as const,
+const coffeeImage = {
+  assetId: ASSET_A,
+  sourceWorkspaceId: WORKSPACE_A,
+  sourceWorkspaceName: "Coffee Shop",
+  type: "image" as const,
+  mimeType: "image/png",
+  width: 1024,
+  height: 1024,
   createdAt: "2026-11-01T00:00:00.000Z",
-  updatedAt: "2026-11-01T00:00:00.000Z",
-  aspectRatio: "square" as const,
-  image: {
-    width: 1024,
-    height: 1024,
-    mimeType: "image/png" as const,
-  },
 };
 
-describe("MediaLibraryPicker", () => {
+const beautyImage = {
+  assetId: ASSET_B,
+  sourceWorkspaceId: WORKSPACE_B,
+  sourceWorkspaceName: "Beauty Brand",
+  type: "image" as const,
+  mimeType: "image/png",
+  width: 1024,
+  height: 1024,
+  createdAt: "2026-11-02T00:00:00.000Z",
+};
+
+describe("MediaLibraryPicker workspace filters", () => {
   beforeEach(() => {
     vi.resetAllMocks();
 
-    vi.mocked(getWorkspaceImageHistory).mockResolvedValue({
-      images: [readyImage],
-      nextCursor: null,
-      hasMore: false,
-    });
+    vi.mocked(getMediaLibrary).mockImplementation(
+      async (workspaceId, scope = "current") => ({
+        scope,
+        activeWorkspaceId: workspaceId,
+        images:
+          scope === "current" ? [coffeeImage] : [beautyImage, coffeeImage],
+      }),
+    );
 
-    vi.mocked(getWorkspaceImageUrl).mockResolvedValue({
-      assetId: ASSET_ID,
-      url: "https://example.test/signed-image",
-      expiresIn: 60,
-    });
+    vi.mocked(getWorkspaceImageUrl).mockImplementation(
+      async (_workspaceId, assetId) => ({
+        assetId,
+        url: `https://example.test/images/${assetId}`,
+        expiresIn: 60,
+      }),
+    );
   });
 
   afterEach(() => {
     cleanup();
   });
 
-  it("loads ready workspace images", async () => {
+  it("loads Current Workspace by default", async () => {
     render(
       <MediaLibraryPicker
-        workspaceId={WORKSPACE_ID}
+        workspaceId={WORKSPACE_A}
         selectedAssetId={null}
         onSelect={vi.fn()}
       />,
     );
 
-    const image = await screen.findByRole("img", {
-      name: "Generated workspace image",
+    await waitFor(() => {
+      expect(getMediaLibrary).toHaveBeenCalledWith(WORKSPACE_A, "current", 12);
     });
 
-    expect(image.getAttribute("src")).toBe("https://example.test/signed-image");
+    expect(
+      await screen.findByRole("button", {
+        name: `Select image ${ASSET_A}`,
+      }),
+    ).toBeTruthy();
 
-    expect(getWorkspaceImageHistory).toHaveBeenCalledWith(WORKSPACE_ID, {
-      limit: 12,
+    expect(
+      screen.queryByRole("button", {
+        name: `Select image ${ASSET_B}`,
+      }),
+    ).toBeNull();
+  });
+
+  it("loads images from all owned workspaces", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MediaLibraryPicker
+        workspaceId={WORKSPACE_A}
+        selectedAssetId={null}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "All Workspaces",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(getMediaLibrary).toHaveBeenCalledWith(WORKSPACE_A, "all", 12);
+    });
+
+    expect(await screen.findByText("Beauty Brand")).toBeTruthy();
+
+    expect(screen.getByText("Coffee Shop")).toBeTruthy();
+  });
+
+  it("requests previews using source workspace IDs", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MediaLibraryPicker
+        workspaceId={WORKSPACE_A}
+        selectedAssetId={null}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "All Workspaces",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(getWorkspaceImageUrl).toHaveBeenCalledWith(WORKSPACE_B, ASSET_B);
     });
   });
 
-  it("returns the selected media asset ID", async () => {
+  it("selects an image from another workspace", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
 
     render(
       <MediaLibraryPicker
-        workspaceId={WORKSPACE_ID}
+        workspaceId={WORKSPACE_A}
         selectedAssetId={null}
         onSelect={onSelect}
       />,
     );
 
-    const button = await screen.findByRole("button", {
-      name: `Select image ${ASSET_ID}`,
+    await user.click(
+      screen.getByRole("button", {
+        name: "All Workspaces",
+      }),
+    );
+
+    const selectButton = await screen.findByRole("button", {
+      name: `Select image ${ASSET_B}`,
     });
 
-    await user.click(button);
+    await user.click(selectButton);
 
-    expect(onSelect).toHaveBeenCalledOnce();
-    expect(onSelect).toHaveBeenCalledWith(ASSET_ID);
+    expect(onSelect).toHaveBeenCalledWith(ASSET_B);
   });
 
-  it("does not fetch images without a workspace", () => {
+  it("does not fetch without an active workspace", () => {
     render(
       <MediaLibraryPicker
         workspaceId={null}
@@ -109,61 +184,70 @@ describe("MediaLibraryPicker", () => {
       screen.getByText("Select a workspace to view its images."),
     ).toBeTruthy();
 
-    expect(getWorkspaceImageHistory).not.toHaveBeenCalled();
+    expect(getMediaLibrary).not.toHaveBeenCalled();
   });
 
-  it("does not display failed generations", async () => {
-    vi.mocked(getWorkspaceImageHistory).mockResolvedValue({
-      images: [
-        {
-          ...readyImage,
-          status: "failed",
-          state: "failed",
-        },
-      ],
-      nextCursor: null,
-      hasMore: false,
-    });
+  it("disables images whose previews are unavailable", async () => {
+    vi.mocked(getWorkspaceImageUrl).mockRejectedValue(
+      new Error("Unable to sign image"),
+    );
 
     render(
       <MediaLibraryPicker
-        workspaceId={WORKSPACE_ID}
+        workspaceId={WORKSPACE_A}
         selectedAssetId={null}
         onSelect={vi.fn()}
       />,
     );
 
-    expect(await screen.findByText("No ready images found")).toBeTruthy();
+    const button = await screen.findByRole("button", {
+      name: `Select image ${ASSET_A}`,
+    });
 
-    expect(getWorkspaceImageUrl).not.toHaveBeenCalled();
+    expect(button.hasAttribute("disabled")).toBe(true);
   });
 
-  it("does not allow selection without a preview URL", async () => {
-    vi.mocked(getWorkspaceImageUrl).mockRejectedValue(
-      new Error("Temporary signing failure"),
-    );
-
-    const onSelect = vi.fn();
+  it("resets the filter when active workspace changes", async () => {
     const user = userEvent.setup();
 
-    render(
+    const { rerender } = render(
       <MediaLibraryPicker
-        workspaceId={WORKSPACE_ID}
+        workspaceId={WORKSPACE_A}
         selectedAssetId={null}
-        onSelect={onSelect}
+        onSelect={vi.fn()}
       />,
     );
 
-    const button = await screen.findByRole("button", {
-      name: `Select image ${ASSET_ID}`,
+    await user.click(
+      screen.getByRole("button", {
+        name: "All Workspaces",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(getMediaLibrary).toHaveBeenCalledWith(WORKSPACE_A, "all", 12);
+    });
+
+    rerender(
+      <MediaLibraryPicker
+        workspaceId={WORKSPACE_B}
+        selectedAssetId={null}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByRole("button", {
+            name: "Current Workspace",
+          })
+          .getAttribute("aria-pressed"),
+      ).toBe("true");
     });
 
     await waitFor(() => {
-      expect(button.hasAttribute("disabled")).toBe(true);
+      expect(getMediaLibrary).toHaveBeenCalledWith(WORKSPACE_B, "current", 12);
     });
-
-    await user.click(button);
-
-    expect(onSelect).not.toHaveBeenCalled();
   });
 });

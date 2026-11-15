@@ -18,6 +18,11 @@ import { findAuthorizedCalendarPosts } from "./calendarPostService.js";
 
 import type { CalendarQuery } from "../schemas/calendarQuerySchema.js";
 
+import {
+  validateDraftMediaAttachments,
+  DraftMediaAttachmentError,
+} from "./media/validateDraftMediaAttachments.js";
+
 export class PostServiceError extends Error {
   statusCode: number;
 
@@ -25,6 +30,26 @@ export class PostServiceError extends Error {
     super(message);
     this.name = "PostServiceError";
     this.statusCode = statusCode;
+  }
+}
+
+async function validatePostDraftMedia(
+  authUser: AuthenticatedUser,
+  workspaceId: string,
+  mediaIds: readonly string[],
+): Promise<string[]> {
+  try {
+    return await validateDraftMediaAttachments({
+      authUser,
+      destinationWorkspaceId: workspaceId,
+      mediaIds,
+    });
+  } catch (error) {
+    if (error instanceof DraftMediaAttachmentError) {
+      throw new PostServiceError(error.message, error.statusCode);
+    }
+
+    throw error;
   }
 }
 
@@ -214,9 +239,20 @@ export async function createWorkspacePost(
     }
   }
 
-  if (input.mediaIds.length > 0) {
-    throw new PostServiceError("Media attachments are not available yet.", 400);
+  // Media may be attached to drafts only.
+  // Scheduled publishing remains text-only.
+  if (isScheduled && input.mediaIds.length > 0) {
+    throw new PostServiceError(
+      "Scheduled media publishing is not supported yet.",
+      400,
+    );
   }
+
+  const validatedMediaIds = await validatePostDraftMedia(
+    authUser,
+    String(authorization.workspace._id),
+    input.mediaIds,
+  );
 
   const linkedinConnectionId = await validatePostLinkedInSelection(
     String(authorization.workspace._id),
@@ -251,7 +287,7 @@ export async function createWorkspacePost(
     ...(input.title !== undefined ? { title: input.title } : {}),
 
     caption: input.caption,
-    mediaIds: [],
+    mediaIds: validatedMediaIds,
     platforms: input.platforms,
 
     ...(linkedinConnectionId || facebookConnectionId
@@ -540,6 +576,17 @@ export async function updateWorkspaceDraft(
 
   const finalPlatforms = input.platforms ?? post.platforms;
 
+  // Undefined means preserve existing attachments.
+  // An empty array means explicitly remove them.
+  const validatedMediaIds =
+    input.mediaIds === undefined
+      ? undefined
+      : await validatePostDraftMedia(
+          authUser,
+          String(workspace._id),
+          input.mediaIds,
+        );
+
   const linkedinIsSelected = finalPlatforms.includes("linkedin");
 
   const facebookIsSelected = finalPlatforms.includes("facebook");
@@ -574,6 +621,7 @@ export async function updateWorkspaceDraft(
   const update: {
     title?: string;
     caption?: string;
+    mediaIds?: string[];
     platforms?: UpdateDraftPostInput["platforms"];
     "platformConnections.linkedin"?: string;
     "platformConnections.facebook"?: string;
@@ -587,6 +635,10 @@ export async function updateWorkspaceDraft(
 
   if (input.caption !== undefined) {
     update.caption = input.caption;
+  }
+
+  if (validatedMediaIds !== undefined) {
+    update.mediaIds = validatedMediaIds;
   }
 
   if (input.platforms !== undefined) {

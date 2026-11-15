@@ -47,6 +47,15 @@ import { PublishingChecklistPanel } from "@/features/publishing/components/Publi
 
 import { PublishingControls } from "@/features/publishing/components/PublishingControls";
 
+import {
+  createPostMediaState,
+  selectPostImage,
+  removePostImage,
+  getPostMediaUpdate,
+} from "@/features/publishing/postMediaAttachments";
+
+import { validatePostWorkspaceContext } from "@/features/publishing/postWorkspaceContext";
+
 type PostMode = "draft" | "scheduled" | "immediate";
 
 type PostEditorRouteProps = {
@@ -104,9 +113,11 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
 
-  const [selectedMediaAssetId, setSelectedMediaAssetId] = useState<
-    string | null
-  >(null);
+  const [mediaState, setMediaState] = useState(() => createPostMediaState());
+
+  // The current UI supports one selected image.
+  // The underlying API supports multiple media IDs.
+  const selectedMediaAssetId = mediaState.selectedMediaIds[0] ?? null;
 
   // Publishing platforms
   const [selectedPlatforms, setSelectedPlatforms] = useState<PostPlatform[]>([
@@ -125,6 +136,8 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   // Existing post loading
   const [loadingPost, setLoadingPost] = useState(mode === "edit");
   const [loadError, setLoadError] = useState("");
+
+  const [postWorkspaceId, setPostWorkspaceId] = useState<string | null>(null);
 
   // Save state (API integration comes later)
   const [saving, setSaving] = useState(false);
@@ -146,8 +159,6 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   >(null);
 
   const minScheduledAt = getLocalDateTime();
-
-  const [existingDraftHasMedia, setExistingDraftHasMedia] = useState(false);
 
   useEffect(() => {
     if (mode !== "edit") {
@@ -176,6 +187,8 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           return;
         }
 
+        setPostWorkspaceId(post.workspaceId);
+
         setTitle(post.title ?? "");
         setCaption(post.caption);
         setSelectedPlatforms(post.platforms);
@@ -183,9 +196,10 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           post.platformConnections?.facebook ?? null,
         );
 
-        // Track whether the existing draft contains media.
-        // Immediate LinkedIn publishing currently supports text-only posts.
-        setExistingDraftHasMedia((post.mediaIds?.length ?? 0) > 0);
+        // Restore the original attachment snapshot.
+        // An untouched attachment must not be removed
+        // during a caption-only draft update.
+        setMediaState(createPostMediaState(post.mediaIds ?? []));
 
         // Draft editing currently supports draft mode only.
         setPostMode("draft");
@@ -257,8 +271,33 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   }, [selectedWorkspaceId]);
 
   useEffect(() => {
-    setSelectedMediaAssetId(null);
-  }, [selectedWorkspaceId]);
+    // Creating a post uses the active workspace.
+    // Clear temporary media when that workspace changes.
+    //
+    // In edit mode, the post-loading effect owns
+    // restoration of the saved media state.
+    if (mode !== "create") {
+      return;
+    }
+
+    setMediaState(createPostMediaState());
+  }, [mode, selectedWorkspaceId]);
+
+  function handleMediaSelect(assetId: string) {
+    setMediaState((current) => selectPostImage(current, assetId));
+    setError("");
+  }
+
+  function handleMediaRemove() {
+    setMediaState((current) => removePostImage(current));
+    setError("");
+  }
+
+  const workspaceContext = validatePostWorkspaceContext({
+    mode,
+    activeWorkspaceId: selectedWorkspaceId,
+    postWorkspaceId,
+  });
 
   async function handleSave() {
     if (saving || showPublishConfirmation) {
@@ -319,11 +358,12 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         return;
       }
 
-      if (selectedMediaAssetId) {
+      // Scheduled media publishing is not supported yet.
+      // Image attachments can be saved with drafts only.
+      if (postMode === "scheduled" && mediaState.selectedMediaIds.length > 0) {
         setError(
-          "Your image is selected but cannot be saved with " +
-            "the post yet. Remove it to continue, or complete " +
-            "the media attachment integration.",
+          "Scheduled image publishing is not supported yet. " +
+            "Save this post as a draft or remove the image.",
         );
         return;
       }
@@ -360,6 +400,13 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         return;
       }
 
+      if (!workspaceContext.valid) {
+        setError(
+          workspaceContext.message ?? "Unable to verify the post workspace.",
+        );
+        return;
+      }
+
       setSaving(true);
       setError("");
 
@@ -368,6 +415,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           workspaceId: selectedWorkspace._id,
           title: trimmedTitle,
           caption: trimmedCaption,
+          mediaIds: [...mediaState.selectedMediaIds],
           platforms: selectedPlatforms,
           scheduledAt: scheduledAtIso,
           platformConnections: {
@@ -416,6 +464,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       await updateDraftPost(postId, {
         title: trimmedTitle,
         caption: trimmedCaption,
+        ...getPostMediaUpdate(mediaState),
         platforms: selectedPlatforms,
 
         ...(selectedPlatforms.includes("facebook") &&
@@ -440,6 +489,14 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
   async function handleConfirmPublish() {
     if (publishingLockRef.current || publishing || saving) {
+      return;
+    }
+
+    if (!workspaceContext.valid) {
+      setShowPublishConfirmation(false);
+      setError(
+        workspaceContext.message ?? "Unable to verify the post workspace.",
+      );
       return;
     }
 
@@ -479,7 +536,8 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           : false;
 
     if (
-      (mode === "edit" && (!postId || existingDraftHasMedia)) ||
+      (mode === "edit" && !postId) ||
+      mediaState.selectedMediaIds.length > 0 ||
       !selectedWorkspace ||
       !caption.trim() ||
       selectedPlatforms.length !== 1 ||
@@ -520,6 +578,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         await updateDraftPost(postId!, {
           title: title.trim(),
           caption: caption.trim(),
+          ...getPostMediaUpdate(mediaState),
           platforms: [publishingPlatform],
           platformConnections,
         });
@@ -645,6 +704,13 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
     setError("");
 
+    if (!workspaceContext.valid) {
+      setError(
+        workspaceContext.message ?? "Unable to verify the post workspace.",
+      );
+      return;
+    }
+
     if (selectedMediaAssetId) {
       setError(
         "Media publishing is not supported yet. " +
@@ -655,14 +721,6 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
     if (mode === "edit" && !postId) {
       setError("Post ID is missing.");
-      return;
-    }
-
-    if (mode === "edit" && existingDraftHasMedia) {
-      setError(
-        "Publish Now currently supports text-only posts. " +
-          "Remove the media before publishing.",
-      );
       return;
     }
 
@@ -743,18 +801,16 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
   checklistDraft = setSharedCaption(checklistDraft, caption);
 
-  // Existing drafts may have media IDs even though
-  // the current editor does not load the asset details.
-  // This marker is ONLY used for readiness evaluation.
-  // It must never be sent to the API or persisted.
-  if (existingDraftHasMedia) {
-    checklistDraft = setSharedMedia(checklistDraft, [
-      {
-        assetId: "existing-media-readiness-marker",
-        type: "image",
-      },
-    ]);
-  }
+  // Readiness must reflect the CURRENT editor selection,
+  // including media added to a new draft, replacement,
+  // or explicit removal from an existing draft.
+  checklistDraft = setSharedMedia(
+    checklistDraft,
+    mediaState.selectedMediaIds.map((assetId) => ({
+      assetId,
+      type: "image" as const,
+    })),
+  );
 
   const accountCapabilities: PublishingCapabilityContext = {
     accounts: {},
@@ -834,6 +890,12 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   );
 
   const checklistBlockers: string[] = [];
+
+  if (!workspaceContext.valid) {
+    checklistBlockers.push(
+      workspaceContext.message ?? "Unable to verify the post workspace.",
+    );
+  }
 
   if (mode === "edit" && postMode !== "draft") {
     checklistBlockers.push(
@@ -929,10 +991,16 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         setSelectedFacebookConnectionId(connectionId);
         setError("");
       }}
-      workspaceId={selectedWorkspaceId}
+      workspaceId={
+        workspaceContext.valid
+          ? mode === "edit"
+            ? postWorkspaceId
+            : selectedWorkspaceId
+          : null
+      }
       selectedMediaAssetId={selectedMediaAssetId}
-      onMediaSelect={setSelectedMediaAssetId}
-      onMediaRemove={() => setSelectedMediaAssetId(null)}
+      onMediaSelect={handleMediaSelect}
+      onMediaRemove={handleMediaRemove}
       onSave={handleSave}
       onCancel={handleCancel}
     />
@@ -1076,6 +1144,20 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
                   View Posts
                 </button>
               )}
+            </div>
+          )}
+          {!loadingPost && !loadError && !workspaceContext.valid && (
+            <div
+              role="alert"
+              className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4"
+            >
+              <p className="text-sm font-semibold text-amber-900">
+                Workspace verification required
+              </p>
+
+              <p className="mt-1 text-sm text-amber-800">
+                {workspaceContext.message}
+              </p>
             </div>
           )}
           {editorContent}

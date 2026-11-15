@@ -20,6 +20,20 @@ const platformConnectionsSchema = z
   })
   .strict();
 
+export const postMediaIdsSchema = z
+  .array(
+    z.string().regex(/^[a-f\d]{24}$/i, {
+      message: "Each media ID must be a valid ObjectId.",
+    }),
+  )
+  .max(20, "A post can reference at most 20 media items.")
+  .refine(
+    (ids) => new Set(ids.map((id) => id.toLowerCase())).size === ids.length,
+    {
+      message: "Duplicate media attachments are not allowed.",
+    },
+  );
+
 export const createPostSchema = z
   .object({
     workspaceId: z.string().regex(/^[a-f\d]{24}$/i, {
@@ -35,14 +49,7 @@ export const createPostSchema = z
       .trim()
       .min(1, "Caption is required.")
       .max(10000, "Caption must be 10,000 characters or fewer."),
-    mediaIds: z
-      .array(
-        z.string().regex(/^[a-f\d]{24}$/i, {
-          message: "Each media ID must be a valid ObjectId.",
-        }),
-      )
-      .max(20, "A post can reference at most 20 media items.")
-      .default([]),
+    mediaIds: postMediaIdsSchema.default([]),
     platforms: z
       .array(z.enum(POST_PLATFORMS))
       .min(1, "Select at least one publishing platform.")
@@ -153,12 +160,14 @@ export const updateDraftPostSchema = z
       })
       .optional(),
     platformConnections: platformConnectionsSchema.optional(),
+    mediaIds: postMediaIdsSchema.optional(),
   })
   .strict()
   .refine(
     (data) =>
       data.title !== undefined ||
       data.caption !== undefined ||
+      data.mediaIds !== undefined ||
       data.platforms !== undefined ||
       data.platformConnections !== undefined,
     {

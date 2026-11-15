@@ -7,6 +7,7 @@ import {
 } from "@/components/FacebookPageConnectionSelect";
 
 import { MediaLibraryPicker } from "@/features/publishing/components/MediaLibraryPicker";
+import { SelectedMediaPreview } from "@/features/publishing/components/SelectedMediaPreview";
 
 type PostMode = "draft" | "scheduled" | "immediate";
 
@@ -62,6 +63,7 @@ const platforms: {
 ];
 
 export function PostEditorForm({
+  mode,
   title,
   caption,
   locked = false,
@@ -172,9 +174,17 @@ export function PostEditorForm({
               Image selected
             </p>
 
-            <p className="mt-1 text-xs text-violet-700">
-              Your selected image is ready for attachment once media saving is
-              enabled.
+            <div className="mt-3">
+              <SelectedMediaPreview
+                key={selectedMediaAssetId}
+                assetId={selectedMediaAssetId}
+              />
+            </div>
+
+            <p className="mt-3 text-xs text-violet-700">
+              {mode === "edit"
+                ? "This image is part of the draft's current selection. Save changes to persist replacements or removals."
+                : "This image will be attached when you save the draft."}
             </p>
 
             <div className="mt-3 flex flex-wrap gap-2">
@@ -252,8 +262,8 @@ export function PostEditorForm({
         )}
 
         <p className="text-xs leading-5 text-slate-500">
-          Image selection is currently an editor-only preview. Post persistence
-          will be connected after server-side media validation is added.
+          Images can be saved with drafts. Publishing and scheduling images are
+          not supported yet.
         </p>
       </section>
 

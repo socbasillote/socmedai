@@ -58,6 +58,7 @@ export type CreatePostInput = {
 export type UpdateDraftPostInput = {
   title?: string;
   caption?: string;
+  mediaIds?: string[];
   platforms?: PostPlatform[];
   platformConnections?: {
     facebook?: string;

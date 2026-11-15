@@ -8,6 +8,9 @@ import {
 
 import { getWorkspaceMediaAsset } from "../mediaAssetService.js";
 
+import type { AuthenticatedUser } from "../userProfileService.js";
+import { getImageStorageKey } from "./supabaseImageStorage.js";
+
 vi.mock("../mediaAssetService.js", () => ({
   getWorkspaceMediaAsset: vi.fn(),
 }));
@@ -18,22 +21,35 @@ const assetId = "507f1f77bcf86cd799439022";
 
 const expectedKey = `workspaces/${workspaceId}/images/${assetId}.png`;
 
-const authUser = {
-  id: "test-user",
+const authUser: AuthenticatedUser = {
+  id: "test-user-id",
+  email: null,
 };
 
 const validAsset = {
   _id: assetId,
-  status: "ready",
+  workspaceId,
+
   type: "image",
   source: "ai-generated",
-  idempotencyKey: "original-request-key",
-  generationExecution: {
-    phase: "completed",
-  },
+  status: "ready",
+
   storageProvider: "supabase",
-  storageKey: expectedKey,
+  storageKey: getImageStorageKey(workspaceId, assetId),
   mimeType: "image/png",
+
+  // Required by the shared image eligibility validator.
+  width: 1024,
+  height: 1024,
+  fileSize: 4096,
+
+  idempotencyKey: "test-image-generation-request-001",
+
+  generationExecution: {
+    phase: "storage_pending",
+    attemptCount: 1,
+  },
+
   contentSha256: "a".repeat(64),
 };
 

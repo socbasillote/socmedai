@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, ImageIcon, RefreshCw } from "lucide-react";
 
-import {
-  getWorkspaceImageHistory,
-  getWorkspaceImageUrl,
-} from "@/lib/imageGeneration";
+import { getWorkspaceImageUrl } from "@/lib/imageGeneration";
 
-type LibraryImage = {
-  assetId: string;
-  url: string | null;
+import {
+  getMediaLibrary,
+  type MediaLibraryItem,
+  type MediaLibraryScope,
+} from "@/lib/mediaLibrary";
+
+type LibraryImage = MediaLibraryItem & {
+  previewUrl: string | null;
 };
 
 type Props = {
@@ -24,10 +26,21 @@ export function MediaLibraryPicker({
   disabled = false,
   onSelect,
 }: Props) {
+  const [scope, setScope] = useState<MediaLibraryScope>("current");
+
   const [images, setImages] = useState<LibraryImage[]>([]);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
+
+  useEffect(() => {
+    // A new active workspace should always
+    // start with the Current Workspace filter.
+    setScope("current");
+    setImages([]);
+    setError("");
+  }, [workspaceId]);
 
   useEffect(() => {
     let active = true;
@@ -37,6 +50,7 @@ export function MediaLibraryPicker({
 
     if (!workspaceId) {
       setLoading(false);
+
       return () => {
         active = false;
       };
@@ -48,32 +62,29 @@ export function MediaLibraryPicker({
       if (!workspaceId) return;
 
       try {
-        const history = await getWorkspaceImageHistory(workspaceId, {
-          limit: 12,
-        });
+        const response = await getMediaLibrary(workspaceId, scope, 12);
 
-        const readyImages = history.images.filter(
-          (image) => image.status === "ready" && image.state === "ready",
-        );
+        if (!active) return;
 
-        // Private image URLs are short-lived.
-        // Retrieve them only for visible images.
+        // Every asset carries its source workspace.
+        // Signed URLs must be requested against
+        // THAT workspace, not the active workspace.
         const results = await Promise.all(
-          readyImages.map(async (image) => {
+          response.images.map(async (image) => {
             try {
-              const preview = await getWorkspaceImageUrl(
-                workspaceId,
+              const access = await getWorkspaceImageUrl(
+                image.sourceWorkspaceId,
                 image.assetId,
               );
 
               return {
-                assetId: image.assetId,
-                url: preview.url,
+                ...image,
+                previewUrl: access.url,
               };
             } catch {
               return {
-                assetId: image.assetId,
-                url: null,
+                ...image,
+                previewUrl: null,
               };
             }
           }),
@@ -85,7 +96,7 @@ export function MediaLibraryPicker({
       } catch {
         if (!active) return;
 
-        setError("Unable to load your workspace images. Try again.");
+        setError("Unable to load Media Library images. Try again.");
       } finally {
         if (active) {
           setLoading(false);
@@ -98,7 +109,13 @@ export function MediaLibraryPicker({
     return () => {
       active = false;
     };
-  }, [workspaceId, refreshVersion]);
+  }, [workspaceId, scope, refreshVersion]);
+
+  function changeScope(nextScope: MediaLibraryScope) {
+    if (nextScope === scope) return;
+
+    setScope(nextScope);
+  }
 
   return (
     <section aria-label="Media Library picker" className="space-y-4">
@@ -109,7 +126,7 @@ export function MediaLibraryPicker({
           </h3>
 
           <p className="mt-1 text-xs text-slate-500">
-            Choose a previously generated image.
+            Reuse images without generating them again.
           </p>
         </div>
 
@@ -119,10 +136,54 @@ export function MediaLibraryPicker({
           disabled={loading || disabled || !workspaceId}
           className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 disabled:opacity-50"
         >
-          <RefreshCw size={14} />
+          <RefreshCw size={14} aria-hidden="true" />
           Refresh
         </button>
       </div>
+
+      <fieldset disabled={disabled || !workspaceId} className="space-y-2">
+        <legend className="text-xs font-semibold text-slate-700">
+          Show images from
+        </legend>
+
+        <div className="grid grid-cols-2 gap-2">
+          {(
+            [
+              {
+                value: "current",
+                label: "Current Workspace",
+              },
+              {
+                value: "all",
+                label: "All Workspaces",
+              },
+            ] as const
+          ).map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={scope === option.value}
+              onClick={() => changeScope(option.value)}
+              className={[
+                "rounded-xl border px-3 py-2.5",
+                "text-xs font-semibold transition",
+                "disabled:opacity-50",
+                scope === option.value
+                  ? "border-violet-300 bg-violet-50 text-violet-700"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+              ].join(" ")}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+
+      <p className="text-xs text-slate-500">
+        {scope === "current"
+          ? "Showing images from your active workspace."
+          : "Showing images from all workspaces you own."}
+      </p>
 
       {!workspaceId && (
         <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">
@@ -151,7 +212,9 @@ export function MediaLibraryPicker({
           </p>
 
           <p className="mt-1 text-xs text-slate-500">
-            Generate an image in Image Studio, then refresh this library.
+            {scope === "current"
+              ? "Try All Workspaces or generate a new image."
+              : "Generate an image in Image Studio, then refresh."}
           </p>
         </div>
       )}
@@ -162,67 +225,81 @@ export function MediaLibraryPicker({
             const selected = selectedAssetId === image.assetId;
 
             return (
-              <button
-                key={image.assetId}
-                type="button"
-                aria-label={`Select image ${image.assetId}`}
-                aria-pressed={selected}
-                disabled={disabled || !image.url || !workspaceId}
-                onClick={() => onSelect(image.assetId)}
-                className={[
-                  "relative aspect-square overflow-hidden",
-                  "rounded-xl border-2 bg-slate-50",
-                  "transition focus-visible:outline",
-                  "focus-visible:outline-2",
-                  "focus-visible:outline-violet-600",
-                  "disabled:cursor-not-allowed",
-                  "disabled:opacity-60",
-                  selected
-                    ? "border-violet-600"
-                    : "border-transparent hover:border-violet-300",
-                ].join(" ")}
-              >
-                {image.url ? (
-                  <img
-                    src={image.url}
-                    alt="Generated workspace image"
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    className="h-full w-full object-cover"
-                    onError={() => {
-                      setImages((current) =>
-                        current.map((item) =>
-                          item.assetId === image.assetId
-                            ? { ...item, url: null }
-                            : item,
-                        ),
-                      );
-                    }}
-                  />
-                ) : (
-                  <div className="flex h-full flex-col items-center justify-center gap-2 p-2 text-center">
-                    <ImageIcon size={22} className="text-slate-400" />
+              <div key={image.assetId} className="min-w-0 space-y-2">
+                <button
+                  type="button"
+                  aria-label={`Select image ${image.assetId}`}
+                  aria-pressed={selected}
+                  disabled={disabled || !image.previewUrl || !workspaceId}
+                  onClick={() => onSelect(image.assetId)}
+                  className={[
+                    "relative block aspect-square w-full",
+                    "overflow-hidden rounded-xl border-2",
+                    "bg-slate-50 transition",
+                    "focus-visible:outline",
+                    "focus-visible:outline-2",
+                    "focus-visible:outline-violet-600",
+                    "disabled:cursor-not-allowed",
+                    "disabled:opacity-60",
+                    selected
+                      ? "border-violet-600"
+                      : "border-slate-200 hover:border-violet-300",
+                  ].join(" ")}
+                >
+                  {image.previewUrl ? (
+                    <img
+                      src={image.previewUrl}
+                      alt="Generated workspace image"
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      className="h-full w-full object-cover"
+                      onError={() => {
+                        setImages((current) =>
+                          current.map((item) =>
+                            item.assetId === image.assetId
+                              ? {
+                                  ...item,
+                                  previewUrl: null,
+                                }
+                              : item,
+                          ),
+                        );
+                      }}
+                    />
+                  ) : (
+                    <div className="flex h-full flex-col items-center justify-center gap-2 p-2 text-center">
+                      <ImageIcon size={22} className="text-slate-400" />
 
-                    <span className="text-xs text-slate-500">
-                      Preview unavailable
+                      <span className="text-xs text-slate-500">
+                        Preview unavailable
+                      </span>
+                    </div>
+                  )}
+
+                  {selected && (
+                    <span className="absolute right-2 top-2 rounded-full bg-white p-1 text-violet-700 shadow">
+                      <CheckCircle2 size={19} />
                     </span>
-                  </div>
-                )}
+                  )}
+                </button>
 
-                {selected && (
-                  <span className="absolute right-2 top-2 rounded-full bg-white p-1 text-violet-700 shadow">
-                    <CheckCircle2 size={19} />
-                  </span>
+                {scope === "all" && (
+                  <p
+                    className="truncate text-xs font-medium text-slate-600"
+                    title={image.sourceWorkspaceName}
+                  >
+                    {image.sourceWorkspaceName}
+                  </p>
                 )}
-              </button>
+              </div>
             );
           })}
         </div>
       )}
 
       <p className="text-xs leading-5 text-slate-500">
-        Showing up to 12 recent ready images. Images remain stored in your
-        workspace. Selecting one does not generate another image.
+        Showing up to 12 recent ready images. Each image remains in its original
+        workspace. Selecting an image does not consume AI credits.
       </p>
     </section>
   );

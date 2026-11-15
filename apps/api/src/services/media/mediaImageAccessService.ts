@@ -8,6 +8,8 @@ import { getWorkspaceMediaAsset } from "../mediaAssetService.js";
 
 import { getImageStorageKey, IMAGE_BUCKET } from "./supabaseImageStorage.js";
 
+import { evaluateImageEligibility } from "./imageEligibility.js";
+
 export const IMAGE_URL_EXPIRY_SECONDS = 60;
 
 export class MediaImageAccessError extends Error {
@@ -66,31 +68,30 @@ export async function createPrivateImageAccessUrl(
   // and asset authorization checks.
   const asset = await getWorkspaceMediaAsset(authUser, workspaceId, assetId);
 
-  if (
-    asset.status !== "ready" ||
-    asset.type !== "image" ||
-    asset.source !== "ai-generated" ||
-    !asset.idempotencyKey ||
-    !asset.generationExecution
-  ) {
+  // Authorization has already been completed by
+  // getWorkspaceMediaAsset().
+  //
+  // This shared validator checks whether the image
+  // is complete and eligible for private preview.
+  const eligibility = evaluateImageEligibility(asset);
+
+  if (!eligibility.eligible) {
+    if (
+      eligibility.reason === "invalid-storage" ||
+      eligibility.reason === "invalid-file-metadata"
+    ) {
+      throw new MediaImageAccessError(
+        "Image storage metadata is inconsistent.",
+        409,
+      );
+    }
+
     throw new MediaImageAccessError("Image is not available.", 409);
   }
 
+  // The canonical key is derived on the server.
+  // Never trust a client-supplied storage path.
   const expectedKey = getImageStorageKey(workspaceId, String(asset._id));
-
-  if (
-    asset.storageProvider !== "supabase" ||
-    asset.storageKey !== expectedKey ||
-    asset.mimeType !== "image/png" ||
-    !asset.contentSha256 ||
-    !/^[a-f0-9]{64}$/.test(asset.contentSha256)
-  ) {
-    throw new MediaImageAccessError(
-      "Image storage metadata is inconsistent.",
-      409,
-    );
-  }
-
   const imageSigner = signer ?? getImageUrlSigner();
 
   let signed: Awaited<ReturnType<ImageUrlSigner["createSignedUrl"]>>;
