@@ -1,0 +1,150 @@
+STORM GENERATION RECOVERY AUTH AUDIT
+
+===== Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\lib\facebookOAuthWorkspace.test.ts =====
+import { beforeEach, describe, expect, it } from "vitest";
+
+import {
+  storeFacebookOAuthWorkspaceId,
+  readFacebookOAuthWorkspaceId,
+  clearFacebookOAuthWorkspaceId,
+} from "./facebookOAuthWorkspace";
+
+const WORKSPACE_A = "507f1f77bcf86cd799439011";
+const WORKSPACE_B = "507f1f77bcf86cd799439012";
+
+describe("facebookOAuthWorkspace", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
+
+  it("stores the initiating Facebook OAuth workspace", () => {
+    storeFacebookOAuthWorkspaceId(WORKSPACE_A);
+
+    expect(sessionStorage.getItem("storm:facebook-oauth-workspace")).toBe(
+      WORKSPACE_A,
+    );
+  });
+
+  it("retrieves the original OAuth workspace", () => {
+    storeFacebookOAuthWorkspaceId(WORKSPACE_A);
+
+    const workspaceId = readFacebookOAuthWorkspaceId();
+
+    expect(workspaceId).toBe(WORKSPACE_A);
+  });
+
+  it("clears the temporary OAuth workspace", () => {
+    storeFacebookOAuthWorkspaceId(WORKSPACE_A);
+
+    clearFacebookOAuthWorkspaceId();
+
+    expect(readFacebookOAuthWorkspaceId()).toBeNull();
+
+    expect(sessionStorage.getItem("storm:facebook-oauth-workspace")).toBeNull();
+  });
+
+  it("replaces the previous workspace when a new OAuth flow starts", () => {
+    storeFacebookOAuthWorkspaceId(WORKSPACE_A);
+
+    expect(readFacebookOAuthWorkspaceId()).toBe(WORKSPACE_A);
+
+    storeFacebookOAuthWorkspaceId(WORKSPACE_B);
+
+    expect(readFacebookOAuthWorkspaceId()).toBe(WORKSPACE_B);
+  });
+
+  it("rejects empty workspace IDs without replacing a valid workspace", () => {
+    storeFacebookOAuthWorkspaceId(WORKSPACE_A);
+
+    expect(() => {
+      storeFacebookOAuthWorkspaceId("");
+    }).toThrow("A workspace ID is required.");
+
+    expect(() => {
+      storeFacebookOAuthWorkspaceId("   ");
+    }).toThrow("A workspace ID is required.");
+
+    expect(readFacebookOAuthWorkspaceId()).toBe(WORKSPACE_A);
+  });
+});
+
+===== Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\lib\facebookOAuthWorkspace.ts =====
+const FACEBOOK_OAUTH_WORKSPACE_KEY = "storm:facebook-oauth-workspace";
+
+/**
+ * Remember which workspace initiated Facebook OAuth.
+ *
+ * This value is temporary and scoped to the browser tab.
+ */
+export function storeFacebookOAuthWorkspaceId(workspaceId: string): void {
+  if (!workspaceId.trim()) {
+    throw new Error("A workspace ID is required.");
+  }
+
+  try {
+    sessionStorage.setItem(FACEBOOK_OAUTH_WORKSPACE_KEY, workspaceId);
+  } catch {
+    throw new Error(
+      "Unable to save the Facebook OAuth workspace. Please enable browser session storage and try again.",
+    );
+  }
+}
+
+/**
+ * Retrieve the workspace that initiated Facebook OAuth.
+ */
+export function readFacebookOAuthWorkspaceId(): string | null {
+  try {
+    return sessionStorage.getItem(FACEBOOK_OAUTH_WORKSPACE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Remove the temporary workspace reference.
+ *
+ * Call this after successful connection or when
+ * the OAuth flow is explicitly cancelled.
+ */
+export function clearFacebookOAuthWorkspaceId(): void {
+  try {
+    sessionStorage.removeItem(FACEBOOK_OAUTH_WORKSPACE_KEY);
+  } catch {
+    // Ignore storage failures during cleanup.
+  }
+}
+
+===== Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\lib\supabase.ts =====
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+if (!supabaseUrl || !supabasePublishableKey) {
+  throw new Error(
+    "Missing Supabase configuration. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in apps/web/.env.local.",
+  );
+}
+
+export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true,
+  },
+});
+
+===== AUTH USAGE REFERENCES =====
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\auth\auth-context.ts:8 export type AuthContextValue = {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\auth\auth-context.ts:17 export const AuthContext = createContext<AuthContextValue | undefined>(
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\auth\AuthPage.tsx:27 const { signIn, signUp } = useAuth();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\auth\AuthProvider.tsx:7 AuthContext,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\auth\AuthProvider.tsx:9 type AuthContextValue,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\auth\AuthProvider.tsx:70 const value: AuthContextValue = {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\auth\AuthProvider.tsx:79 return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\auth\SignOutButton.tsx:9 const { signOut } = useAuth();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\auth\useAuth.ts:3 import { AuthContext } from "./auth-context";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\auth\useAuth.ts:5 export function useAuth() {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\auth\useAuth.ts:6 const context = useContext(AuthContext);
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\App.tsx:10 const { user, loading } = useAuth();

@@ -1,5 +1,7 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+
+import { useAuth } from "@/auth/useAuth";
 
 import { getPlannerSchedulePrefill } from "@/features/content-planner/utils/plannerDatePrefill";
 
@@ -55,6 +57,11 @@ import {
 } from "@/features/publishing/postMediaAttachments";
 
 import { validatePostWorkspaceContext } from "@/features/publishing/postWorkspaceContext";
+import {
+  createPostEditorSession,
+  validatePostEditorSession,
+  getPostEditorSessionError,
+} from "@/features/publishing/postEditorSession";
 
 type PostMode = "draft" | "scheduled" | "immediate";
 
@@ -69,6 +76,10 @@ function getLocalDateTime(): string {
 
 export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   const navigate = useNavigate();
+
+  const { user } = useAuth();
+
+  const recoveryOwnerUserId = user?.id ?? null;
 
   const location = useLocation();
 
@@ -139,6 +150,31 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
   const [postWorkspaceId, setPostWorkspaceId] = useState<string | null>(null);
 
+  const editorSession = createPostEditorSession(
+    mode,
+    selectedWorkspaceId ?? "",
+    mode === "edit" ? (postId ?? null) : null,
+  );
+
+  const editorSessionRef = useRef(editorSession);
+
+  // Monotonically increasing revision prevents a session
+  // that changes A -> B -> A from being mistaken for
+  // an uninterrupted session.
+  const editorSessionRevisionRef = useRef(0);
+
+  useLayoutEffect(() => {
+    const previous = editorSessionRef.current;
+
+    const result = validatePostEditorSession(previous, editorSession);
+
+    if (!result.valid) {
+      editorSessionRevisionRef.current += 1;
+    }
+
+    editorSessionRef.current = editorSession;
+  }, [mode, selectedWorkspaceId, postId]);
+
   // Save state (API integration comes later)
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -161,24 +197,27 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   const minScheduledAt = getLocalDateTime();
 
   useEffect(() => {
-    if (mode !== "edit") {
-      return;
-    }
-
-    if (!postId) {
+    if (mode !== "edit" || !postId) {
       return;
     }
 
     let cancelled = false;
 
+    // Capture the workspace, post, mode, and revision
+    // before starting the asynchronous request.
+    const loadingSession = captureEditorSession();
+
     async function loadPost() {
       setLoadingPost(true);
       setLoadError("");
+      setPostWorkspaceId(null);
 
       try {
         const post = await getPostById(postId!);
 
-        if (cancelled) {
+        // A response from an earlier editor context
+        // must never initialize the current editor.
+        if (cancelled || checkEditorSession(loadingSession)) {
           return;
         }
 
@@ -188,24 +227,21 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         }
 
         setPostWorkspaceId(post.workspaceId);
-
         setTitle(post.title ?? "");
         setCaption(post.caption);
         setSelectedPlatforms(post.platforms);
+
         setSelectedFacebookConnectionId(
           post.platformConnections?.facebook ?? null,
         );
 
-        // Restore the original attachment snapshot.
-        // An untouched attachment must not be removed
-        // during a caption-only draft update.
+        // Restore the original media snapshot.
         setMediaState(createPostMediaState(post.mediaIds ?? []));
 
-        // Draft editing currently supports draft mode only.
         setPostMode("draft");
         setScheduledAt("");
       } catch (err) {
-        if (cancelled) {
+        if (cancelled || checkEditorSession(loadingSession)) {
           return;
         }
 
@@ -213,7 +249,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           err instanceof Error ? err.message : "Failed to load the post.",
         );
       } finally {
-        if (!cancelled) {
+        if (!cancelled && !checkEditorSession(loadingSession)) {
           setLoadingPost(false);
         }
       }
@@ -224,7 +260,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     return () => {
       cancelled = true;
     };
-  }, [mode, postId]);
+  }, [mode, postId, selectedWorkspaceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -283,6 +319,14 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     setMediaState(createPostMediaState());
   }, [mode, selectedWorkspaceId]);
 
+  useEffect(() => {
+    // A pending confirmation is tied to the workspace
+    // and post from which it was opened.
+    //
+    // Dismiss it when that context changes.
+    setShowPublishConfirmation(false);
+  }, [mode, postId, selectedWorkspaceId]);
+
   function handleMediaSelect(assetId: string) {
     setMediaState((current) => selectPostImage(current, assetId));
     setError("");
@@ -299,8 +343,46 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     postWorkspaceId,
   });
 
+  function captureEditorSession() {
+    return {
+      session: editorSessionRef.current,
+      revision: editorSessionRevisionRef.current,
+    };
+  }
+
+  function checkEditorSession(
+    captured: ReturnType<typeof captureEditorSession>,
+  ): string | null {
+    const result = validatePostEditorSession(
+      captured.session,
+      editorSessionRef.current,
+    );
+
+    if (
+      !result.valid ||
+      captured.revision !== editorSessionRevisionRef.current
+    ) {
+      return (
+        getPostEditorSessionError(result) ??
+        "The editor workspace or post changed during this operation. " +
+          "Check your Posts page before retrying."
+      );
+    }
+
+    return null;
+  }
+
   async function handleSave() {
     if (saving || showPublishConfirmation) {
+      return;
+    }
+
+    // Applies to BOTH new posts and existing drafts.
+    // Do not submit an update under the wrong workspace.
+    if (!workspaceContext.valid) {
+      setError(
+        workspaceContext.message ?? "Unable to verify the post workspace.",
+      );
       return;
     }
 
@@ -407,6 +489,8 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         return;
       }
 
+      const saveSession = captureEditorSession();
+
       setSaving(true);
       setError("");
 
@@ -430,10 +514,23 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           },
         });
 
+        // The server may have saved this draft successfully,
+        // even if the user changed workspaces meanwhile.
+        //
+        // Never navigate based on a response belonging
+        // to an earlier editor session.
+        if (checkEditorSession(saveSession)) {
+          return;
+        }
+
         navigate(plannerReturnUrl ?? "/posts", {
           replace: true,
         });
       } catch (err) {
+        if (checkEditorSession(saveSession)) {
+          return;
+        }
+
         setError(
           err instanceof Error ? err.message : "Failed to create the draft.",
         );
@@ -457,6 +554,8 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       return;
     }
 
+    const saveSession = captureEditorSession();
+
     setSaving(true);
     setError("");
 
@@ -477,8 +576,16 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           : {}),
       });
 
+      if (checkEditorSession(saveSession)) {
+        return;
+      }
+
       navigate("/posts");
     } catch (err) {
+      if (checkEditorSession(saveSession)) {
+        return;
+      }
+
       setError(
         err instanceof Error ? err.message : "Failed to update the draft.",
       );
@@ -489,6 +596,12 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
   async function handleConfirmPublish() {
     if (publishingLockRef.current || publishing || saving) {
+      return;
+    }
+
+    if (!selectedWorkspaceId) {
+      setShowPublishConfirmation(false);
+      setError("Select a workspace before publishing.");
       return;
     }
 
@@ -560,6 +673,8 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       [publishingPlatform]: connectionId,
     };
 
+    const publishingSession = captureEditorSession();
+
     publishingLockRef.current = true;
 
     setPublishing(true);
@@ -599,8 +714,25 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         savedPostId = targetPostId;
       }
 
+      // The draft has been saved or updated successfully.
+      // Record its ID so a changed editor session cannot
+      // accidentally initiate a second publishing attempt.
       setSavedPublishingPostId(targetPostId);
 
+      // Critical safety boundary:
+      // The user may have changed workspaces or posts while
+      // the create/update request was in flight.
+      const sessionError = checkEditorSession(publishingSession);
+
+      if (sessionError) {
+        // No external publishing request has started.
+        // The existing catch block handles the saved-draft
+        // outcome and explains that publication did not start.
+        throw new Error(sessionError);
+      }
+
+      // Do not place another await between this check
+      // and the publishing API request.
       publishRequestStarted = true;
 
       const response = await publishPostNow(targetPostId);
@@ -940,6 +1072,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   ) : (
     <PostEditorForm
       mode={mode}
+      recoveryOwnerUserId={recoveryOwnerUserId}
       locked={savedPublishingPostId !== null}
       title={title}
       caption={caption}

@@ -73,10 +73,11 @@ async function makeReadyAsset() {
     type: "image",
     source: "ai-generated",
     status: "ready",
-    storageProvider: "supabase",
 
+    storageProvider: "supabase",
     storageKey: getImageStorageKey(workspaceId, String(assetId)),
     mimeType: "image/png",
+
     width: 1024,
     height: 1024,
     fileSize: 4096,

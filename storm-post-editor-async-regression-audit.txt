@@ -1,0 +1,2146 @@
+STORM POST EDITOR ASYNC REGRESSION AUDIT
+
+===== apps/web/package.json =====
+{
+  "name": "@storm/web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.9.0",
+    "@hookform/resolvers": "^5.9.1",
+    "@supabase/supabase-js": "^2.117.3",
+    "@tailwindcss/vite": "^4.3.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cn": "^0.4.0",
+    "lucide-react": "^1.55.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-hook-form": "^7.90.0",
+    "react-router": "^7.18.4",
+    "react-router-dom": "^7.18.4",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/node": "^24.13.3",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "eslint": "^10.10.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.6",
+    "globals": "^17.12.0",
+    "jsdom": "^29.1.1",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.69.0",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.5"
+  }
+}
+
+===== apps/web/src/components/PostEditorRoute.tsx =====
+import { useEffect, useLayoutEffect, useState, useRef } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+
+import { getPlannerSchedulePrefill } from "@/features/content-planner/utils/plannerDatePrefill";
+
+import { PostEditorPage } from "@/components/PostEditorPage";
+import { PostEditorForm } from "@/components/PostEditorForm";
+import { PostPreview } from "@/components/PostPreview";
+
+import type { FacebookPageConnectionOption } from "@/components/FacebookPageConnectionSelect";
+
+import { getFacebookPageConnections } from "@/lib/facebookConnections";
+
+import { useWorkspaces } from "@/hooks/useWorkspaces";
+import { useLinkedInConnection } from "@/hooks/useLinkedInConnection";
+
+import {
+  createPost,
+  getPostById,
+  publishPostNow,
+  updateDraftPost,
+  type PostPlatform,
+} from "@/lib/posts";
+
+import {
+  parseLocalScheduleDate,
+  toScheduledAtISOString,
+  toLocalDateTimeInputValue,
+} from "@/shared/utils/schedulingDate";
+
+import { getPlannerReturnUrl } from "@/features/content-planner/utils/plannerNavigation";
+
+import {
+  addDestination,
+  createPublishingDraft,
+  setSharedCaption,
+  setSharedMedia,
+  type PublishingDestination,
+} from "@/features/publishing/publishingDraft";
+
+import {
+  evaluatePublishingReadiness,
+  type PublishingCapabilityContext,
+} from "@/features/publishing/publishingReadiness";
+
+import { PublishingChecklistPanel } from "@/features/publishing/components/PublishingChecklistPanel";
+
+import { PublishingControls } from "@/features/publishing/components/PublishingControls";
+
+import {
+  createPostMediaState,
+  selectPostImage,
+  removePostImage,
+  getPostMediaUpdate,
+} from "@/features/publishing/postMediaAttachments";
+
+import { validatePostWorkspaceContext } from "@/features/publishing/postWorkspaceContext";
+import {
+  createPostEditorSession,
+  validatePostEditorSession,
+  getPostEditorSessionError,
+} from "@/features/publishing/postEditorSession";
+
+type PostMode = "draft" | "scheduled" | "immediate";
+
+type PostEditorRouteProps = {
+  mode: "create" | "edit";
+  postId?: string;
+};
+
+function getLocalDateTime(): string {
+  return toLocalDateTimeInputValue(new Date());
+}
+
+export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
+  const navigate = useNavigate();
+
+  const location = useLocation();
+
+  const plannerReturnUrl =
+    mode === "create" ? getPlannerReturnUrl(location.search) : null;
+
+  const plannerScheduledAt =
+    mode === "create"
+      ? getPlannerSchedulePrefill(
+          new URLSearchParams(location.search).get("date"),
+        )
+      : null;
+
+  const { workspaces, selectedWorkspaceId, workspacesLoading, workspaceError } =
+    useWorkspaces();
+
+  const selectedWorkspace = workspaces.find(
+    (workspace) => workspace._id === selectedWorkspaceId,
+  );
+  const {
+    status: linkedInStatus,
+    displayName: linkedInDisplayName,
+    connectionId: linkedInConnectionId,
+    statusError: linkedInStatusError,
+  } = useLinkedInConnection(selectedWorkspaceId, () => {});
+
+  const [facebookConnections, setFacebookConnections] = useState<
+    FacebookPageConnectionOption[]
+  >([]);
+
+  const [selectedFacebookConnectionId, setSelectedFacebookConnectionId] =
+    useState<string | null>(null);
+
+  const [facebookConnectionsLoading, setFacebookConnectionsLoading] =
+    useState(false);
+
+  const [facebookConnectionsError, setFacebookConnectionsError] = useState<
+    string | null
+  >(null);
+
+  // Editor content
+  const [title, setTitle] = useState("");
+  const [caption, setCaption] = useState("");
+
+  const [mediaState, setMediaState] = useState(() => createPostMediaState());
+
+  // The current UI supports one selected image.
+  // The underlying API supports multiple media IDs.
+  const selectedMediaAssetId = mediaState.selectedMediaIds[0] ?? null;
+
+  // Publishing platforms
+  const [selectedPlatforms, setSelectedPlatforms] = useState<PostPlatform[]>([
+    "facebook",
+  ]);
+
+  // Publishing options
+  const [postMode, setPostMode] = useState<PostMode>(() =>
+    plannerScheduledAt ? "scheduled" : "draft",
+  );
+
+  const [scheduledAt, setScheduledAt] = useState<string>(
+    () => plannerScheduledAt ?? "",
+  );
+
+  // Existing post loading
+  const [loadingPost, setLoadingPost] = useState(mode === "edit");
+  const [loadError, setLoadError] = useState("");
+
+  const [postWorkspaceId, setPostWorkspaceId] = useState<string | null>(null);
+
+  const editorSession = createPostEditorSession(
+    mode,
+    selectedWorkspaceId ?? "",
+    mode === "edit" ? (postId ?? null) : null,
+  );
+
+  const editorSessionRef = useRef(editorSession);
+
+  // Monotonically increasing revision prevents a session
+  // that changes A -> B -> A from being mistaken for
+  // an uninterrupted session.
+  const editorSessionRevisionRef = useRef(0);
+
+  useLayoutEffect(() => {
+    const previous = editorSessionRef.current;
+
+    const result = validatePostEditorSession(previous, editorSession);
+
+    if (!result.valid) {
+      editorSessionRevisionRef.current += 1;
+    }
+
+    editorSessionRef.current = editorSession;
+  }, [mode, selectedWorkspaceId, postId]);
+
+  // Save state (API integration comes later)
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [showPublishConfirmation, setShowPublishConfirmation] = useState(false);
+
+  const publishingLockRef = useRef(false);
+
+  const [publishing, setPublishing] = useState(false);
+
+  const [publishingMessage, setPublishingMessage] = useState("");
+
+  const [publishingOutcome, setPublishingOutcome] = useState<
+    "published" | "failed" | "unknown" | null
+  >(null);
+
+  const [savedPublishingPostId, setSavedPublishingPostId] = useState<
+    string | null
+  >(null);
+
+  const minScheduledAt = getLocalDateTime();
+
+  useEffect(() => {
+    if (mode !== "edit" || !postId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    // Capture the workspace, post, mode, and revision
+    // before starting the asynchronous request.
+    const loadingSession = captureEditorSession();
+
+    async function loadPost() {
+      setLoadingPost(true);
+      setLoadError("");
+      setPostWorkspaceId(null);
+
+      try {
+        const post = await getPostById(postId!);
+
+        // A response from an earlier editor context
+        // must never initialize the current editor.
+        if (cancelled || checkEditorSession(loadingSession)) {
+          return;
+        }
+
+        if (post.status !== "draft") {
+          setLoadError("Only draft posts can be edited at this time.");
+          return;
+        }
+
+        setPostWorkspaceId(post.workspaceId);
+        setTitle(post.title ?? "");
+        setCaption(post.caption);
+        setSelectedPlatforms(post.platforms);
+
+        setSelectedFacebookConnectionId(
+          post.platformConnections?.facebook ?? null,
+        );
+
+        // Restore the original media snapshot.
+        setMediaState(createPostMediaState(post.mediaIds ?? []));
+
+        setPostMode("draft");
+        setScheduledAt("");
+      } catch (err) {
+        if (cancelled || checkEditorSession(loadingSession)) {
+          return;
+        }
+
+        setLoadError(
+          err instanceof Error ? err.message : "Failed to load the post.",
+        );
+      } finally {
+        if (!cancelled && !checkEditorSession(loadingSession)) {
+          setLoadingPost(false);
+        }
+      }
+    }
+
+    void loadPost();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, postId, selectedWorkspaceId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setFacebookConnections([]);
+    setFacebookConnectionsError(null);
+
+    if (!selectedWorkspaceId) {
+      setFacebookConnectionsLoading(false);
+      return;
+    }
+
+    setFacebookConnectionsLoading(true);
+
+    async function loadConnections() {
+      try {
+        const connections = await getFacebookPageConnections(
+          selectedWorkspaceId!,
+        );
+
+        if (!cancelled) {
+          setFacebookConnections(connections);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setFacebookConnectionsError(
+            err instanceof Error
+              ? err.message
+              : "Unable to load Facebook Pages.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setFacebookConnectionsLoading(false);
+        }
+      }
+    }
+
+    void loadConnections();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWorkspaceId]);
+
+  useEffect(() => {
+    // Creating a post uses the active workspace.
+    // Clear temporary media when that workspace changes.
+    //
+    // In edit mode, the post-loading effect owns
+    // restoration of the saved media state.
+    if (mode !== "create") {
+      return;
+    }
+
+    setMediaState(createPostMediaState());
+  }, [mode, selectedWorkspaceId]);
+
+  useEffect(() => {
+    // A pending confirmation is tied to the workspace
+    // and post from which it was opened.
+    //
+    // Dismiss it when that context changes.
+    setShowPublishConfirmation(false);
+  }, [mode, postId, selectedWorkspaceId]);
+
+  function handleMediaSelect(assetId: string) {
+    setMediaState((current) => selectPostImage(current, assetId));
+    setError("");
+  }
+
+  function handleMediaRemove() {
+    setMediaState((current) => removePostImage(current));
+    setError("");
+  }
+
+  const workspaceContext = validatePostWorkspaceContext({
+    mode,
+    activeWorkspaceId: selectedWorkspaceId,
+    postWorkspaceId,
+  });
+
+  function captureEditorSession() {
+    return {
+      session: editorSessionRef.current,
+      revision: editorSessionRevisionRef.current,
+    };
+  }
+
+  function checkEditorSession(
+    captured: ReturnType<typeof captureEditorSession>,
+  ): string | null {
+    const result = validatePostEditorSession(
+      captured.session,
+      editorSessionRef.current,
+    );
+
+    if (
+      !result.valid ||
+      captured.revision !== editorSessionRevisionRef.current
+    ) {
+      return (
+        getPostEditorSessionError(result) ??
+        "The editor workspace or post changed during this operation. " +
+          "Check your Posts page before retrying."
+      );
+    }
+
+    return null;
+  }
+
+  async function handleSave() {
+    if (saving || showPublishConfirmation) {
+      return;
+    }
+
+    if (postMode === "immediate") {
+      handlePublishReview();
+      return;
+    }
+
+    const trimmedTitle = title.trim();
+    const trimmedCaption = caption.trim();
+
+    if (!trimmedCaption) {
+      setError("Caption is required.");
+      return;
+    }
+
+    if (selectedPlatforms.length === 0) {
+      setError("Select at least one publishing platform.");
+      return;
+    }
+
+    if (selectedPlatforms.includes("facebook")) {
+      const validSelection = facebookConnections.some(
+        (connection) =>
+          connection.id === selectedFacebookConnectionId &&
+          connection.status === "connected" &&
+          connection.canPublish,
+      );
+
+      if (
+        facebookConnectionsLoading ||
+        facebookConnectionsError ||
+        !validSelection
+      ) {
+        setError(
+          "Select a connected Facebook Page with publishing permission.",
+        );
+        return;
+      }
+    }
+
+    if (mode === "create") {
+      if (workspacesLoading) {
+        setError("Please wait while your workspace loads.");
+        return;
+      }
+
+      if (workspaceError) {
+        setError("Unable to verify the active workspace.");
+        return;
+      }
+
+      if (!selectedWorkspace) {
+        setError("Select or create a workspace before creating a post.");
+        return;
+      }
+
+      // Scheduled media publishing is not supported yet.
+      // Image attachments can be saved with drafts only.
+      if (postMode === "scheduled" && mediaState.selectedMediaIds.length > 0) {
+        setError(
+          "Scheduled image publishing is not supported yet. " +
+            "Save this post as a draft or remove the image.",
+        );
+        return;
+      }
+
+      let scheduledAtIso: string | undefined;
+
+      if (postMode === "scheduled") {
+        if (!scheduledAt) {
+          setError("Select a date and time for your scheduled post.");
+          return;
+        }
+
+        const scheduledDate = parseLocalScheduleDate(scheduledAt);
+
+        if (!scheduledDate) {
+          setError("Enter a valid scheduling date and time.");
+          return;
+        }
+
+        if (scheduledDate.getTime() <= Date.now()) {
+          setError("Scheduled time must be in the future.");
+          return;
+        }
+
+        scheduledAtIso = toScheduledAtISOString(scheduledDate);
+      }
+
+      // LinkedIn requires a connected account.
+      if (
+        selectedPlatforms.includes("linkedin") &&
+        (linkedInStatus !== "connected" || !linkedInConnectionId)
+      ) {
+        setError("Connect a LinkedIn account before selecting LinkedIn.");
+        return;
+      }
+
+      if (!workspaceContext.valid) {
+        setError(
+          workspaceContext.message ?? "Unable to verify the post workspace.",
+        );
+        return;
+      }
+
+      const saveSession = captureEditorSession();
+
+      setSaving(true);
+      setError("");
+
+      try {
+        await createPost({
+          workspaceId: selectedWorkspace._id,
+          title: trimmedTitle,
+          caption: trimmedCaption,
+          mediaIds: [...mediaState.selectedMediaIds],
+          platforms: selectedPlatforms,
+          scheduledAt: scheduledAtIso,
+          platformConnections: {
+            ...(selectedPlatforms.includes("linkedin") && linkedInConnectionId
+              ? { linkedin: linkedInConnectionId }
+              : {}),
+
+            ...(selectedPlatforms.includes("facebook") &&
+            selectedFacebookConnectionId
+              ? { facebook: selectedFacebookConnectionId }
+              : {}),
+          },
+        });
+
+        // The server may have saved this draft successfully,
+        // even if the user changed workspaces meanwhile.
+        //
+        // Never navigate based on a response belonging
+        // to an earlier editor session.
+        if (checkEditorSession(saveSession)) {
+          return;
+        }
+
+        navigate(plannerReturnUrl ?? "/posts", {
+          replace: true,
+        });
+      } catch (err) {
+        if (checkEditorSession(saveSession)) {
+          return;
+        }
+
+        setError(
+          err instanceof Error ? err.message : "Failed to create the draft.",
+        );
+      } finally {
+        setSaving(false);
+      }
+
+      return;
+    }
+
+    // Existing draft editing remains unchanged.
+    if (!postId) {
+      setError("Post ID is missing.");
+      return;
+    }
+
+    if (postMode !== "draft") {
+      setError(
+        "Scheduling an existing draft is not supported yet. Select Save as Draft.",
+      );
+      return;
+    }
+
+    const saveSession = captureEditorSession();
+
+    setSaving(true);
+    setError("");
+
+    try {
+      await updateDraftPost(postId, {
+        title: trimmedTitle,
+        caption: trimmedCaption,
+        ...getPostMediaUpdate(mediaState),
+        platforms: selectedPlatforms,
+
+        ...(selectedPlatforms.includes("facebook") &&
+        selectedFacebookConnectionId
+          ? {
+              platformConnections: {
+                facebook: selectedFacebookConnectionId,
+              },
+            }
+          : {}),
+      });
+
+      if (checkEditorSession(saveSession)) {
+        return;
+      }
+
+      navigate("/posts");
+    } catch (err) {
+      if (checkEditorSession(saveSession)) {
+        return;
+      }
+
+      setError(
+        err instanceof Error ? err.message : "Failed to update the draft.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleConfirmPublish() {
+    if (publishingLockRef.current || publishing || saving) {
+      return;
+    }
+
+    if (!selectedWorkspaceId) {
+      setShowPublishConfirmation(false);
+      setError("Select a workspace before publishing.");
+      return;
+    }
+
+    if (!workspaceContext.valid) {
+      setShowPublishConfirmation(false);
+      setError(
+        workspaceContext.message ?? "Unable to verify the post workspace.",
+      );
+      return;
+    }
+
+    if (savedPublishingPostId) {
+      setShowPublishConfirmation(false);
+      setPublishingOutcome("unknown");
+      setPublishingMessage(
+        "A publishing attempt has already been started for this post. " +
+          "Check your Posts page and selected social account before retrying.",
+      );
+      return;
+    }
+
+    const platform = selectedPlatforms[0];
+
+    const validFacebookConnection = facebookConnections.some(
+      (connection) =>
+        connection.id === selectedFacebookConnectionId &&
+        connection.status === "connected" &&
+        connection.canPublish,
+    );
+
+    const connectionId =
+      platform === "facebook"
+        ? selectedFacebookConnectionId
+        : platform === "linkedin"
+          ? linkedInConnectionId
+          : null;
+
+    const validConnection =
+      platform === "facebook"
+        ? !facebookConnectionsLoading &&
+          !facebookConnectionsError &&
+          validFacebookConnection
+        : platform === "linkedin"
+          ? linkedInStatus === "connected" && Boolean(linkedInConnectionId)
+          : false;
+
+    if (
+      (mode === "edit" && !postId) ||
+      mediaState.selectedMediaIds.length > 0 ||
+      !selectedWorkspace ||
+      !caption.trim() ||
+      selectedPlatforms.length !== 1 ||
+      !validConnection ||
+      !connectionId
+    ) {
+      setShowPublishConfirmation(false);
+      setError(
+        "Publishing requirements changed. Review your workspace, " +
+          "caption, selected platform, and publishing connection.",
+      );
+      return;
+    }
+
+    const publishingPlatform = platform as "facebook" | "linkedin";
+    const platformLabel =
+      publishingPlatform === "facebook" ? "Facebook" : "LinkedIn";
+
+    const platformConnections = {
+      [publishingPlatform]: connectionId,
+    };
+
+    const publishingSession = captureEditorSession();
+
+    publishingLockRef.current = true;
+
+    setPublishing(true);
+    setSaving(true);
+    setError("");
+    setPublishingMessage("");
+    setPublishingOutcome(null);
+
+    let savedPostId: string | null = null;
+    let publishRequestStarted = false;
+
+    try {
+      let targetPostId: string;
+
+      if (mode === "edit") {
+        await updateDraftPost(postId!, {
+          title: title.trim(),
+          caption: caption.trim(),
+          ...getPostMediaUpdate(mediaState),
+          platforms: [publishingPlatform],
+          platformConnections,
+        });
+
+        targetPostId = postId!;
+        savedPostId = targetPostId;
+      } else {
+        const draft = await createPost({
+          workspaceId: selectedWorkspace._id,
+          title: title.trim(),
+          caption: caption.trim(),
+          platforms: [publishingPlatform],
+          mediaIds: [],
+          platformConnections,
+        });
+
+        targetPostId = draft._id;
+        savedPostId = targetPostId;
+      }
+
+      // The draft has been saved or updated successfully.
+      // Record its ID so a changed editor session cannot
+      // accidentally initiate a second publishing attempt.
+      setSavedPublishingPostId(targetPostId);
+
+      // Critical safety boundary:
+      // The user may have changed workspaces or posts while
+      // the create/update request was in flight.
+      const sessionError = checkEditorSession(publishingSession);
+
+      if (sessionError) {
+        // No external publishing request has started.
+        // The existing catch block handles the saved-draft
+        // outcome and explains that publication did not start.
+        throw new Error(sessionError);
+      }
+
+      // Do not place another await between this check
+      // and the publishing API request.
+      publishRequestStarted = true;
+
+      const response = await publishPostNow(targetPostId);
+
+      const platformResult = response.result.results.find(
+        (result) => result.platform === publishingPlatform,
+      );
+
+      const confirmedPublished =
+        platformResult?.outcome === "published" &&
+        response.post.status === "published";
+
+      if (confirmedPublished) {
+        setPublishingOutcome("published");
+        setPublishingMessage(
+          `Your post was successfully published to ${platformLabel}.`,
+        );
+        setShowPublishConfirmation(false);
+        return;
+      }
+
+      const confirmedFailed =
+        platformResult?.outcome === "failed" &&
+        response.post.status === "failed";
+
+      if (confirmedFailed) {
+        setPublishingOutcome("failed");
+        setPublishingMessage(
+          platformResult.message ||
+            response.post.lastError ||
+            `${platformLabel} publishing failed. Your post was saved in Storm.`,
+        );
+        setShowPublishConfirmation(false);
+        return;
+      }
+
+      setPublishingOutcome("unknown");
+      setPublishingMessage(
+        `Storm could not confirm whether ${platformLabel} published this post. ` +
+          `Check your ${platformLabel} account and Posts page before taking further action.`,
+      );
+      setShowPublishConfirmation(false);
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "An unexpected error occurred.";
+
+      if (publishRequestStarted) {
+        setPublishingOutcome("unknown");
+        setPublishingMessage(
+          `Storm could not confirm the ${platformLabel} publishing outcome. ` +
+            `Check your ${platformLabel} account and Posts page before retrying. ` +
+            errorMessage,
+        );
+      } else if (savedPostId) {
+        setPublishingOutcome("failed");
+        setPublishingMessage(
+          "The publishing request was not started. " +
+            "Your saved draft remains in Storm. " +
+            errorMessage,
+        );
+      } else {
+        setPublishingOutcome("failed");
+        setPublishingMessage(
+          mode === "edit"
+            ? "Storm could not confirm that your draft changes were saved. " +
+                "No publishing request was started. Check Posts before retrying. " +
+                errorMessage
+            : "Storm could not confirm that your draft was created. " +
+                "No publishing request was started. Check Posts before retrying. " +
+                errorMessage,
+        );
+      }
+
+      setShowPublishConfirmation(false);
+    } finally {
+      setPublishing(false);
+      setSaving(false);
+
+      if (!publishRequestStarted && !savedPostId) {
+        publishingLockRef.current = false;
+      }
+    }
+  }
+
+  function handlePublishReview() {
+    if (
+      saving ||
+      publishing ||
+      publishingLockRef.current ||
+      savedPublishingPostId ||
+      showPublishConfirmation
+    ) {
+      if (savedPublishingPostId) {
+        setError(
+          "This post already has a saved publishing attempt. " +
+            "Check your Posts page before taking further action.",
+        );
+      }
+      return;
+    }
+
+    setError("");
+
+    if (!workspaceContext.valid) {
+      setError(
+        workspaceContext.message ?? "Unable to verify the post workspace.",
+      );
+      return;
+    }
+
+    if (selectedMediaAssetId) {
+      setError(
+        "Media publishing is not supported yet. " +
+          "Remove the selected image before publishing.",
+      );
+      return;
+    }
+
+    if (mode === "edit" && !postId) {
+      setError("Post ID is missing.");
+      return;
+    }
+
+    if (workspacesLoading) {
+      setError("Please wait while your workspace loads.");
+      return;
+    }
+
+    if (workspaceError || !selectedWorkspace) {
+      setError("Select a valid workspace before publishing.");
+      return;
+    }
+
+    if (!caption.trim()) {
+      setError("Caption is required.");
+      return;
+    }
+
+    if (selectedPlatforms.length !== 1) {
+      setError("Select exactly one platform for Publish Now.");
+      return;
+    }
+
+    const platform = selectedPlatforms[0];
+
+    if (platform === "linkedin") {
+      if (linkedInStatus !== "connected" || !linkedInConnectionId) {
+        setError("Connect a LinkedIn account before publishing.");
+        return;
+      }
+    } else if (platform === "facebook") {
+      const validSelection = facebookConnections.some(
+        (connection) =>
+          connection.id === selectedFacebookConnectionId &&
+          connection.status === "connected" &&
+          connection.canPublish,
+      );
+
+      if (
+        facebookConnectionsLoading ||
+        facebookConnectionsError ||
+        !validSelection
+      ) {
+        setError(
+          "Select a connected Facebook Page with publishing permission.",
+        );
+        return;
+      }
+    } else {
+      setError("Publish Now does not support this platform yet.");
+      return;
+    }
+
+    setShowPublishConfirmation(true);
+  }
+
+  function handleCancel() {
+    if (publishing || saving) {
+      return;
+    }
+
+    navigate(plannerReturnUrl ?? "/posts");
+  }
+
+  const publishingPlatformLabel =
+    selectedPlatforms[0] === "facebook" ? "Facebook" : "LinkedIn";
+
+  // Phase 13.3.1:
+  // Derive checklist data from the existing editor state.
+  // Do not replace the current publishing submission flow.
+
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+  let checklistDraft = createPublishingDraft(
+    selectedWorkspaceId ?? "",
+    timezone,
+  );
+
+  checklistDraft = setSharedCaption(checklistDraft, caption);
+
+  // Readiness must reflect the CURRENT editor selection,
+  // including media added to a new draft, replacement,
+  // or explicit removal from an existing draft.
+  checklistDraft = setSharedMedia(
+    checklistDraft,
+    mediaState.selectedMediaIds.map((assetId) => ({
+      assetId,
+      type: "image" as const,
+    })),
+  );
+
+  const accountCapabilities: PublishingCapabilityContext = {
+    accounts: {},
+  };
+
+  for (const platform of selectedPlatforms) {
+    let connectionId = "";
+    let accountName: string = platform;
+    let format: PublishingDestination["format"] = "text";
+    let connected = false;
+    let canPublish = false;
+
+    if (platform === "facebook") {
+      const connection = facebookConnections.find(
+        (item) => item.id === selectedFacebookConnectionId,
+      );
+
+      connectionId = connection?.id ?? "";
+      accountName = connection?.pageName ?? "Select a Facebook Page";
+
+      connected = connection?.status === "connected";
+      canPublish = connection?.canPublish === true;
+    }
+
+    if (platform === "linkedin") {
+      connectionId = linkedInConnectionId ?? "";
+      accountName = linkedInDisplayName ?? "LinkedIn account";
+
+      connected =
+        linkedInStatus === "connected" && Boolean(linkedInConnectionId);
+
+      canPublish = connected;
+    }
+
+    if (platform === "instagram") {
+      accountName = "Instagram connection unavailable";
+      format = "image";
+    }
+
+    const destination: PublishingDestination = {
+      id: `${platform}:${connectionId || "unconnected"}`,
+      platform,
+      connectionId,
+      accountName,
+      format,
+    };
+
+    checklistDraft = addDestination(checklistDraft, destination);
+
+    // Instagram is intentionally not given a verified
+    // publishing account until its integration exists.
+    if (platform !== "instagram" && connectionId) {
+      accountCapabilities.accounts[destination.id] = {
+        connectionId,
+        connected,
+        canPublish,
+      };
+    }
+  }
+
+  if (postMode === "scheduled" && scheduledAt) {
+    const parsed = parseLocalScheduleDate(scheduledAt);
+
+    checklistDraft.publishing.scheduledAt = parsed
+      ? toScheduledAtISOString(parsed)
+      : "";
+  }
+
+  const readiness = evaluatePublishingReadiness(
+    checklistDraft,
+    accountCapabilities,
+    postMode === "immediate"
+      ? "now"
+      : postMode === "scheduled"
+        ? "schedule"
+        : "draft",
+  );
+
+  const checklistBlockers: string[] = [];
+
+  if (!workspaceContext.valid) {
+    checklistBlockers.push(
+      workspaceContext.message ?? "Unable to verify the post workspace.",
+    );
+  }
+
+  if (mode === "edit" && postMode !== "draft") {
+    checklistBlockers.push(
+      "Scheduling an existing draft is not supported by " +
+        "the current editor.",
+    );
+  }
+
+  if (
+    postMode === "immediate" &&
+    (workspacesLoading || workspaceError || !selectedWorkspace)
+  ) {
+    checklistBlockers.push(
+      "Select a verified active workspace before publishing.",
+    );
+  }
+
+  const editorContent = loadingPost ? (
+    <div
+      role="status"
+      className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center"
+    >
+      <p className="text-sm text-slate-600">Loading post...</p>
+    </div>
+  ) : loadError ? (
+    <div
+      role="alert"
+      className="rounded-xl border border-rose-200 bg-rose-50 p-6"
+    >
+      <h2 className="font-semibold text-rose-800">Unable to edit post</h2>
+
+      <p className="mt-2 text-sm text-rose-700">{loadError}</p>
+
+      <button
+        type="button"
+        onClick={handleCancel}
+        className="mt-4 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm"
+      >
+        Back to Posts
+      </button>
+    </div>
+  ) : (
+    <PostEditorForm
+      mode={mode}
+      locked={savedPublishingPostId !== null}
+      title={title}
+      caption={caption}
+      selectedPlatforms={selectedPlatforms}
+      postMode={postMode}
+      scheduledAt={scheduledAt}
+      minScheduledAt={minScheduledAt}
+      saving={saving || publishing}
+      error={error}
+      linkedInConnectionId={
+        linkedInStatus === "connected" ? linkedInConnectionId || null : null
+      }
+      linkedInDisplayName={linkedInDisplayName || null}
+      linkedInStatus={linkedInStatus}
+      onTitleChange={(value) => {
+        setTitle(value);
+        setError("");
+      }}
+      onCaptionChange={(value) => {
+        setCaption(value);
+        setError("");
+      }}
+      onPlatformsChange={(platforms) => {
+        setSelectedPlatforms(platforms);
+        setError("");
+      }}
+      onPostModeChange={(value) => {
+        setPostMode(value);
+        setError("");
+      }}
+      onScheduledAtChange={(value) => {
+        setScheduledAt(value);
+        setError("");
+      }}
+      facebookConnections={facebookConnections}
+      selectedFacebookConnectionId={
+        facebookConnections.some(
+          (connection) =>
+            connection.id === selectedFacebookConnectionId &&
+            connection.canPublish &&
+            connection.status === "connected",
+        )
+          ? selectedFacebookConnectionId
+          : null
+      }
+      facebookConnectionsLoading={facebookConnectionsLoading}
+      facebookConnectionsError={facebookConnectionsError}
+      onFacebookConnectionChange={(connectionId) => {
+        setSelectedFacebookConnectionId(connectionId);
+        setError("");
+      }}
+      workspaceId={
+        workspaceContext.valid
+          ? mode === "edit"
+            ? postWorkspaceId
+            : selectedWorkspaceId
+          : null
+      }
+      selectedMediaAssetId={selectedMediaAssetId}
+      onMediaSelect={handleMediaSelect}
+      onMediaRemove={handleMediaRemove}
+      onSave={handleSave}
+      onCancel={handleCancel}
+    />
+  );
+
+  return (
+    <main className="min-h-screen bg-slate-50 p-6 text-slate-900">
+      <div className="mx-auto max-w-7xl">
+        <PostEditorPage
+          mode={mode}
+          onBack={handleCancel}
+          sidebar={
+            !loadingPost && !loadError ? (
+              <div className="space-y-5">
+                <PublishingChecklistPanel
+                  readiness={readiness}
+                  blockers={checklistBlockers}
+                />
+
+                <PublishingControls
+                  editorMode={mode}
+                  postMode={postMode}
+                  scheduledAt={scheduledAt}
+                  minScheduledAt={minScheduledAt}
+                  saving={saving || publishing}
+                  locked={savedPublishingPostId !== null}
+                  readiness={readiness}
+                  blockers={checklistBlockers}
+                  formId="storm-post-editor-form"
+                  onPostModeChange={(value) => {
+                    setPostMode(value);
+                    setError("");
+                  }}
+                  onScheduledAtChange={(value) => {
+                    setScheduledAt(value);
+                    setError("");
+                  }}
+                  onCancel={handleCancel}
+                />
+              </div>
+            ) : undefined
+          }
+          preview={
+            !loadingPost && !loadError ? (
+              <PostPreview
+                title={title}
+                caption={caption}
+                platforms={selectedPlatforms}
+              />
+            ) : undefined
+          }
+        >
+          <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Active Workspace
+            </p>
+
+            {workspacesLoading ? (
+              <p className="mt-2 text-sm text-slate-600">
+                Loading workspace...
+              </p>
+            ) : workspaceError ? (
+              <p role="alert" className="mt-2 text-sm text-rose-600">
+                {workspaceError}
+              </p>
+            ) : selectedWorkspace ? (
+              <p className="mt-2 text-sm font-semibold text-slate-900">
+                {selectedWorkspace.name}
+              </p>
+            ) : (
+              <p className="mt-2 text-sm text-amber-700">
+                No workspace available. Create a workspace before creating
+                posts.
+              </p>
+            )}
+          </div>
+          {linkedInStatusError && (
+            <div
+              role="alert"
+              className="mb-6 rounded-xl border border-rose-200 bg-rose-50 p-4"
+            >
+              <p className="text-sm text-rose-700">
+                LinkedIn: {linkedInStatusError}
+              </p>
+            </div>
+          )}
+
+          {publishing && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mb-6 rounded-xl border border-violet-200 bg-violet-50 p-4"
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  aria-hidden="true"
+                  className="h-5 w-5 animate-spin rounded-full border-2 border-violet-200 border-t-violet-600"
+                />
+
+                <div>
+                  <p className="text-sm font-semibold text-violet-900">
+                    Publishing to {publishingPlatformLabel}...
+                  </p>
+
+                  <p className="mt-1 text-xs text-violet-700">
+                    Please keep this page open while Storm submits your post. Do
+                    not refresh or submit another publishing request.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {publishingMessage && (
+            <div
+              role="status"
+              className={`mb-6 rounded-xl border p-4 ${
+                publishingOutcome === "published"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : publishingOutcome === "failed"
+                    ? "border-rose-200 bg-rose-50 text-rose-800"
+                    : "border-amber-200 bg-amber-50 text-amber-800"
+              }`}
+            >
+              <p className="text-sm font-semibold">
+                {publishingOutcome === "published"
+                  ? "Published Successfully"
+                  : publishingOutcome === "failed"
+                    ? "Publishing Failed"
+                    : "Publishing Status Unknown"}
+              </p>
+
+              <p className="mt-2 text-sm">{publishingMessage}</p>
+
+              {savedPublishingPostId && (
+                <button
+                  type="button"
+                  onClick={() => navigate("/posts")}
+                  className="mt-4 rounded-lg border border-current px-4 py-2 text-sm font-semibold"
+                >
+                  View Posts
+                </button>
+              )}
+            </div>
+          )}
+          {!loadingPost && !loadError && !workspaceContext.valid && (
+            <div
+              role="alert"
+              className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4"
+            >
+              <p className="text-sm font-semibold text-amber-900">
+                Workspace verification required
+              </p>
+
+              <p className="mt-1 text-sm text-amber-800">
+                {workspaceContext.message}
+              </p>
+            </div>
+          )}
+          {editorContent}
+        </PostEditorPage>
+      </div>
+
+      {showPublishConfirmation && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+          role="presentation"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="publish-confirmation-title"
+            aria-describedby="publish-confirmation-description"
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+          >
+            <h2
+              id="publish-confirmation-title"
+              className="text-xl font-bold text-slate-900"
+            >
+              Publish to {publishingPlatformLabel}?
+            </h2>
+
+            <p
+              id="publish-confirmation-description"
+              className="mt-3 text-sm leading-6 text-slate-600"
+            >
+              This will immediately publish your post to your selected{" "}
+              {publishingPlatformLabel} destination.
+            </p>
+
+            <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Publishing Account
+              </p>
+
+              <p className="mt-2 text-sm font-semibold text-slate-900">
+                {linkedInDisplayName || "Connected LinkedIn account"}
+              </p>
+
+              <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Post Preview
+              </p>
+
+              <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-slate-700">
+                {caption.trim()}
+              </p>
+            </div>
+
+            <p className="mt-4 text-xs leading-5 text-amber-700">
+              Once published, this post may be visible to other{" "}
+              {publishingPlatformLabel} users. Publishing cannot be undone from
+              Storm.
+            </p>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowPublishConfirmation(false)}
+                disabled={publishing || saving}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  void handleConfirmPublish();
+                }}
+                disabled={publishing || saving}
+                className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {publishing ? "Publishing..." : "Confirm Publish"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
+
+===== apps/web/src/features/publishing/postEditorSession.ts =====
+export type PostEditorSession = {
+  mode: "create" | "edit";
+  workspaceId: string;
+  postId: string | null;
+};
+
+export type PostEditorSessionResult = {
+  valid: boolean;
+  reason: "valid" | "workspace-changed" | "post-changed" | "mode-changed";
+};
+
+export function createPostEditorSession(
+  mode: "create" | "edit",
+  workspaceId: string,
+  postId: string | null,
+): PostEditorSession {
+  return {
+    mode,
+    workspaceId,
+    postId,
+  };
+}
+
+/**
+ * Verify that an asynchronous operation still belongs
+ * to the currently active editor session.
+ *
+ * This is a frontend consistency guard, not a replacement
+ * for API authorization.
+ */
+export function validatePostEditorSession(
+  original: PostEditorSession,
+  current: PostEditorSession,
+): PostEditorSessionResult {
+  if (original.mode !== current.mode) {
+    return {
+      valid: false,
+      reason: "mode-changed",
+    };
+  }
+
+  if (original.workspaceId !== current.workspaceId) {
+    return {
+      valid: false,
+      reason: "workspace-changed",
+    };
+  }
+
+  if (original.postId !== current.postId) {
+    return {
+      valid: false,
+      reason: "post-changed",
+    };
+  }
+
+  return {
+    valid: true,
+    reason: "valid",
+  };
+}
+
+export function getPostEditorSessionError(
+  result: PostEditorSessionResult,
+): string | null {
+  if (result.valid) {
+    return null;
+  }
+
+  switch (result.reason) {
+    case "workspace-changed":
+      return (
+        "The active workspace changed while Storm was " +
+        "processing your request. Check your Posts page " +
+        "before retrying."
+      );
+
+    case "post-changed":
+      return (
+        "The selected post changed while Storm was " +
+        "processing your request."
+      );
+
+    case "mode-changed":
+      return (
+        "The editor mode changed while Storm was " + "processing your request."
+      );
+
+    default:
+      return "The editor session is no longer current.";
+  }
+}
+
+===== apps/web/src/features/publishing/postEditorAsyncSafety.test.ts =====
+import { describe, expect, it } from "vitest";
+
+import {
+  createPostEditorSession,
+  validatePostEditorSession,
+} from "./postEditorSession";
+
+const WORKSPACE_A = "507f1f77bcf86cd799439011";
+const WORKSPACE_B = "507f1f77bcf86cd799439012";
+const POST_A = "507f1f77bcf86cd799439013";
+
+function canContinuePublishing(
+  original: ReturnType<typeof createPostEditorSession>,
+  current: ReturnType<typeof createPostEditorSession>,
+  originalRevision: number,
+  currentRevision: number,
+) {
+  return (
+    validatePostEditorSession(original, current).valid &&
+    originalRevision === currentRevision
+  );
+}
+
+describe("Post Editor asynchronous publishing safety", () => {
+  it("allows publishing when the editor session is unchanged", () => {
+    const session = createPostEditorSession("create", WORKSPACE_A, null);
+
+    expect(canContinuePublishing(session, session, 0, 0)).toBe(true);
+  });
+
+  it("blocks publishing after switching workspaces", () => {
+    const original = createPostEditorSession("create", WORKSPACE_A, null);
+
+    const current = createPostEditorSession("create", WORKSPACE_B, null);
+
+    expect(canContinuePublishing(original, current, 0, 1)).toBe(false);
+  });
+
+  it("blocks publishing after switching posts", () => {
+    const original = createPostEditorSession("edit", WORKSPACE_A, POST_A);
+
+    const current = createPostEditorSession(
+      "edit",
+      WORKSPACE_A,
+      "507f1f77bcf86cd799439014",
+    );
+
+    expect(canContinuePublishing(original, current, 0, 1)).toBe(false);
+  });
+
+  it("detects switching away and back to the original workspace", () => {
+    const original = createPostEditorSession("create", WORKSPACE_A, null);
+
+    const current = createPostEditorSession("create", WORKSPACE_A, null);
+
+    expect(canContinuePublishing(original, current, 0, 2)).toBe(false);
+  });
+});
+
+===== apps/web/src/features/publishing/postWorkspaceContext.ts =====
+export type PostWorkspaceContext = {
+  mode: "create" | "edit";
+  activeWorkspaceId: string | null;
+  postWorkspaceId: string | null;
+};
+
+export type PostWorkspaceContextResult = {
+  valid: boolean;
+  message: string | null;
+};
+
+export function validatePostWorkspaceContext({
+  mode,
+  activeWorkspaceId,
+  postWorkspaceId,
+}: PostWorkspaceContext): PostWorkspaceContextResult {
+  if (!activeWorkspaceId) {
+    return {
+      valid: false,
+      message: "Select an active workspace to continue.",
+    };
+  }
+
+  if (mode === "create") {
+    return {
+      valid: true,
+      message: null,
+    };
+  }
+
+  if (!postWorkspaceId) {
+    return {
+      valid: false,
+      message: "The draft's workspace could not be verified.",
+    };
+  }
+
+  if (activeWorkspaceId !== postWorkspaceId) {
+    return {
+      valid: false,
+      message:
+        "This draft belongs to another workspace. " +
+        "Switch to the draft's workspace before editing or publishing.",
+    };
+  }
+
+  return {
+    valid: true,
+    message: null,
+  };
+}
+
+===== apps/web/src/hooks/useWorkspaces.ts =====
+import { useEffect, useState } from "react";
+import { getWorkspaces, type Workspace } from "@/lib/workspaces";
+import {
+  clearStoredWorkspaceId,
+  readStoredWorkspaceId,
+  storeWorkspaceId,
+} from "@/lib/workspaceSelection";
+
+export function useWorkspaces() {
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
+  const [workspacesLoading, setWorkspacesLoading] = useState(true);
+  const [workspaceError, setWorkspaceError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadWorkspaces() {
+      setWorkspacesLoading(true);
+      setWorkspaceError("");
+
+      try {
+        const result = await getWorkspaces();
+
+        if (!active) return;
+
+        setWorkspaces(result);
+
+        const storedId = readStoredWorkspaceId();
+
+        const validStoredWorkspace = storedId
+          ? result.find((workspace) => workspace._id === storedId)
+          : undefined;
+
+        const nextWorkspaceId =
+          validStoredWorkspace?._id ?? result[0]?._id ?? "";
+
+        setSelectedWorkspaceId(nextWorkspaceId);
+
+        if (nextWorkspaceId) {
+          storeWorkspaceId(nextWorkspaceId);
+        } else {
+          clearStoredWorkspaceId();
+        }
+      } catch (error) {
+        if (!active) return;
+
+        setWorkspaceError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load your workspaces.",
+        );
+      } finally {
+        if (active) {
+          setWorkspacesLoading(false);
+        }
+      }
+    }
+
+    void loadWorkspaces();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  function addWorkspace(workspace: Workspace) {
+    setWorkspaces((current) => [workspace, ...current]);
+  }
+
+  return {
+    workspaces,
+    selectedWorkspaceId,
+    setSelectedWorkspaceId,
+    workspacesLoading,
+    workspaceError,
+    addWorkspace,
+  };
+}
+
+===== apps/web/src/hooks/useLinkedInConnection.ts =====
+import { useCallback, useEffect, useState } from "react";
+import {
+  disconnectLinkedInConnection,
+  getLinkedInStatus,
+  startLinkedInConnect,
+} from "@/lib/linkedin";
+
+type LinkedInStatus =
+  | "idle"
+  | "loading"
+  | "connected"
+  | "disconnected"
+  | "expired"
+  | "revoked"
+  | "error";
+
+export function useLinkedInConnection(
+  selectedWorkspaceId: string,
+  onNotice: (message: string) => void,
+) {
+  const [status, setStatus] = useState<LinkedInStatus>("idle");
+  const [displayName, setDisplayName] = useState("");
+  const [connectionId, setConnectionId] = useState("");
+  const [statusError, setStatusError] = useState("");
+  const [connectError, setConnectError] = useState("");
+  const [disconnectError, setDisconnectError] = useState("");
+  const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadStatus() {
+      if (!selectedWorkspaceId) {
+        setStatus("idle");
+        setDisplayName("");
+        setConnectionId("");
+        setStatusError("");
+        return;
+      }
+
+      setStatus("loading");
+      setDisplayName("");
+      setConnectionId("");
+      setStatusError("");
+
+      try {
+        const result = await getLinkedInStatus(selectedWorkspaceId);
+
+        if (!active) return;
+
+        if (!result.connection) {
+          setStatus("disconnected");
+          return;
+        }
+
+        setConnectionId(result.connection.id);
+        setStatus(result.connection.status);
+        setDisplayName(result.connection.displayName ?? "");
+      } catch (error) {
+        if (!active) return;
+
+        setStatus("error");
+        setConnectionId("");
+        setStatusError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load LinkedIn connection status.",
+        );
+      }
+    }
+
+    void loadStatus();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedWorkspaceId, refreshKey]);
+
+  async function connect() {
+    if (!selectedWorkspaceId || connecting || disconnecting) return;
+
+    setConnecting(true);
+    setConnectError("");
+    setDisconnectError("");
+
+    try {
+      const authorizationUrl = await startLinkedInConnect(selectedWorkspaceId);
+
+      window.location.assign(authorizationUrl);
+    } catch (error) {
+      setConnectError(
+        error instanceof Error
+          ? error.message
+          : "Unable to start LinkedIn connection.",
+      );
+      setConnecting(false);
+    }
+  }
+
+  async function disconnect() {
+    if (!selectedWorkspaceId || !connectionId || connecting || disconnecting) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Disconnect this LinkedIn account from Storm? This removes the saved connection from Storm but does not revoke access at LinkedIn.",
+    );
+
+    if (!confirmed) return;
+
+    setDisconnecting(true);
+    setDisconnectError("");
+    setConnectError("");
+
+    try {
+      await disconnectLinkedInConnection(connectionId, selectedWorkspaceId);
+
+      onNotice("LinkedIn connection removed from Storm.");
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      setDisconnectError(
+        error instanceof Error
+          ? error.message
+          : "Unable to disconnect LinkedIn.",
+      );
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
+  const refreshStatus = useCallback(() => {
+    setRefreshKey((current) => current + 1);
+  }, []);
+
+  return {
+    status,
+    displayName,
+    connectionId,
+    statusError,
+    connectError,
+    disconnectError,
+    connecting,
+    disconnecting,
+    connect,
+    disconnect,
+    refreshStatus,
+    setConnectError,
+  };
+}
+
+===== apps/web/src/lib/posts.ts =====
+import { apiFetch } from "@/lib/api";
+
+export type PostStatus =
+  | "draft"
+  | "scheduled"
+  | "publishing"
+  | "published"
+  | "failed";
+
+export type PostPlatform = "facebook" | "instagram" | "linkedin";
+
+export type PostPlatformResult = {
+  platform: PostPlatform;
+  status: "pending" | "publishing" | "published" | "failed" | "unknown";
+  externalPostId?: string;
+  publishedAt?: string;
+  lastError?: string;
+  attemptCount?: number;
+};
+
+export type Post = {
+  _id: string;
+  workspaceId: string;
+  createdByUserId: string;
+  title?: string;
+  caption: string;
+  mediaIds: string[];
+  platforms: PostPlatform[];
+  status: PostStatus;
+  scheduledAt?: string;
+  publishedAt?: string;
+  lastError?: string;
+
+  platformResults?: PostPlatformResult[];
+
+  platformConnections?: {
+    facebook?: string;
+    linkedin?: string;
+  };
+
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreatePostInput = {
+  workspaceId: string;
+  title?: string;
+  caption: string;
+  mediaIds?: string[];
+  platforms: PostPlatform[];
+  scheduledAt?: string;
+  platformConnections?: {
+    facebook?: string;
+    linkedin?: string;
+  };
+};
+
+export type UpdateDraftPostInput = {
+  title?: string;
+  caption?: string;
+  mediaIds?: string[];
+  platforms?: PostPlatform[];
+  platformConnections?: {
+    facebook?: string;
+    linkedin?: string;
+  };
+};
+
+type CreatePostResponse = {
+  post: Post;
+};
+
+type ListPostsResponse = {
+  posts: Post[];
+};
+
+export type PaginatedPostsResponse = {
+  posts: Post[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  draftCount: number;
+};
+
+export type PublishingOutcome =
+  | "published"
+  | "failed"
+  | "unknown"
+  | "simulated";
+
+export type PlatformPublishingResult = {
+  outcome: PublishingOutcome;
+  postId: string;
+  platform: PostPlatform;
+  externalPostId?: string;
+  publishedAt?: string;
+  message?: string;
+};
+
+export type PublishPostResponse = {
+  message: string;
+  result: {
+    postId: string;
+    results: PlatformPublishingResult[];
+  };
+  post: Post;
+};
+
+export async function createPost(input: CreatePostInput): Promise<Post> {
+  const response = await apiFetch<CreatePostResponse>("/api/posts", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return response.post;
+}
+
+export async function getPostById(postId: string): Promise<Post> {
+  const response = await apiFetch<CreatePostResponse>(
+    `/api/posts/${encodeURIComponent(postId)}`,
+  );
+
+  return response.post;
+}
+
+export async function getWorkspacePosts(workspaceId: string): Promise<Post[]> {
+  const response = await apiFetch<ListPostsResponse>(
+    `/api/posts/workspaces/${encodeURIComponent(workspaceId)}`,
+  );
+
+  return response.posts;
+}
+
+export async function getWorkspacePostsPage(
+  workspaceId: string,
+  options?: {
+    cursor?: string;
+    limit?: number;
+    search?: string;
+    status?:
+      | "all"
+      | "draft"
+      | "scheduled"
+      | "publishing"
+      | "published"
+      | "failed";
+    platform?: "all" | "facebook" | "instagram" | "linkedin";
+  },
+): Promise<PaginatedPostsResponse & { draftCount: number }> {
+  const params = new URLSearchParams();
+
+  if (options?.limit !== undefined) {
+    params.set("limit", String(options.limit));
+  }
+
+  if (options?.cursor) {
+    params.set("cursor", options.cursor);
+  }
+
+  if (options?.search?.trim()) {
+    params.set("search", options.search.trim());
+  }
+
+  if (options?.status && options.status !== "all") {
+    params.set("status", options.status);
+  }
+
+  if (options?.platform && options.platform !== "all") {
+    params.set("platform", options.platform);
+  }
+
+  const query = params.toString();
+  const path =
+    `/api/posts/workspaces/${encodeURIComponent(workspaceId)}` +
+    (query ? `?${query}` : "");
+
+  return apiFetch<PaginatedPostsResponse & { draftCount: number }>(path);
+}
+
+export async function deleteDraftPost(postId: string): Promise<void> {
+  await apiFetch<{ message: string; postId: string }>(
+    `/api/posts/${encodeURIComponent(postId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+}
+
+export async function updateDraftPost(
+  postId: string,
+  input: UpdateDraftPostInput,
+): Promise<Post> {
+  const response = await apiFetch<CreatePostResponse>(
+    `/api/posts/${encodeURIComponent(postId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
+
+  return response.post;
+}
+
+export async function publishPostNow(
+  postId: string,
+): Promise<PublishPostResponse> {
+  return apiFetch<PublishPostResponse>(
+    `/api/posts/${encodeURIComponent(postId)}/publish`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+===== EXISTING REACT COMPONENT TESTS =====
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\components\facebook\FacebookOAuthSessionLoader.test.tsx
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\components\facebook\FacebookPageSelector.test.tsx
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\components\SocialConnectionsMenu.test.tsx
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\useContentPlanner.test.tsx
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageHistoryGallery.test.tsx
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageStudio.retry.test.tsx
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\WorkspaceLogoUploader.test.tsx
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\publishing\components\MediaLibraryPicker.test.tsx
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\publishing\components\SelectedMediaPreview.test.tsx
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\hooks\useFacebookConnection.test.tsx
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\hooks\useFacebookConnections.test.tsx
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\App.test.tsx
+
+===== TEST MOCKING PATTERNS =====
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\components\facebook\FacebookOAuthSessionLoader.test.tsx:3 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\components\facebook\FacebookOAuthSessionLoader.test.tsx:258 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\components\facebook\FacebookOAuthSessionLoader.test.tsx:265 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\components\facebook\FacebookPageSelector.test.tsx:3 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\components\facebook\FacebookPageSelector.test.tsx:147 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\components\facebook\FacebookPageSelector.test.tsx:154 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\useContentPlanner.test.tsx:3 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\useContentPlanner.test.tsx:19 function deferred<T>() {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\useContentPlanner.test.tsx:75 const oldRequest = deferred<CalendarResponse>();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\useContentPlanner.test.tsx:77 const newRequest = deferred<CalendarResponse>();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\useContentPlanner.test.tsx:106 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\useContentPlanner.test.tsx:118 const november = deferred<CalendarResponse>();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\useContentPlanner.test.tsx:120 const december = deferred<CalendarResponse>();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\useContentPlanner.test.tsx:144 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\useContentPlanner.test.tsx:160 const pending = deferred<CalendarResponse>();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\useContentPlanner.test.tsx:192 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\useContentPlanner.test.tsx:200 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx:3 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx:19 function deferred<T>() {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx:75 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx:101 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx:112 const oldRequest = deferred<PaginatedPostsResponse>();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx:114 const newRequest = deferred<PaginatedPostsResponse>();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx:139 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx:151 const scheduledRequest = deferred<PaginatedPostsResponse>();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx:153 const allRequest = deferred<PaginatedPostsResponse>();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx:175 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx:201 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx:225 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx:241 const oldLoadMore = deferred<PaginatedPostsResponse>();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx:252 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\content-planner\hooks\usePlannerPostList.test.tsx:266 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageHistoryGallery.test.tsx:9 waitFor,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageHistoryGallery.test.tsx:107 function deferred<T>() {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageHistoryGallery.test.tsx:156 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageHistoryGallery.test.tsx:233 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageHistoryGallery.test.tsx:249 const delayedStatus = deferred<ImageGenerationDetails>();
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageHistoryGallery.test.tsx:263 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageHistoryGallery.test.tsx:326 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageHistoryGallery.test.tsx:336 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageHistoryGallery.test.tsx:404 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageStudio.retry.test.tsx:12 waitFor,
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageStudio.retry.test.tsx:131 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageStudio.retry.test.tsx:234 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageStudio.retry.test.tsx:270 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageStudio.retry.test.tsx:298 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\ImageStudio.retry.test.tsx:336 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\WorkspaceLogoUploader.test.tsx:2 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\WorkspaceLogoUploader.test.tsx:116 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\WorkspaceLogoUploader.test.tsx:146 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\WorkspaceLogoUploader.test.tsx:203 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\WorkspaceLogoUploader.test.tsx:254 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\image-studio\components\WorkspaceLogoUploader.test.tsx:267 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\publishing\components\MediaLibraryPicker.test.tsx:3 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\publishing\components\MediaLibraryPicker.test.tsx:82 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\publishing\components\MediaLibraryPicker.test.tsx:116 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\publishing\components\MediaLibraryPicker.test.tsx:142 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\publishing\components\MediaLibraryPicker.test.tsx:227 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\publishing\components\MediaLibraryPicker.test.tsx:239 await waitFor(() => {
+Z:\_A_Software_Developer\ai project\socmed\socmedai\apps\web\src\features\publishing\components\MediaLibraryPicker.test.tsx:249 await waitFor(() => {

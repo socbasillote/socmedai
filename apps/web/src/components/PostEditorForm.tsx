@@ -8,11 +8,14 @@ import {
 
 import { MediaLibraryPicker } from "@/features/publishing/components/MediaLibraryPicker";
 import { SelectedMediaPreview } from "@/features/publishing/components/SelectedMediaPreview";
+import { PublishingImageGenerator } from "@/features/publishing/components/PublishingImageGenerator";
 
 type PostMode = "draft" | "scheduled" | "immediate";
 
 type PostEditorFormProps = {
   mode: "create" | "edit";
+
+  recoveryOwnerUserId: string | null;
 
   title: string;
   caption: string;
@@ -87,8 +90,10 @@ export function PostEditorForm({
   selectedMediaAssetId,
   onMediaSelect,
   onMediaRemove,
+  recoveryOwnerUserId,
 }: PostEditorFormProps) {
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [generatorOpen, setGeneratorOpen] = useState(false);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -191,10 +196,25 @@ export function PostEditorForm({
               <button
                 type="button"
                 disabled={saving || locked}
-                onClick={() => setLibraryOpen(true)}
+                onClick={() => {
+                  setGeneratorOpen(false);
+                  setLibraryOpen(true);
+                }}
                 className="rounded-lg border border-violet-300 bg-white px-3 py-2 text-xs font-medium text-violet-800 disabled:opacity-50"
               >
                 Replace image
+              </button>
+
+              <button
+                type="button"
+                disabled={!workspaceId || saving || locked}
+                onClick={() => {
+                  setLibraryOpen(false);
+                  setGeneratorOpen(true);
+                }}
+                className="rounded-lg border border-violet-300 bg-white px-3 py-2 text-xs font-medium text-violet-800 disabled:opacity-50"
+              >
+                Generate replacement
               </button>
 
               <button
@@ -203,6 +223,7 @@ export function PostEditorForm({
                 onClick={() => {
                   onMediaRemove();
                   setLibraryOpen(false);
+                  setGeneratorOpen(false);
                 }}
                 className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700 disabled:opacity-50"
               >
@@ -220,14 +241,31 @@ export function PostEditorForm({
               Select an existing AI-generated image.
             </p>
 
-            <button
-              type="button"
-              disabled={!workspaceId || saving || locked}
-              onClick={() => setLibraryOpen(true)}
-              className="mt-4 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              Choose from Media Library
-            </button>
+            <div className="mt-4 flex flex-wrap justify-center gap-3">
+              <button
+                type="button"
+                disabled={!workspaceId || saving || locked}
+                onClick={() => {
+                  setGeneratorOpen(false);
+                  setLibraryOpen(true);
+                }}
+                className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                Choose from Media Library
+              </button>
+
+              <button
+                type="button"
+                disabled={!workspaceId || saving || locked}
+                onClick={() => {
+                  setLibraryOpen(false);
+                  setGeneratorOpen(true);
+                }}
+                className="rounded-lg border border-violet-300 bg-white px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+              >
+                Generate with AI
+              </button>
+            </div>
           </div>
         )}
 
@@ -259,6 +297,58 @@ export function PostEditorForm({
               }}
             />
           </div>
+        )}
+
+        {generatorOpen && (
+          <section
+            aria-label="AI Image Generator"
+            className="rounded-xl border border-violet-200 bg-white p-5"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h4 className="text-sm font-semibold text-slate-900">
+                  Generate an image with AI
+                </h4>
+
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  Create an image for this post using your workspace's AI
+                  generation credits.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                disabled={saving || locked}
+                onClick={() => setGeneratorOpen(false)}
+                className="text-xs font-semibold text-slate-600 underline disabled:opacity-50"
+              >
+                Close generator
+              </button>
+            </div>
+
+            <div className="mt-5">
+              <PublishingImageGenerator
+                key={`${recoveryOwnerUserId ?? "no-user"}:${workspaceId ?? "no-workspace"}`}
+                workspaceId={workspaceId}
+                ownerUserId={recoveryOwnerUserId}
+                disabled={saving || locked}
+                onUseImage={(assetId) => {
+                  if (!workspaceId || saving || locked) {
+                    return;
+                  }
+
+                  // Reuse the existing media-selection callback.
+                  // Do not introduce another attachment state.
+                  onMediaSelect(assetId);
+
+                  // Return to the main editor so the user sees
+                  // the selected-image preview.
+                  setGeneratorOpen(false);
+                  setLibraryOpen(false);
+                }}
+              />
+            </div>
+          </section>
         )}
 
         <p className="text-xs leading-5 text-slate-500">
