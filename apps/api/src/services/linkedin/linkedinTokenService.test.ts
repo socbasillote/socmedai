@@ -53,6 +53,7 @@ describe("LinkedIn token service", () => {
     const [url, options] = fetchMock.mock.calls[0]!;
     expect(url).toBe("https://www.linkedin.com/oauth/v2/accessToken");
     expect(options?.method).toBe("POST");
+    expect(options?.signal).toBeInstanceOf(AbortSignal);
 
     const body = options?.body as URLSearchParams;
     expect(body.get("grant_type")).toBe("authorization_code");

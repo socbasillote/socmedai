@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { GenerateImageCommand } from "@/lib/imageGeneration";
+import { type GenerateImageCommand } from "@/lib/imageGeneration";
 
 import {
   clearPublishingRecovery,
@@ -275,5 +275,219 @@ describe("Publishing image recovery storage", () => {
     );
 
     expect(readPublishingRecovery(storage, secondUser).status).toBe("empty");
+  });
+
+  it("preserves a branded text generation command", () => {
+    const storage = createStorage();
+
+    const command: GenerateImageCommand = {
+      ...makeCommand(),
+      image: {
+        ...makeCommand().image,
+        branding: {
+          type: "text",
+          text: "BREW CO.",
+          position: "bottom-right",
+          sizePercent: 20,
+          opacity: 0.8,
+        },
+      },
+    };
+
+    const record = createUncertainRecovery(scope, command);
+
+    expect(savePublishingRecovery(storage, scope, record)).toBe(true);
+
+    const restored = readPublishingRecovery(storage, scope);
+
+    expect(restored.status).toBe("found");
+
+    if (restored.status !== "found" || restored.record.state !== "uncertain") {
+      throw new Error("Expected uncertain recovery.");
+    }
+
+    expect(restored.record.command).toEqual(command);
+
+    expect(restored.record.command.idempotencyKey).toBe(command.idempotencyKey);
+  });
+
+  it("preserves a workspace-logo generation command", () => {
+    const storage = createStorage();
+
+    const command: GenerateImageCommand = {
+      ...makeCommand(),
+      image: {
+        ...makeCommand().image,
+        branding: {
+          type: "logo",
+          position: "top-left",
+          sizePercent: 15,
+          opacity: 0.6,
+        },
+      },
+    };
+
+    expect(
+      savePublishingRecovery(
+        storage,
+        scope,
+        createUncertainRecovery(scope, command),
+      ),
+    ).toBe(true);
+
+    const restored = readPublishingRecovery(storage, scope);
+
+    expect(restored.status).toBe("found");
+
+    if (restored.status !== "found" || restored.record.state !== "uncertain") {
+      throw new Error("Expected uncertain recovery.");
+    }
+
+    expect(restored.record.command).toEqual(command);
+  });
+
+  it("does not allow form mutations to change recovered branding", () => {
+    const storage = createStorage();
+
+    const command: GenerateImageCommand = {
+      ...makeCommand(),
+      image: {
+        ...makeCommand().image,
+        branding: {
+          type: "text",
+          text: "ORIGINAL BRAND",
+          position: "top-right",
+          sizePercent: 10,
+          opacity: 0.5,
+        },
+      },
+    };
+
+    // Capture the original command before editing
+    // the source object.
+    const recovery = createUncertainRecovery(scope, command);
+
+    // Narrow the discriminated union using a local
+    // reference to the branding value.
+    const originalBranding = command.image.branding;
+
+    if (!originalBranding || originalBranding.type !== "text") {
+      throw new Error("Expected text branding.");
+    }
+
+    // Simulate changing the original form state
+    // after the immutable recovery snapshot.
+    originalBranding.text = "CHANGED BRAND";
+    originalBranding.sizePercent = 30;
+
+    expect(savePublishingRecovery(storage, scope, recovery)).toBe(true);
+
+    const restored = readPublishingRecovery(storage, scope);
+
+    if (restored.status !== "found" || restored.record.state !== "uncertain") {
+      throw new Error("Expected uncertain recovery.");
+    }
+
+    // Narrow the restored branding separately.
+    const recoveredBranding = restored.record.command.image.branding;
+
+    if (!recoveredBranding || recoveredBranding.type !== "text") {
+      throw new Error("Expected recovered text branding.");
+    }
+
+    expect(recoveredBranding.text).toBe("ORIGINAL BRAND");
+
+    expect(recoveredBranding.sizePercent).toBe(10);
+
+    expect(restored.record.command.idempotencyKey).toBe(command.idempotencyKey);
+  });
+
+  it("rejects invalid branded command properties", () => {
+    const storage = createStorage();
+
+    const key = getPublishingRecoveryKey(scope);
+
+    const invalidRecords = [
+      {
+        type: "text",
+        text: "",
+        position: "bottom-right",
+        sizePercent: 20,
+        opacity: 0.8,
+      },
+      {
+        type: "logo",
+        position: "somewhere",
+        sizePercent: 20,
+        opacity: 0.8,
+      },
+      {
+        type: "logo",
+        position: "bottom-right",
+        sizePercent: 100,
+        opacity: 0.8,
+      },
+      {
+        type: "text",
+        text: "BRAND",
+        position: "top-left",
+        sizePercent: 20,
+        opacity: 2,
+      },
+      {
+        type: "logo",
+        position: "bottom-right",
+        sizePercent: 20,
+        opacity: 0.8,
+        unauthorizedProperty: true,
+      },
+    ];
+
+    for (const branding of invalidRecords) {
+      const command = makeCommand();
+
+      storage.setItem(
+        key,
+        JSON.stringify({
+          version: 1,
+          state: "uncertain",
+          ...scope,
+          savedAt: new Date().toISOString(),
+          command: {
+            ...command,
+            image: {
+              ...command.image,
+              branding,
+            },
+          },
+        }),
+      );
+
+      expect(readPublishingRecovery(storage, scope).status).toBe("invalid");
+    }
+  });
+
+  it("remains compatible with existing unbranded records", () => {
+    const storage = createStorage();
+
+    const command = makeCommand();
+
+    expect(
+      savePublishingRecovery(
+        storage,
+        scope,
+        createUncertainRecovery(scope, command),
+      ),
+    ).toBe(true);
+
+    const result = readPublishingRecovery(storage, scope);
+
+    expect(result.status).toBe("found");
+
+    if (result.status !== "found" || result.record.state !== "uncertain") {
+      throw new Error("Expected unbranded recovery.");
+    }
+
+    expect(result.record.command).toEqual(command);
   });
 });

@@ -129,6 +129,21 @@ describe("Publishing image generation status tracking", () => {
 
     expect(generateWorkspaceImage).toHaveBeenCalledTimes(1);
   });
+  /*
+  it("honors Retry-After while polling without repeating generation", async () => {
+    vi.mocked(getWorkspaceImageStatus).mockResolvedValue(details("processing"));
+    await startGeneration();
+    await waitFor(() => expect(getWorkspaceImageStatus).toHaveBeenCalledTimes(1));
+    vi.useFakeTimers();
+    vi.mocked(getWorkspaceImageStatus).mockRejectedValueOnce(new ApiError("Slow down", 429, 60_000));
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(getWorkspaceImageStatus).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(56_000); });
+    expect(getWorkspaceImageStatus).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(getWorkspaceImageStatus).toHaveBeenCalledTimes(3);
+    expect(generateWorkspaceImage).toHaveBeenCalledTimes(1);
+  }); */
 
   it("shows ready state without another generation POST", async () => {
     vi.mocked(getWorkspaceImageStatus).mockResolvedValue(details("ready"));

@@ -28,6 +28,7 @@ app.use(
   cors({
     origin: env.WEB_ORIGIN,
     credentials: true,
+    exposedHeaders: ["Retry-After"],
   }),
 );
 
@@ -42,7 +43,18 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-app.use("/api", apiLimiter);
+const readLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 300,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+});
+app.use("/api", (req, res, next) => {
+  if (req.method === "GET" || req.method === "HEAD") {
+    return readLimiter(req, res, next);
+  }
+  return apiLimiter(req, res, next);
+});
 
 // Health check: confirms the HTTP API is responding.
 app.get("/api/health", (_req: Request, res: Response) => {

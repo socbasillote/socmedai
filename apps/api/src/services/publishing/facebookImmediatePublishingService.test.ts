@@ -120,9 +120,7 @@ describe("claimImmediateFacebookPost", () => {
         },
 
         // No images or videos yet.
-        mediaIds: {
-          $size: 0,
-        },
+        "mediaIds.1": { $exists: false },
 
         // Reject completed or uncertain
         // publishing result states.
@@ -155,7 +153,7 @@ describe("claimImmediateFacebookPost", () => {
       },
 
       {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       },
     );

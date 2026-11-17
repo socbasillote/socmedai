@@ -5,11 +5,13 @@ const API_BASE_URL =
 
 export class ApiError extends Error {
   public readonly status: number;
+  public readonly retryAfterMs?: number;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, retryAfterMs?: number) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -59,7 +61,12 @@ export async function apiFetch<T>(
       // Keep the fallback message if the response isn't JSON.
     }
 
-    throw new ApiError(message, response.status);
+    const retryAfter = response.headers.get("Retry-After");
+    const seconds = retryAfter === null ? NaN : Number(retryAfter);
+    const retryAfterMs = Number.isFinite(seconds)
+      ? Math.max(0, seconds * 1000)
+      : retryAfter ? Math.max(0, Date.parse(retryAfter) - Date.now()) : undefined;
+    throw new ApiError(message, response.status, retryAfterMs);
   }
 
   return (await response.json()) as T;

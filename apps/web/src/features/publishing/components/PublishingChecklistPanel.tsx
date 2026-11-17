@@ -200,8 +200,8 @@ export function PublishingChecklistPanel({ readiness, blockers = [] }: Props) {
         />
 
         <p className="text-xs leading-5 text-slate-600">
-          This checklist is guidance for the current editor. The server
-          independently validates each publishing request before execution.
+          Review your selected account, caption, and image before publishing.
+          You can save a draft and finish it later.
         </p>
       </div>
     </div>

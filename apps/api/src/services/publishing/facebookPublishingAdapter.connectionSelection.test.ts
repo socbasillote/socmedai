@@ -155,23 +155,11 @@ describe("FacebookPublishingAdapter connection selection", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("uses the persisted Facebook Page when connectionId is omitted", async () => {
+  it("requires the caller connection to match the saved Page", async () => {
     const adapter = new FacebookPublishingAdapter(authUser, fetchMock);
-
-    const result = await adapter.publish({
-      ...baseInput,
-    });
-
-    expect(mocks.getFacebookPublishingCredentials).toHaveBeenCalledWith(
-      expect.objectContaining({
-        connectionId: facebookConnectionId,
-        workspaceId,
-      }),
-    );
-
-    expect(result.outcome).toBe("published");
-
-    expect(mocks.publishFacebookTextPost).toHaveBeenCalledOnce();
+    expect((await adapter.publish({ ...baseInput })).outcome).toBe("failed");
+    expect(mocks.getFacebookPublishingCredentials).not.toHaveBeenCalled();
+    expect(mocks.publishFacebookTextPost).not.toHaveBeenCalled();
   });
 
   it("rejects publishing when no Facebook Page is saved", async () => {

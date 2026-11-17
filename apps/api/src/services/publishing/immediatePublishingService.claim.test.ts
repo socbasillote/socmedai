@@ -156,60 +156,16 @@ describe("immediatePublishingService claim protection", () => {
 
     expect(mocks.postFindOneAndUpdate).toHaveBeenCalledOnce();
 
-    expect(mocks.postFindOneAndUpdate).toHaveBeenCalledWith(
-      {
-        _id: postId,
-        workspaceId,
-        status: "draft",
-
-        // Exact array equality excludes
-        // Facebook-only and mixed-platform posts.
-        platforms: ["linkedin"],
-
-        "platformConnections.linkedin": {
-          $exists: true,
-          $ne: null,
-        },
-
-        // Media attachments remain unsupported.
-        mediaIds: {
-          $size: 0,
-        },
-
-        // Only eligible platform-result states
-        // may enter the publishing workflow.
-        $or: [
-          {
-            platformResults: {
-              $size: 0,
-            },
-          },
-          {
-            platformResults: {
-              $elemMatch: {
-                platform: "linkedin",
-                status: "pending",
-              },
-            },
-          },
-        ],
-      },
-
-      {
-        $set: {
-          status: "publishing",
-          claimedAt: expect.any(Date),
-        },
-        $inc: {
-          attemptCount: 1,
-        },
-      },
-
-      {
-        new: true,
-        runValidators: true,
-      },
-    );
+    const [filter, update, options] = mocks.postFindOneAndUpdate.mock.calls[0];
+    expect(filter).toMatchObject({ _id: postId, workspaceId, status: "draft", "mediaIds.1": { $exists: false } });
+    expect(filter.$or.map((branch: { platforms: string[] }) => branch.platforms)).toEqual([["linkedin"], ["facebook"]]);
+    for (const branch of filter.$or) {
+      const platform = branch.platforms[0];
+      expect(branch[`platformConnections.${platform}`]).toEqual({ $exists: true, $ne: null });
+      expect(branch.$or).toEqual([{ platformResults: { $size: 0 } }, { platformResults: { $elemMatch: { platform, status: "pending" } } }]);
+    }
+    expect(update).toMatchObject({ $set: { status: "publishing", claimedAt: expect.any(Date) }, $inc: { attemptCount: 1 } });
+    expect(options).toEqual({ returnDocument: "after", runValidators: true });
 
     expect(mocks.postSelect).toHaveBeenCalledWith(
       expect.stringContaining("platformConnections"),
@@ -249,7 +205,7 @@ describe("immediatePublishingService claim protection", () => {
       name: "ImmediatePublishingError",
       statusCode: 409,
       message: expect.stringContaining(
-        "not eligible for immediate LinkedIn publishing",
+        "not eligible for immediate publishing",
       ),
     });
 
@@ -304,7 +260,7 @@ describe("immediatePublishingService claim protection", () => {
 
     expect(mocks.createPublishingAdapter).toHaveBeenCalledOnce();
 
-    expect(mocks.createPublishingAdapter).toHaveBeenCalledWith(authUser);
+    expect(mocks.createPublishingAdapter).toHaveBeenCalledWith(authUser, expect.objectContaining({ facebook: expect.any(Object) }));
 
     expect(mocks.orchestratorConstructor).toHaveBeenCalledWith(adapter);
 

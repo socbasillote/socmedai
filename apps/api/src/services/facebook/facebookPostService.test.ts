@@ -420,3 +420,23 @@ describe("publishFacebookTextPost", () => {
     expect(JSON.stringify(result)).not.toContain(secretToken);
   });
 });
+
+describe("Facebook photo publishing", () => {
+  it("submits a multipart photo and caption and records the feed post ID", async () => {
+    const transport = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ id: "photo-1", post_id: "page_post" }));
+    const result = await publishFacebookTextPost({ ...VALID_INPUT, image: new Uint8Array([1, 2, 3]) }, transport);
+    expect(result).toEqual({ outcome: "published", externalPostId: "page_post" });
+    const [url, options] = transport.mock.calls[0];
+    expect(url).toBe(`https://graph.facebook.com/v24.0/${PAGE_ID}/photos`);
+    const body = options?.body as FormData;
+    expect(body.get("caption")).toBe(VALID_INPUT.message);
+    expect(body.get("published")).toBe("true");
+    expect(body.get("source")).toBeInstanceOf(Blob);
+    expect(new Headers(options?.headers).has("Content-Type")).toBe(false);
+  });
+  it("preserves unknown photo outcomes without another request", async () => {
+    const transport = vi.fn<typeof fetch>().mockRejectedValue(new Error("timeout"));
+    expect((await publishFacebookTextPost({ ...VALID_INPUT, image: new Uint8Array([1]) }, transport)).outcome).toBe("unknown");
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+});

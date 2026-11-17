@@ -1,9 +1,11 @@
-import { ImagePlus, Video } from "lucide-react";
+import { SelectedMediaPreview } from "@/features/publishing/components/SelectedMediaPreview";
 
 import type { PostPlatform } from "@/lib/posts";
 
 type PostPreviewProps = {
   title: string;
+  selectedMediaAssetId?: string | null;
+  accountName?: string;
   caption: string;
   platforms: PostPlatform[];
   media?: {
@@ -14,8 +16,9 @@ type PostPreviewProps = {
 };
 
 export function PostPreview({
-  title,
   caption,
+  selectedMediaAssetId,
+  accountName = "Your social account",
   platforms,
   media = [],
 }: PostPreviewProps) {
@@ -55,7 +58,7 @@ export function PostPreview({
 
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-slate-900">
-              Social Account
+              {accountName}
             </p>
 
             <p className="text-xs text-slate-400">Post preview</p>
@@ -64,20 +67,16 @@ export function PostPreview({
 
         {/* Caption */}
         <div className="space-y-3 p-4">
-          {title.trim() && (
-            <h3 className="break-words text-sm font-bold text-slate-900">
-              {title}
-            </h3>
-          )}
-
-          <p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+          <p className="max-h-56 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
             {caption.trim() ||
               "Your post caption will appear here as you type."}
           </p>
         </div>
 
         {/* Media */}
-        {media.length > 0 ? (
+        {selectedMediaAssetId ? (
+          <div className="border-t border-slate-100 bg-slate-50 p-3"><SelectedMediaPreview key={selectedMediaAssetId} assetId={selectedMediaAssetId} variant="post" /></div>
+        ) : media.length > 0 ? (
           <div className="space-y-3 border-t border-slate-100 p-4">
             {media.map((item) => (
               <div key={item.id}>
@@ -99,22 +98,11 @@ export function PostPreview({
             ))}
           </div>
         ) : (
-          <div className="flex aspect-video items-center justify-center border-t border-slate-100 bg-slate-50">
-            <div className="text-center text-slate-400">
-              <div className="mb-3 flex justify-center gap-3">
-                <ImagePlus size={24} />
-                <Video size={24} />
-              </div>
-
-              <p className="text-xs font-medium">
-                No images or videos attached
-              </p>
-            </div>
-          </div>
+          <div className="border-t border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-400">Text-only post</div>
         )}
       </div>
 
-      <p className="text-xs leading-5 text-slate-400">
+      <p className="text-[11px] leading-5 text-slate-400">
         This is a general content preview. Actual appearance may differ across
         social platforms.
       </p>

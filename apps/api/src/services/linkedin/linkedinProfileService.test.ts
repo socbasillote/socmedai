@@ -32,6 +32,7 @@ describe("LinkedIn profile service", () => {
       "https://api.linkedin.com/v2/userinfo",
       {
         method: "GET",
+        signal: expect.any(AbortSignal),
         headers: {
           Authorization: "Bearer test-access-token",
         },

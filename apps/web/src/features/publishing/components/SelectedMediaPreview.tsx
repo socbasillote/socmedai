@@ -7,6 +7,7 @@ import { getWorkspaceImageUrl } from "@/lib/imageGeneration";
 
 type Props = {
   assetId: string;
+  variant?: "attachment" | "post";
 };
 
 type PreviewState = {
@@ -14,7 +15,7 @@ type PreviewState = {
   url: string | null;
 };
 
-export function SelectedMediaPreview({ assetId }: Props) {
+export function SelectedMediaPreview({ assetId, variant = "attachment" }: Props) {
   const [preview, setPreview] = useState<PreviewState>({
     metadata: null,
     url: null,
@@ -80,8 +81,8 @@ export function SelectedMediaPreview({ assetId }: Props) {
 
   return (
     <div aria-label="Selected media preview" className="space-y-3">
-      <div className="flex items-start gap-4">
-        <div className="flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white sm:h-36 sm:w-36">
+      <div className={variant === "post" ? "space-y-2" : "flex items-start gap-4"}>
+        <div className={variant === "post" ? "flex min-h-32 w-full items-center justify-center overflow-hidden rounded-lg bg-white" : "flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white sm:h-36 sm:w-36"}>
           {loading ? (
             <div
               role="status"
@@ -96,7 +97,7 @@ export function SelectedMediaPreview({ assetId }: Props) {
               alt="Selected post image"
               loading="lazy"
               referrerPolicy="no-referrer"
-              className="h-full w-full object-cover"
+              className={variant === "post" ? "max-h-64 w-full object-contain" : "h-full w-full object-cover"}
               onError={() => {
                 setPreview((current) => ({
                   ...current,
@@ -118,7 +119,7 @@ export function SelectedMediaPreview({ assetId }: Props) {
           )}
         </div>
 
-        <div className="min-w-0 flex-1 space-y-2">
+        {variant !== "post" && <div className="min-w-0 flex-1 space-y-2">
           <p className="text-sm font-semibold text-slate-900">Selected image</p>
 
           {preview.metadata ? (
@@ -150,7 +151,8 @@ export function SelectedMediaPreview({ assetId }: Props) {
             <RefreshCw size={13} aria-hidden="true" />
             Refresh preview
           </button>
-        </div>
+        </div>}
+        {variant === "post" && error && <button type="button" disabled={loading} onClick={refreshPreview} className="text-xs font-semibold text-violet-700 underline">Retry image preview</button>}
       </div>
 
       {error && (

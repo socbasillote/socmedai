@@ -38,6 +38,7 @@ export async function fetchLinkedInProfile(
   try {
     response = await fetchImpl("https://api.linkedin.com/v2/userinfo", {
       method: "GET",
+      signal: AbortSignal.timeout(30_000),
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },

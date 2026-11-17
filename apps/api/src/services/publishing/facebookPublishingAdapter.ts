@@ -1,3 +1,4 @@
+import { loadPublishingImage } from "./publishingMediaService.js";
 import Post from "../../models/Post.js";
 
 import type { AuthenticatedUser } from "../userProfileService.js";
@@ -31,9 +32,6 @@ type StoredFacebookPost = {
 /**
  * Facebook Page publishing adapter.
  *
- * This adapter is NOT registered with the
- * production publishing workflow yet.
- *
  * It requires an explicitly supplied HTTP
  * transport to prevent accidental live posts
  * during development and testing.
@@ -66,10 +64,9 @@ export class FacebookPublishingAdapter implements PublishingAdapter {
       return failed("This adapter only supports Facebook publishing.");
     }
 
-    // 2. Reject media until the shared
-    // image/video pipeline is implemented.
-    if (!Array.isArray(input.mediaIds) || input.mediaIds.length > 0) {
-      return failed("Facebook media publishing is not supported yet.");
+    // 2. Support text or one authorized image.
+    if (!Array.isArray(input.mediaIds) || input.mediaIds.length > 1) {
+      return failed("Facebook publishing supports one image per post.");
     }
 
     // 3. Require authentication and valid IDs.
@@ -164,9 +161,9 @@ export class FacebookPublishingAdapter implements PublishingAdapter {
       return failed("The selected Facebook Page does not match this post.");
     }
 
-    // 8. Reject persisted media until supported.
-    if (!Array.isArray(post.mediaIds) || post.mediaIds.length > 0) {
-      return failed("Facebook media publishing is not supported yet.");
+    // 8. Enforce the same limit on authoritative stored content.
+    if (!Array.isArray(post.mediaIds) || post.mediaIds.length > 1) {
+      return failed("Facebook publishing supports one image per post.");
     }
 
     // 9. Validate the persisted caption.
@@ -211,6 +208,13 @@ export class FacebookPublishingAdapter implements PublishingAdapter {
 
     // 11. Publish using the trusted backend
     // credentials and persisted caption.
+    let image: Buffer | undefined;
+    try {
+      image = await loadPublishingImage(this.authUser, workspaceId, post.mediaIds.map(String));
+    } catch {
+      return failed("The selected image is unavailable or unauthorized. No post was submitted.");
+    }
+
     let result: Awaited<ReturnType<typeof publishFacebookTextPost>>;
 
     try {
@@ -219,6 +223,7 @@ export class FacebookPublishingAdapter implements PublishingAdapter {
           pageId: credentials.facebookPageId,
           pageAccessToken: credentials.pageAccessToken,
           message: post.caption,
+          ...(image ? { image } : {}),
         },
         this.fetchImpl,
       );

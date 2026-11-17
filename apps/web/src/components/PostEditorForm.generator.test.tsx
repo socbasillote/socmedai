@@ -1,3 +1,4 @@
+import { generateCaption } from "@/lib/aiContent";
 /**
  * @vitest-environment jsdom
  */
@@ -211,4 +212,21 @@ describe("PostEditorForm AI generator entry point", () => {
 
     expect(button.disabled).toBe(true);
   });
+});
+
+vi.mock("@/lib/aiContent", () => ({ generateCaption: vi.fn() }));
+it("uses an AI suggestion through the existing editor caption callback", async () => {
+  vi.mocked(generateCaption).mockResolvedValue("A generated post caption");
+  const onCaptionChange = vi.fn();
+  const onSave = vi.fn();
+  renderForm({ onCaptionChange, onSave });
+  fireEvent.click(screen.getByRole("button", { name: "Generate caption with AI" }));
+  fireEvent.change(screen.getByLabelText("What is this post about?"), { target: { value: "Our new coffee blend" } });
+  fireEvent.click(screen.getByRole("button", { name: "Generate caption" }));
+  await screen.findByText("A generated post caption");
+  expect(screen.getByLabelText("Caption")).toHaveValue("A sample post caption");
+  expect(onCaptionChange).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Use this caption" }));
+  expect(onCaptionChange).toHaveBeenCalledWith("A generated post caption");
+  expect(onSave).not.toHaveBeenCalled();
 });

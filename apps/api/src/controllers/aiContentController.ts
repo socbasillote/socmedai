@@ -1,3 +1,4 @@
+import { CaptionQuotaError, withCaptionQuota } from "../services/captionQuotaService.js";
 import type { RequestHandler } from "express";
 
 import {
@@ -32,11 +33,12 @@ export const generateCaptionController: RequestHandler = async (
       return;
     }
 
-    const caption = await generateCaption(parsed.data);
+    const caption = await withCaptionQuota(res.locals.authUser.id, () => generateCaption(parsed.data));
 
     res.status(200).json({ caption });
   } catch (error) {
-    if (error instanceof AIContentServiceError) {
+    if (error instanceof AIContentServiceError || error instanceof CaptionQuotaError) {
+      if (error instanceof CaptionQuotaError) res.setHeader("Retry-After", "60");
       res.status(error.statusCode).json({
         error: "Caption generation failed",
         message: error.message,
@@ -65,11 +67,12 @@ export const reviseCaptionController: RequestHandler = async (
       return;
     }
 
-    const caption = await reviseCaption(parsed.data);
+    const caption = await withCaptionQuota(res.locals.authUser.id, () => reviseCaption(parsed.data));
 
     res.status(200).json({ caption });
   } catch (error) {
-    if (error instanceof AIContentServiceError) {
+    if (error instanceof AIContentServiceError || error instanceof CaptionQuotaError) {
+      if (error instanceof CaptionQuotaError) res.setHeader("Retry-After", "60");
       res.status(error.statusCode).json({
         error: "Caption revision failed",
         message: error.message,
@@ -98,11 +101,12 @@ export const generateCaptionVariationsController: RequestHandler = async (
       return;
     }
 
-    const result = await generateCaptionVariations(parsed.data);
+    const result = await withCaptionQuota(res.locals.authUser.id, () => generateCaptionVariations(parsed.data));
 
     res.status(200).json(result);
   } catch (error) {
-    if (error instanceof AIContentServiceError) {
+    if (error instanceof AIContentServiceError || error instanceof CaptionQuotaError) {
+      if (error instanceof CaptionQuotaError) res.setHeader("Retry-After", "60");
       res.status(error.statusCode).json({
         error: "Caption variations generation failed",
         message: error.message,
@@ -141,11 +145,12 @@ export const generatePlatformCaptionsController: RequestHandler = async (
       return;
     }
 
-    const result = await generatePlatformCaptions(parsed.data);
+    const result = await withCaptionQuota(res.locals.authUser.id, () => generatePlatformCaptions(parsed.data));
 
     res.status(200).json(result);
   } catch (error) {
-    if (error instanceof AIContentServiceError) {
+    if (error instanceof AIContentServiceError || error instanceof CaptionQuotaError) {
+      if (error instanceof CaptionQuotaError) res.setHeader("Retry-After", "60");
       res.status(error.statusCode).json({
         error: "Platform caption generation failed",
         message: error.message,

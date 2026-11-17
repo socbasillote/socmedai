@@ -1,5 +1,6 @@
 import {
   validateImagePrompt,
+  validateImageBranding,
   type GenerateImageCommand,
 } from "@/lib/imageGeneration";
 
@@ -82,6 +83,93 @@ export function getPublishingRecoveryKey(scope: RecoveryScope): string {
 }
 
 function validCommand(value: unknown): value is GenerateImageCommand {
+  const BRANDING_POSITIONS = new Set([
+    "top-left",
+    "top-right",
+    "bottom-left",
+    "bottom-right",
+  ]);
+
+  function hasOnlyKeys(
+    value: Record<string, unknown>,
+    allowed: readonly string[],
+  ): boolean {
+    return Object.keys(value).every((key) => allowed.includes(key));
+  }
+
+  function validBranding(value: unknown): boolean {
+    if (!isObject(value)) {
+      return false;
+    }
+
+    if (value.type === "none") {
+      return hasOnlyKeys(value, ["type"]);
+    }
+
+    if (value.type !== "logo" && value.type !== "text") {
+      return false;
+    }
+
+    const allowedKeys =
+      value.type === "text"
+        ? ["type", "text", "position", "sizePercent", "opacity"]
+        : ["type", "position", "sizePercent", "opacity"];
+
+    if (!hasOnlyKeys(value, allowedKeys)) {
+      return false;
+    }
+
+    if (
+      typeof value.position !== "string" ||
+      !BRANDING_POSITIONS.has(value.position)
+    ) {
+      return false;
+    }
+
+    if (
+      typeof value.sizePercent !== "number" ||
+      !Number.isFinite(value.sizePercent) ||
+      value.sizePercent < 5 ||
+      value.sizePercent > 30
+    ) {
+      return false;
+    }
+
+    if (
+      typeof value.opacity !== "number" ||
+      !Number.isFinite(value.opacity) ||
+      value.opacity < 0.1 ||
+      value.opacity > 1
+    ) {
+      return false;
+    }
+
+    if (value.type === "text") {
+      if (
+        typeof value.text !== "string" ||
+        value.text.trim().length === 0 ||
+        value.text.length > 80
+      ) {
+        return false;
+      }
+    }
+
+    // Structural checks above prevent unknown or
+    // malformed properties from entering recovery.
+    //
+    // The shared Image Studio validator then applies
+    // the existing branding domain rules.
+    try {
+      validateImageBranding(
+        value as Parameters<typeof validateImageBranding>[0],
+      );
+
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   if (!isObject(value) || !isObject(value.image)) {
     return false;
   }
@@ -103,7 +191,7 @@ function validCommand(value: unknown): value is GenerateImageCommand {
 
   // Initial composer generation supports no branding.
   // Other branding types are introduced in 13.4.4.2E.
-  if (!isObject(value.image.branding) || value.image.branding.type !== "none") {
+  if (!validBranding(value.image.branding)) {
     return false;
   }
 

@@ -246,14 +246,14 @@ describe("authorizeFacebookPublishing", () => {
   it("rejects Facebook media attachments", async () => {
     mocks.postLean.mockResolvedValue(
       createAuthorizedPost({
-        mediaIds: ["507f1f77bcf86cd799439014"],
+        mediaIds: ["507f1f77bcf86cd799439014", "507f1f77bcf86cd799439015"],
       }),
     );
 
     await expect(authorizeFacebookPublishing(input)).rejects.toMatchObject({
       name: "FacebookPublishingAuthorizationError",
       statusCode: 409,
-      message: "Facebook media publishing is not supported yet.",
+      message: "Facebook publishing supports one image per post.",
     });
   });
 

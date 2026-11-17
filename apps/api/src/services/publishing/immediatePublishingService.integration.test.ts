@@ -125,7 +125,7 @@ describe.skipIf(!integrationEnabled)(
         name: "ImmediatePublishingError",
         statusCode: 409,
         message: expect.stringContaining(
-          "not eligible for immediate LinkedIn publishing",
+          "not eligible for immediate publishing",
         ),
       });
     }
@@ -158,15 +158,6 @@ describe.skipIf(!integrationEnabled)(
 
     const ineligibleCases: Array<[string, Record<string, unknown>]> = [
       [
-        "Facebook-only drafts",
-        {
-          platforms: ["facebook"],
-          platformConnections: {
-            facebook: new mongoose.Types.ObjectId(),
-          },
-        },
-      ],
-      [
         "Instagram-only drafts",
         {
           platforms: ["instagram"],
@@ -194,7 +185,7 @@ describe.skipIf(!integrationEnabled)(
       [
         "drafts containing media",
         {
-          mediaIds: [new mongoose.Types.ObjectId()],
+          mediaIds: [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()],
         },
       ],
       [

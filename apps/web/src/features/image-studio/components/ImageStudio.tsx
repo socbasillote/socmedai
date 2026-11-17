@@ -1,3 +1,4 @@
+import { ApiError } from "@/lib/api";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import {
@@ -182,15 +183,22 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
 
     let active = true;
     let inFlight = false;
+    let nextPollAt = 0;
+    let retryDelay = 4000;
 
     const interval = window.setInterval(() => {
-      if (!active || inFlight) return;
+      if (!active || inFlight || Date.now() < nextPollAt) return;
 
       inFlight = true;
 
       void refreshStatus(assetId)
+        .then(() => { retryDelay = 4000; })
         .catch((cause: unknown) => {
           if (active) {
+            if (cause instanceof ApiError && cause.status === 429) {
+              retryDelay = Math.min(retryDelay * 2, 60_000);
+              nextPollAt = Date.now() + Math.max(retryDelay, cause.retryAfterMs ?? 0);
+            }
             setError(
               `Unable to refresh generation status: ${errorMessage(cause)}`,
             );

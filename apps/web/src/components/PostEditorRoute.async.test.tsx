@@ -123,11 +123,13 @@ vi.mock("@/components/PostEditorForm", () => ({
     onSave,
     onCaptionChange,
     onPlatformsChange,
+    onMediaSelect,
   }: {
     caption: string;
     error: string;
     onSave: () => void | Promise<void>;
     onCaptionChange: (value: string) => void;
+    onMediaSelect: (assetId: string) => void;
     onPlatformsChange: (
       platforms: Array<"facebook" | "instagram" | "linkedin">,
     ) => void;
@@ -145,6 +147,7 @@ vi.mock("@/components/PostEditorForm", () => ({
         Use LinkedIn
       </button>
 
+      <button type="button" onClick={() => onMediaSelect("507f1f77bcf86cd799439099")}>Attach image</button>
       <button type="button" onClick={() => void onSave()}>
         Save draft
       </button>
@@ -389,4 +392,18 @@ describe("PostEditorRoute async safety", () => {
       screen.getByText(/publishing request was not started/i),
     ).toBeTruthy();
   });
+  it("saves selected media before submitting a new image post for publishing", async () => {
+    vi.mocked(createPost).mockResolvedValue(makePost(POST_A, WORKSPACE_A));
+    vi.mocked(publishPostNow).mockResolvedValue({ message: "Published", post: { ...makePost(POST_A, WORKSPACE_A), status: "published" }, result: { postId: POST_A, results: [{ postId: POST_A, platform: "linkedin", outcome: "published" }] } });
+    render(<PostEditorRoute mode="create" />);
+    prepareNewPost();
+    fireEvent.click(screen.getByRole("button", { name: "Attach image" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose Publish Now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Publish" }));
+    await waitFor(() => expect(publishPostNow).toHaveBeenCalledTimes(1));
+    expect(createPost).toHaveBeenCalledWith(expect.objectContaining({ caption: "New caption", mediaIds: ["507f1f77bcf86cd799439099"] }));
+  });
+
 });

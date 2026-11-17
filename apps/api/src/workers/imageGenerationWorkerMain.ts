@@ -10,10 +10,12 @@ import { LIVE_PAID_WORKER_ARMED } from "../services/imageGenerationWorkerProvide
 import { evaluateLiveAdmissionReadiness } from "../services/imageGenerationLiveAdmissionReadiness.js";
 
 async function main() {
+  console.info("[Storm Image Worker] Checking worker configuration.");
   if (process.env.IMAGE_GENERATION_WORKER_ENABLED !== "true") {
     throw new Error("Image generation worker is disabled.");
   }
 
+  console.info("[Storm Image Worker] Loading image generation config.");
   const config = getImageGenerationConfig();
 
   const liveMode = config.IMAGE_GENERATION_PROVIDER === "openai";
@@ -108,6 +110,9 @@ void main().catch((error: unknown) => {
     "Invalid live image rollout mode.",
     "Invalid live image workspace allowlist.",
     "Live image generation is unavailable.",
+    "Image generation worker is disabled.",
+    "Live image worker is not armed or approved.",
+    "Mock worker refuses live-enabled configuration.",
   ];
 
   const message = error instanceof Error ? error.message : "";

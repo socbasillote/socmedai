@@ -110,6 +110,8 @@ describe("LinkedIn controller", () => {
       .send({ workspaceId: "507f1f77bcf86cd799439011" });
 
     expect(response.status).toBe(200);
+    expect(response.headers["set-cookie"][0]).toContain("HttpOnly");
+    expect(response.headers["set-cookie"][0]).toContain("SameSite=Lax");
     expect(response.body.authorizationUrl).toContain(
       "https://www.linkedin.com/oauth/v2/authorization",
     );
@@ -128,9 +130,21 @@ describe("LinkedIn controller", () => {
     expect(createAuthorizationUrlMock).not.toHaveBeenCalled();
   });
 
+  it.each([undefined, "wrong-state", "valid-state; storm_li_oauth_state=valid-state"])(
+    "rejects a callback without a unique matching browser cookie (%s)", async (cookie) => {
+      const pending = request(createTestApp()).get("/callback")
+        .query({ code: "code", state: "valid-state" });
+      if (cookie) pending.set("Cookie", `storm_li_oauth_state=${cookie}`);
+      const response = await pending;
+      expect(response.headers.location).toContain("reason=failed");
+      expect(completeCallbackMock).not.toHaveBeenCalled();
+      expect(consumeStateMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("completes a successful callback and redirects to the frontend", async () => {
     const response = await request(createTestApp())
-      .get("/callback")
+      .get("/callback").set("Cookie", "storm_li_oauth_state=valid-state")
       .query({ code: "authorization-code", state: "valid-state" });
 
     expect(response.status).toBe(302);
@@ -145,7 +159,7 @@ describe("LinkedIn controller", () => {
   });
 
   it("handles a user-denied authorization without exposing provider details", async () => {
-    const response = await request(createTestApp()).get("/callback").query({
+    const response = await request(createTestApp()).get("/callback").set("Cookie", "storm_li_oauth_state=valid-state").query({
       error: "access_denied",
       error_description: "Sensitive provider details",
       state: "valid-state",
@@ -161,7 +175,7 @@ describe("LinkedIn controller", () => {
   });
 
   it("redirects safely when the callback is missing required parameters", async () => {
-    const response = await request(createTestApp()).get("/callback");
+    const response = await request(createTestApp()).get("/callback").set("Cookie", "storm_li_oauth_state=valid-state");
 
     expect(response.status).toBe(302);
     expect(response.headers.location).toBe(
@@ -176,7 +190,7 @@ describe("LinkedIn controller", () => {
     );
 
     const response = await request(createTestApp())
-      .get("/callback")
+      .get("/callback").set("Cookie", "storm_li_oauth_state=valid-state")
       .query({ code: "authorization-code", state: "valid-state" });
 
     expect(response.status).toBe(302);

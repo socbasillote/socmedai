@@ -137,24 +137,18 @@ describe("Publishing readiness", () => {
     );
   });
 
-  it("rejects publishing media before backend support", () => {
-    const draft = setSharedMedia(draftWith(facebook), [
-      { assetId: "image-1", type: "image" },
-    ]);
-
-    const result = evaluatePublishingReadiness(draft, context, "now");
-
-    // Existing immediate publishing requires
-    // a text-only draft with empty mediaIds.
-    // This test will guide a later hardening change:
-    // selected media must block current execution.
-    expect(result.ready).toBe(false);
-
-    expect(
-      result.destinations[0].items.find(
-        (item) => item.id === "media-publishing",
-      )?.status,
-    ).toBe("invalid");
+  it.each([facebook, linkedin])("allows a caption with one image for $platform", (destination) => {
+    const draft = setSharedMedia(draftWith({ ...destination, format: "image" }), [{ assetId: "image-1", type: "image" }]);
+    expect(evaluatePublishingReadiness(draft, context, "now").ready).toBe(true);
+    expect(evaluatePublishingReadiness(draft, context, "schedule").ready).toBe(false);
+  });
+  it("rejects multiple images and video publishing", () => {
+    for (const media of [
+      [{ assetId: "a", type: "image" as const }, { assetId: "b", type: "image" as const }],
+      [{ assetId: "v", type: "video" as const }],
+    ]) {
+      expect(evaluatePublishingReadiness(setSharedMedia(draftWith(facebook), media), context, "now").ready).toBe(false);
+    }
   });
 
   it("blocks a disconnected account", () => {

@@ -1,3 +1,4 @@
+import { loadPublishingImage } from "./publishingMediaService.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthenticatedUser } from "../userProfileService.js";
@@ -5,6 +6,8 @@ import type { AuthenticatedUser } from "../userProfileService.js";
 import type { PublishingInput } from "./publishingAdapter.js";
 
 import { FacebookPublishingAdapter } from "./facebookPublishingAdapter.js";
+
+vi.mock("./publishingMediaService.js", () => ({ loadPublishingImage: vi.fn() }));
 
 const mocks = vi.hoisted(() => ({
   isValidWorkspaceId: vi.fn(),
@@ -61,6 +64,7 @@ const VALID_INPUT: PublishingInput = {
   platform: "facebook",
   caption: "Untrusted request caption",
   mediaIds: [],
+  connectionId: CONNECTION_ID,
 };
 
 function postFixture(overrides: Record<string, unknown> = {}) {
@@ -227,12 +231,12 @@ describe("FacebookPublishingAdapter", () => {
 
     const result = await adapter.publish({
       ...VALID_INPUT,
-      mediaIds: ["507f1f77bcf86cd799439014"],
+      mediaIds: ["507f1f77bcf86cd799439014", "507f1f77bcf86cd799439015"],
     });
 
     expect(result).toMatchObject({
       outcome: "failed",
-      message: "Facebook media publishing is not supported yet.",
+      message: "Facebook publishing supports one image per post.",
     });
 
     expect(mocks.postFindOne).not.toHaveBeenCalled();
@@ -402,7 +406,7 @@ describe("FacebookPublishingAdapter", () => {
   it("rejects media saved on the post", async () => {
     mocks.postLean.mockResolvedValue(
       postFixture({
-        mediaIds: ["507f1f77bcf86cd799439014"],
+        mediaIds: ["507f1f77bcf86cd799439014", "507f1f77bcf86cd799439015"],
       }),
     );
 
@@ -412,7 +416,7 @@ describe("FacebookPublishingAdapter", () => {
 
     expect(result).toMatchObject({
       outcome: "failed",
-      message: "Facebook media publishing is not supported yet.",
+      message: "Facebook publishing supports one image per post.",
     });
 
     expect(mocks.publishFacebookTextPost).not.toHaveBeenCalled();
@@ -617,4 +621,20 @@ describe("FacebookPublishingAdapter", () => {
 
     expect(mocks.publishFacebookTextPost).toHaveBeenCalledOnce();
   });
+  it("publishes the persisted selected image with the caption", async () => {
+    const image = Buffer.from([1, 2, 3]);
+    vi.mocked(loadPublishingImage).mockResolvedValue(image);
+    mocks.postLean.mockResolvedValue(postFixture({ mediaIds: ["asset-1"] }));
+    const { adapter } = createAdapter();
+    expect((await adapter.publish(VALID_INPUT)).outcome).toBe("published");
+    expect(loadPublishingImage).toHaveBeenCalledWith(AUTH_USER, WORKSPACE_ID, ["asset-1"]);
+    expect(mocks.publishFacebookTextPost.mock.calls[0][0]).toMatchObject({ image, message: "Persisted Storm Facebook post" });
+  });
+  it("does not submit a post if media access fails", async () => {
+    vi.mocked(loadPublishingImage).mockRejectedValue(new Error("unauthorized"));
+    const { adapter } = createAdapter();
+    expect((await adapter.publish(VALID_INPUT)).outcome).toBe("failed");
+    expect(mocks.publishFacebookTextPost).not.toHaveBeenCalled();
+  });
+
 });

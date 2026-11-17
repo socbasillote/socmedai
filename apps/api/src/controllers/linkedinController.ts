@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import type { Request, RequestHandler, Response } from "express";
 import { z } from "zod";
 
@@ -48,6 +49,15 @@ export const startLinkedInConnect: RequestHandler = async (req, res, next) => {
       parsed.data.workspaceId,
     );
 
+    const state = new URL(authorizationUrl).searchParams.get("state");
+    if (!state) throw new Error("Missing LinkedIn authorization state.");
+    res.cookie("storm_li_oauth_state", state, {
+      httpOnly: true,
+      secure: env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/api/linkedin/callback",
+      maxAge: 10 * 60 * 1000,
+    });
     res.status(200).json({ authorizationUrl });
   } catch (error) {
     if (error instanceof LinkedInAuthorizationError) {
@@ -64,6 +74,22 @@ export const linkedInOAuthCallback: RequestHandler = async (req, res) => {
   const state = typeof req.query.state === "string" ? req.query.state : "";
   const providerError =
     typeof req.query.error === "string" ? req.query.error : "";
+
+  const cookies = (req.headers.cookie ?? "").split(";")
+    .map((cookie) => cookie.trim())
+    .filter((cookie) => cookie.startsWith("storm_li_oauth_state="));
+  const browserState = cookies[0]?.slice("storm_li_oauth_state=".length) ?? "";
+  res.clearCookie("storm_li_oauth_state", {
+    httpOnly: true,
+    secure: env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/api/linkedin/callback",
+  });
+  if (cookies.length !== 1 || !state || Buffer.byteLength(browserState) !== Buffer.byteLength(state) ||
+      !timingSafeEqual(Buffer.from(browserState), Buffer.from(state))) {
+    frontendRedirect(res, "error", "failed");
+    return;
+  }
 
   if (providerError) {
     // Consume state even when the user denies authorization, preventing replay.

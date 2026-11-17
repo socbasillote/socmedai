@@ -69,11 +69,11 @@ export function PublishingControls({
   return (
     <section
       aria-label="Publishing controls"
-      className="space-y-4 border-t border-slate-200 pt-5"
+      className="space-y-4"
     >
       <div>
         <h2 className="text-base font-bold text-slate-900">
-          Publishing Options
+          Finish your post
         </h2>
 
         <p className="mt-1 text-xs text-slate-500">
@@ -120,6 +120,8 @@ export function PublishingControls({
         </div>
       </fieldset>
 
+      <p className="text-xs leading-5 text-slate-500">{postMode === "draft" ? "Save privately and come back when you are ready." : postMode === "immediate" ? "Review your caption, image, and destination before confirming." : "Choose a future date for your text post."}</p>
+      {editorMode === "edit" && <p className="text-xs text-slate-400">Existing drafts can be saved or published now. Scheduling is available for new posts.</p>}
       {postMode === "scheduled" && (
         <div className="space-y-2">
           <label
@@ -141,7 +143,7 @@ export function PublishingControls({
           />
 
           <p className="text-xs text-slate-500">
-            Times are entered in your local time zone.
+            Time zone: {Intl.DateTimeFormat().resolvedOptions().timeZone || "Local time"}.
           </p>
         </div>
       )}

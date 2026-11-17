@@ -42,7 +42,7 @@ export type AuthorizeFacebookPublishingInput = {
  * - Facebook-only platform selection
  * - Selected Facebook Page connection
  * - Claimed publishing state
- * - Text-only content
+ * - At most one image attachment
  *
  * This function does not:
  * - Retrieve Facebook tokens
@@ -126,10 +126,10 @@ export async function authorizeFacebookPublishing({
     );
   }
 
-  // 8. Keep media publishing disabled for now.
-  if (post.mediaIds.length > 0) {
+  // 8. Bound media count; the adapter validates image ownership and bytes.
+  if (post.mediaIds.length > 1) {
     throw new FacebookPublishingAuthorizationError(
-      "Facebook media publishing is not supported yet.",
+      "Facebook publishing supports one image per post.",
       409,
     );
   }

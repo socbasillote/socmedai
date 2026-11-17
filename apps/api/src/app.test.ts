@@ -740,3 +740,12 @@ describe("LinkedIn routes authentication", () => {
     });
   });
 });
+
+describe("read request rate limits", () => {
+  it("allows polling reads beyond the mutation budget", async () => {
+    for (let index = 0; index < 160; index++) {
+      const response = await request(app).get("/api/health");
+      expect(response.status).not.toBe(429);
+    }
+  });
+});

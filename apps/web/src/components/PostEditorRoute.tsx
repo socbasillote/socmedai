@@ -535,7 +535,9 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           err instanceof Error ? err.message : "Failed to create the draft.",
         );
       } finally {
-        setSaving(false);
+        if (!checkEditorSession(saveSession)) {
+          setSaving(false);
+        }
       }
 
       return;
@@ -590,7 +592,9 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         err instanceof Error ? err.message : "Failed to update the draft.",
       );
     } finally {
-      setSaving(false);
+      if (!checkEditorSession(saveSession)) {
+        setSaving(false);
+      }
     }
   }
 
@@ -650,7 +654,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
     if (
       (mode === "edit" && !postId) ||
-      mediaState.selectedMediaIds.length > 0 ||
+      mediaState.selectedMediaIds.length > 1 ||
       !selectedWorkspace ||
       !caption.trim() ||
       selectedPlatforms.length !== 1 ||
@@ -706,7 +710,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           title: title.trim(),
           caption: caption.trim(),
           platforms: [publishingPlatform],
-          mediaIds: [],
+          mediaIds: [...mediaState.selectedMediaIds],
           platformConnections,
         });
 
@@ -843,11 +847,8 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       return;
     }
 
-    if (selectedMediaAssetId) {
-      setError(
-        "Media publishing is not supported yet. " +
-          "Remove the selected image before publishing.",
-      );
+    if (mediaState.selectedMediaIds.length > 1) {
+      setError("Publishing supports one image per post.");
       return;
     }
 
@@ -951,7 +952,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   for (const platform of selectedPlatforms) {
     let connectionId = "";
     let accountName: string = platform;
-    let format: PublishingDestination["format"] = "text";
+    let format: PublishingDestination["format"] = mediaState.selectedMediaIds.length ? "image" : "text";
     let connected = false;
     let canPublish = false;
 
@@ -1071,6 +1072,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     </div>
   ) : (
     <PostEditorForm
+      captionSessionKey={`${mode}:${postId ?? "new"}`}
       mode={mode}
       recoveryOwnerUserId={recoveryOwnerUserId}
       locked={savedPublishingPostId !== null}
@@ -1148,11 +1150,6 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           sidebar={
             !loadingPost && !loadError ? (
               <div className="space-y-5">
-                <PublishingChecklistPanel
-                  readiness={readiness}
-                  blockers={checklistBlockers}
-                />
-
                 <PublishingControls
                   editorMode={mode}
                   postMode={postMode}
@@ -1173,6 +1170,10 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
                   }}
                   onCancel={handleCancel}
                 />
+                <details className="group border-t border-slate-100 pt-4">
+                  <summary className="cursor-pointer text-sm font-semibold text-slate-700 focus-visible:outline-violet-500">View publishing checklist <span className="ml-1 text-xs font-normal text-slate-400">{readiness.readyCount}/{readiness.totalCount} ready</span></summary>
+                  <div className="mt-4"><PublishingChecklistPanel readiness={readiness} blockers={checklistBlockers} /></div>
+                </details>
               </div>
             ) : undefined
           }
@@ -1180,6 +1181,10 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
             !loadingPost && !loadError ? (
               <PostPreview
                 title={title}
+                selectedMediaAssetId={selectedMediaAssetId}
+                accountName={selectedPlatforms[0] === "facebook"
+                  ? facebookConnections.find((connection) => connection.id === selectedFacebookConnectionId)?.pageName || "Your Facebook Page"
+                  : selectedPlatforms[0] === "linkedin" ? linkedInDisplayName || "Your LinkedIn account" : "Your social account"}
                 caption={caption}
                 platforms={selectedPlatforms}
               />
@@ -1330,7 +1335,9 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
               </p>
 
               <p className="mt-2 text-sm font-semibold text-slate-900">
-                {linkedInDisplayName || "Connected LinkedIn account"}
+                {selectedPlatforms[0] === "facebook"
+                  ? facebookConnections.find((connection) => connection.id === selectedFacebookConnectionId)?.pageName || "Selected Facebook Page"
+                  : linkedInDisplayName || "Connected LinkedIn account"}
               </p>
 
               <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -1340,6 +1347,11 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
               <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-slate-700">
                 {caption.trim()}
               </p>
+              {selectedMediaAssetId && (
+                <p className="mt-3 text-sm font-medium text-violet-700">
+                  Includes your selected image.
+                </p>
+              )}
             </div>
 
             <p className="mt-4 text-xs leading-5 text-amber-700">

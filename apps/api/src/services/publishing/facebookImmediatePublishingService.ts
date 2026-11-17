@@ -30,7 +30,7 @@ export type ClaimImmediateFacebookPostInput = {
 };
 
 /**
- * Atomically claims one eligible Facebook-only text draft.
+ * Atomically claims one eligible Facebook-only draft.
  *
  * This function does NOT:
  * - Retrieve Facebook access tokens.
@@ -102,10 +102,8 @@ export async function claimImmediateFacebookPost({
         $ne: null,
       },
 
-      // Text publishing only for now.
-      mediaIds: {
-        $size: 0,
-      },
+      // Text or one image with a caption.
+      "mediaIds.1": { $exists: false },
 
       // Prevent claiming a platform with a completed
       // or uncertain previous publishing result.
@@ -136,7 +134,7 @@ export async function claimImmediateFacebookPost({
       },
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     },
   )
@@ -152,7 +150,7 @@ export async function claimImmediateFacebookPost({
   if (!post) {
     throw new FacebookImmediatePublishingError(
       "This post is not eligible for immediate Facebook publishing. " +
-        "It must be a Facebook-only text draft with a selected Facebook Page " +
+        "It must be a Facebook-only draft with a selected Facebook Page " +
         "and no previous publishing attempt.",
       409,
     );

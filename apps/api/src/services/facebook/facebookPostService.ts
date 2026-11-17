@@ -6,6 +6,7 @@ export type FacebookTextPostInput = {
   pageId: string;
   pageAccessToken: string;
   message: string;
+  image?: Uint8Array;
 };
 
 export type FacebookTextPostResult =
@@ -16,10 +17,12 @@ export type FacebookTextPostResult =
   | {
       outcome: "failed";
       message: string;
+  image?: Uint8Array;
     }
   | {
       outcome: "unknown";
       message: string;
+  image?: Uint8Array;
     };
 
 /**
@@ -87,11 +90,15 @@ export async function publishFacebookTextPost(
 
   // 5. Build the Page feed endpoint.
   const endpoint =
-    `https://graph.facebook.com/${graphVersion}` + `/${input.pageId}/feed`;
+    `https://graph.facebook.com/${graphVersion}` + `/${input.pageId}/${input.image ? "photos" : "feed"}`;
 
-  const body = new URLSearchParams({
-    message,
-  });
+  const body = input.image ? new FormData() : new URLSearchParams({ message });
+  if (input.image && body instanceof FormData) {
+    if (!input.image.length || input.image.length > 10 * 1024 * 1024) return failed("Invalid publishing image.");
+    body.set("source", new Blob([Uint8Array.from(input.image).buffer], { type: "image/jpeg" }), "post.jpg");
+    body.set("caption", message);
+    body.set("published", "true");
+  }
 
   // 6. Submit the request.
   let response: Response;
@@ -101,10 +108,10 @@ export async function publishFacebookTextPost(
       method: "POST",
       headers: {
         Authorization: `Bearer ${input.pageAccessToken}`,
-        "Content-Type": "application/x-www-form-urlencoded",
+        ...(input.image ? {} : { "Content-Type": "application/x-www-form-urlencoded" }),
         Accept: "application/json",
       },
-      body: body.toString(),
+      body: body instanceof FormData ? body : body.toString(),
       redirect: "error",
       signal: AbortSignal.timeout(30_000),
     });
@@ -144,7 +151,8 @@ export async function publishFacebookTextPost(
 
     return {
       outcome: "published",
-      externalPostId: payload.id,
+      externalPostId: "post_id" in payload && typeof payload.post_id === "string" && payload.post_id.trim()
+        ? payload.post_id : payload.id,
     };
   }
 

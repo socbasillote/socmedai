@@ -36,3 +36,29 @@ Install workspace dependencies from the repository root:
 ```powershell
 npm install
 ```
+
+## Caption generation limits
+
+All caption generation and revision endpoints share a MongoDB-backed budget of
+100 provider attempts per authenticated user per UTC day and two concurrent
+requests. Failed provider attempts count toward the daily budget. Concurrency
+slots expire after 60 seconds if an API process crashes; provider calls have a
+30-second timeout. Exhausted budgets return HTTP 429 with `Retry-After`.
+
+API reads have a separate allowance of 300 requests per IP per minute; mutations
+retain the 150-per-15-minute allowance. Image polling honors HTTP 429 backoff.
+LinkedIn connection setup requires cookies and a top-level redirect back to the
+API callback; the browser cookie must match the initiating authorization state.
+
+## Publishing images
+
+The post editor can publish a caption with one selected Media Library or
+AI-generated image to a Facebook Page or a LinkedIn member account using **Now**.
+The server rechecks image ownership, verifies its stored checksum, and uploads
+the image directly to the selected provider. Images from another workspace you
+own remain supported. Publishing copies are converted to JPEG with a maximum
+4096-pixel edge and a 10 MB size limit; original stored images are preserved.
+
+Scheduled posts remain text-only. Video and multiple-image publishing are not
+supported. Provider requests are not automatically retried when a public post's
+outcome is uncertain.

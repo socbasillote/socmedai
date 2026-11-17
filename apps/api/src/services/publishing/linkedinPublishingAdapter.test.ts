@@ -1,4 +1,7 @@
+import { loadPublishingImage } from "./publishingMediaService.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("./publishingMediaService.js", () => ({ loadPublishingImage: vi.fn() }));
 
 const mocks = vi.hoisted(() => ({
   authorizePublishing: vi.fn(),
@@ -145,7 +148,7 @@ describe("LinkedInPublishingAdapter", () => {
 
     const result = await adapter.publish({
       ...input,
-      mediaIds: ["media-123"],
+      mediaIds: ["media-123", "media-456"],
     });
 
     expect(result.outcome).toBe("failed");
@@ -184,7 +187,7 @@ describe("LinkedInPublishingAdapter", () => {
   it("rejects media found in the persisted post", async () => {
     mockPost({
       ...persistedPost,
-      mediaIds: ["media-123"],
+      mediaIds: ["media-123", "media-456"],
     });
 
     const adapter = new LinkedInPublishingAdapter(authUser);
@@ -341,4 +344,18 @@ describe("LinkedInPublishingAdapter", () => {
 
     expect(mocks.publishLinkedInTextPost).toHaveBeenCalledOnce();
   });
+  it("publishes persisted media after checking access", async () => {
+    const image = Buffer.from([1, 2, 3]);
+    vi.mocked(loadPublishingImage).mockResolvedValue(image);
+    mockPost({ ...persistedPost, mediaIds: ["asset-1"] });
+    expect((await new LinkedInPublishingAdapter(authUser).publish(input)).outcome).toBe("published");
+    expect(loadPublishingImage).toHaveBeenCalledWith(authUser, input.workspaceId, ["asset-1"]);
+    expect(mocks.publishLinkedInTextPost).toHaveBeenCalledWith(expect.objectContaining({ image, caption: persistedPost.caption }));
+  });
+  it("does not submit a post if media access fails", async () => {
+    vi.mocked(loadPublishingImage).mockRejectedValue(new Error("unauthorized"));
+    expect((await new LinkedInPublishingAdapter(authUser).publish(input)).outcome).toBe("failed");
+    expect(mocks.publishLinkedInTextPost).not.toHaveBeenCalled();
+  });
+
 });

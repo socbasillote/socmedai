@@ -58,6 +58,7 @@ export async function exchangeLinkedInAuthorizationCode(
       "https://www.linkedin.com/oauth/v2/accessToken",
       {
         method: "POST",
+        signal: AbortSignal.timeout(30_000),
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
         },

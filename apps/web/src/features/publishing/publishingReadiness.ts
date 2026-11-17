@@ -58,12 +58,12 @@ type PlatformCapability = {
 // because its external API supports it.
 const EXECUTION_CAPABILITIES: Record<string, PlatformCapability> = {
   facebook: {
-    formats: ["text"],
+    formats: ["text", "image"],
     publishNow: true,
     schedule: true,
   },
   linkedin: {
-    formats: ["text"],
+    formats: ["text", "image"],
     publishNow: true,
     schedule: true,
   },
@@ -285,7 +285,8 @@ export function evaluatePublishingReadiness(
         items.push(checkAccount(destination, context));
 
         const formatSupported =
-          capability?.formats.includes(destination.format) ?? false;
+          (capability?.formats.includes(destination.format) ?? false) &&
+          (action !== "schedule" || destination.format === "text");
 
         items.push(
           checklist(
@@ -321,22 +322,17 @@ export function evaluatePublishingReadiness(
         }
       }
 
-      if (
-        action !== "draft" &&
-        content &&
-        destination.format === "text" &&
-        content.media.length > 0
-      ) {
-        items.push(
-          checklist(
-            "media-publishing",
-            "Media publishing support",
-            "invalid",
-            "The current Storm publisher supports " +
-              "text-only posts. Remove attached media " +
-              "or save this post as a draft.",
-          ),
-        );
+      if (action !== "draft" && content && content.media.length > 0) {
+        const supported = action === "now" &&
+          (destination.platform === "facebook" || destination.platform === "linkedin") &&
+          content.media.length === 1 && content.media[0].type === "image";
+        items.push(checklist(
+          "media-publishing", "Media publishing support",
+          supported ? "added" : "invalid",
+          supported ? "One image will be published with your caption." :
+            action === "schedule" ? "Scheduled image publishing is not supported yet." :
+              "Publishing supports one image per Facebook or LinkedIn post.",
+        ));
       }
 
       const destinationIssues = items

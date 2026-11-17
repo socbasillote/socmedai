@@ -205,7 +205,7 @@ describe.skipIf(!integrationEnabled)(
       [
         "drafts containing media attachments",
         {
-          mediaIds: [new mongoose.Types.ObjectId()],
+          mediaIds: [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()],
         },
       ],
       [

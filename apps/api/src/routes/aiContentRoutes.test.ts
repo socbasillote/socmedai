@@ -1,3 +1,7 @@
+vi.mock("../services/captionQuotaService.js", () => ({
+  withCaptionQuota: (_userId: string, operation: () => Promise<unknown>) => operation(),
+  CaptionQuotaError: class CaptionQuotaError extends Error {},
+}));
 import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 

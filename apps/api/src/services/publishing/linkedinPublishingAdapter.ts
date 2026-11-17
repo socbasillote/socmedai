@@ -1,3 +1,4 @@
+import { loadPublishingImage } from "./publishingMediaService.js";
 import Post from "../../models/Post.js";
 
 import type { AuthenticatedUser } from "../userProfileService.js";
@@ -40,9 +41,9 @@ export class LinkedInPublishingAdapter implements PublishingAdapter {
 
     const connectionId = input.connectionId;
 
-    // Fail closed before any external request.
-    if (input.mediaIds.length > 0) {
-      return failed("LinkedIn media publishing is not supported yet.");
+    // Reject unsupported attachment counts before any external request.
+    if (input.mediaIds.length > 1) {
+      return failed("LinkedIn publishing supports one image per post.");
     }
 
     try {
@@ -94,8 +95,8 @@ export class LinkedInPublishingAdapter implements PublishingAdapter {
       return failed("The selected LinkedIn account does not match this post.");
     }
 
-    if (post.mediaIds.length > 0) {
-      return failed("LinkedIn media publishing is not supported yet.");
+    if (post.mediaIds.length > 1) {
+      return failed("LinkedIn publishing supports one image per post.");
     }
 
     if (!post.caption.trim()) {
@@ -118,6 +119,13 @@ export class LinkedInPublishingAdapter implements PublishingAdapter {
       );
     }
 
+    let image: Buffer | undefined;
+    try {
+      image = await loadPublishingImage(this.authUser, workspaceId, post.mediaIds.map(String));
+    } catch {
+      return failed("The selected image is unavailable or unauthorized. No post was submitted.");
+    }
+
     let result: Awaited<ReturnType<typeof publishLinkedInTextPost>>;
 
     try {
@@ -125,6 +133,7 @@ export class LinkedInPublishingAdapter implements PublishingAdapter {
         accessToken: credentials.accessToken,
         linkedinMemberId: credentials.linkedinMemberId,
         caption: post.caption,
+        ...(image ? { image } : {}),
       });
     } catch {
       return unknown(

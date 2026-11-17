@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { ApiError } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   getImageGenerationCredits,
@@ -25,6 +26,15 @@ import {
 import { snapshotImageGenerationCommand } from "@/lib/imageGenerationCommandSnapshot";
 
 import { getWorkspaceImageUrl } from "@/lib/imageGeneration";
+
+import {
+  DEFAULT_PUBLISHING_BRANDING,
+  PublishingImageBrandingFields,
+  createPublishingImageBranding,
+  validatePublishingBrandingSettings,
+  type PublishingBrandingSettings,
+  type PublishingLogoAvailability,
+} from "./PublishingImageBrandingFields";
 
 type Props = {
   workspaceId: string | null;
@@ -81,6 +91,54 @@ export function PublishingImageGenerator({
   const [prompt, setPrompt] = useState("");
 
   const [aspectRatio, setAspectRatio] = useState<ImageAspectRatio>("square");
+
+  const [brandingSettings, setBrandingSettings] =
+    useState<PublishingBrandingSettings>({
+      ...DEFAULT_PUBLISHING_BRANDING,
+    });
+
+  type ScopedPublishingLogoAvailability = PublishingLogoAvailability & {
+    ownerUserId: string | null;
+  };
+
+  const [logoAvailability, setLogoAvailability] =
+    useState<ScopedPublishingLogoAvailability | null>(null);
+
+  const handleLogoAvailabilityChange = useCallback(
+    (next: PublishingLogoAvailability) => {
+      const scopedNext: ScopedPublishingLogoAvailability = {
+        ...next,
+        ownerUserId,
+      };
+
+      setLogoAvailability((current) => {
+        if (
+          current?.ownerUserId === scopedNext.ownerUserId &&
+          current.workspaceId === scopedNext.workspaceId &&
+          current.status === scopedNext.status &&
+          current.available === scopedNext.available
+        ) {
+          return current;
+        }
+
+        return scopedNext;
+      });
+    },
+    [ownerUserId],
+  );
+
+  const logoVerified =
+    Boolean(ownerUserId) &&
+    Boolean(workspaceId) &&
+    logoAvailability?.ownerUserId === ownerUserId &&
+    logoAvailability?.workspaceId === workspaceId &&
+    logoAvailability?.status === "available" &&
+    logoAvailability?.available === true;
+
+  const brandingValidationError = validatePublishingBrandingSettings(
+    brandingSettings,
+    logoVerified,
+  );
 
   const [creditsSnapshot, setCreditsSnapshot] =
     useState<CreditsSnapshot | null>(null);
@@ -167,6 +225,10 @@ export function PublishingImageGenerator({
     setPreviewLoading(false);
     setPreviewError("");
     setPreviewRefreshVersion(0);
+
+    setBrandingSettings({
+      ...DEFAULT_PUBLISHING_BRANDING,
+    });
 
     setRecoveryLoadStatus("checking");
     setRecoveryError("");
@@ -369,12 +431,14 @@ export function PublishingImageGenerator({
 
     let active = true;
     let inFlight = false;
+    let nextPollAt = 0;
+    let retryDelay = 4000;
 
     const assetId = submittedAssetId;
     const requestWorkspaceId = workspaceId;
 
     const interval = window.setInterval(() => {
-      if (!active || inFlight) return;
+      if (!active || inFlight || Date.now() < nextPollAt) return;
 
       inFlight = true;
 
@@ -390,11 +454,16 @@ export function PublishingImageGenerator({
             return;
           }
 
+          retryDelay = 4000;
           setGenerationDetails(details);
           setGenerationStatusError("");
         })
         .catch((error: unknown) => {
           if (!active) return;
+          if (error instanceof ApiError && error.status === 429) {
+            retryDelay = Math.min(retryDelay * 2, 60_000);
+            nextPollAt = Date.now() + Math.max(retryDelay, error.retryAfterMs ?? 0);
+          }
 
           setGenerationStatusError(
             error instanceof Error
@@ -705,6 +774,7 @@ export function PublishingImageGenerator({
     !loadingCredits &&
     !creditsError &&
     promptValid &&
+    brandingValidationError === null &&
     !disabled &&
     !insufficientCredits &&
     !dailyLimitReached &&
@@ -878,24 +948,37 @@ export function PublishingImageGenerator({
     }
 
     try {
-      const normalizedPrompt = validateImagePrompt(prompt);
+      let command: GenerateImageCommand;
 
-      // Create exactly one idempotency key for this
-      // logical generation.
-      const command = snapshotImageGenerationCommand({
-        idempotencyKey: createImageRequestKey(),
+      try {
+        // Revalidate the latest editor values immediately
+        // before constructing a credit-bearing request.
+        const branding = createPublishingImageBranding(
+          brandingSettings,
+          logoVerified,
+        );
 
-        image: {
-          prompt: normalizedPrompt,
-          aspectRatio,
-
-          // Optional branding will be integrated in
-          // Step 13.4.4.2E.
-          branding: {
-            type: "none",
+        command = snapshotImageGenerationCommand({
+          idempotencyKey: createImageRequestKey(),
+          image: {
+            prompt,
+            aspectRatio,
+            branding,
           },
-        },
-      });
+        });
+      } catch (error) {
+        setSubmissionError(
+          error instanceof Error
+            ? error.message
+            : "Invalid image branding settings.",
+        );
+
+        return;
+      }
+
+      // Existing submission function saves this exact
+      // immutable command before making the POST.
+      void submitGenerationCommand(command, "new");
 
       setPendingRetry(null);
       setSubmittedAssetId(null);
@@ -1046,6 +1129,36 @@ export function PublishingImageGenerator({
           ))}
         </div>
       </fieldset>
+
+      {!disabled &&
+        (submissionStatus !== "idle" || recoveryLoadStatus !== "empty") && (
+          <p
+            role="status"
+            className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+          >
+            {recoveryLoadStatus === "checking"
+              ? "Checking for a previous image-generation request."
+              : submissionStatus === "accepted"
+                ? "An image-generation request is active. Branding settings will unlock when you finish the current generation."
+                : submissionStatus === "uncertain"
+                  ? "Verify the previous generation request before creating another image."
+                  : "Image-generation recovery must be resolved before changing branding settings."}
+          </p>
+        )}
+
+      <PublishingImageBrandingFields
+        key={`${ownerUserId ?? "no-user"}:${workspaceId ?? "no-workspace"}`}
+        workspaceId={workspaceId}
+        aspectRatio={aspectRatio}
+        value={brandingSettings}
+        onLogoAvailabilityChange={handleLogoAvailabilityChange}
+        onChange={setBrandingSettings}
+        disabled={
+          disabled ||
+          submissionStatus !== "idle" ||
+          recoveryLoadStatus !== "empty"
+        }
+      />
 
       {insufficientCredits && (
         <p role="alert" className="text-sm text-amber-800">

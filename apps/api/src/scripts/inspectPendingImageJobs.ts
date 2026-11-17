@@ -16,7 +16,10 @@ async function main() {
   }
 
   await mongoose.connect(mongoUri);
-
+  console.log(
+    "Worker MongoDB database:",
+    mongoose.connection.db?.databaseName ?? "unknown",
+  );
   try {
     const assets = await MediaAsset.find({
       type: "image",

@@ -17,6 +17,7 @@ export async function startLinkedInConnect(
     "/api/linkedin/connect",
     {
       method: "POST",
+      credentials: "include",
       body: JSON.stringify({
         workspaceId: normalizedWorkspaceId,
       }),

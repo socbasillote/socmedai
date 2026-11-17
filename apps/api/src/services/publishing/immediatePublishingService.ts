@@ -97,8 +97,8 @@ export async function claimImmediatePost({
         },
       ],
 
-      // Immediate publishing remains text-only.
-      mediaIds: { $size: 0 },
+      // At most one persisted image can be published.
+      "mediaIds.1": { $exists: false },
     },
     {
       $set: {
@@ -122,7 +122,7 @@ export async function claimImmediatePost({
   if (!post) {
     throw new ImmediatePublishingError(
       "This post is not eligible for immediate publishing. " +
-        "It must be a Facebook-only or LinkedIn-only text draft " +
+        "It must be a Facebook-only or LinkedIn-only draft " +
         "with a selected publishing connection and no previous publishing attempt.",
       409,
     );
