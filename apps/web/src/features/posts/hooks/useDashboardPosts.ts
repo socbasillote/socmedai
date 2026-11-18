@@ -33,6 +33,7 @@ type NoticeHandler = Parameters<typeof usePostActions>[0]["setNotice"];
 export function useDashboardPosts(
   selectedWorkspaceId: string,
   setNotice: NoticeHandler,
+  enabled = true,
 ) {
   // 1. Filter state
   const {
@@ -57,10 +58,11 @@ export function useDashboardPosts(
     setNextPostsCursor,
     hasMorePosts,
     setHasMorePosts,
-  } = usePosts(selectedWorkspaceId, search, statusFilter, platformFilter);
+  } = usePosts(selectedWorkspaceId, search, statusFilter, platformFilter, enabled);
 
   // 3. Pagination
   const { loadingMorePosts, handleLoadMorePosts } = usePostPagination({
+    enabled,
     selectedWorkspaceId,
     nextPostsCursor,
     search,

@@ -1,3 +1,4 @@
+import { ScheduledLeaseLostError } from "./scheduledPublishingHeartbeat.js";
 import { loadPublishingImage } from "./publishingMediaService.js";
 import Post from "../../models/Post.js";
 
@@ -129,13 +130,16 @@ export class LinkedInPublishingAdapter implements PublishingAdapter {
     let result: Awaited<ReturnType<typeof publishLinkedInTextPost>>;
 
     try {
+      input.lease?.assertOwnership();
       result = await publishLinkedInTextPost({
         accessToken: credentials.accessToken,
         linkedinMemberId: credentials.linkedinMemberId,
         caption: post.caption,
+        ...(input.lease ? { beforeRequest: () => input.lease!.assertOwnership() } : {}),
         ...(image ? { image } : {}),
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof ScheduledLeaseLostError) throw error;
       return unknown(
         "LinkedIn publishing encountered an unexpected error. " +
           "The publication outcome is unknown. " +

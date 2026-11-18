@@ -53,6 +53,7 @@ export type LinkedInStatusResponse = {
 
 export async function getLinkedInStatus(
   workspaceId: string,
+  force = false,
 ): Promise<LinkedInStatusResponse> {
   const normalizedWorkspaceId = workspaceId.trim();
 
@@ -62,6 +63,7 @@ export async function getLinkedInStatus(
 
   const response = await apiFetch<LinkedInStatusResponse>(
     `/api/linkedin/status?workspaceId=${encodeURIComponent(normalizedWorkspaceId)}`,
+    force ? { cache: "no-store" } : {},
   );
 
   return response;

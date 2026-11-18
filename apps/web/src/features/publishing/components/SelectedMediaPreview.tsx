@@ -39,14 +39,13 @@ export function SelectedMediaPreview({ assetId, variant = "attachment" }: Props)
     async function loadPreview() {
       try {
         // Step 1: Resolve the asset's original workspace.
-        const metadata = await getMediaLibraryItem(assetId);
+        const metadata = await (refreshVersion ? getMediaLibraryItem(assetId, true) : getMediaLibraryItem(assetId));
 
         // Step 2: Request a private signed URL using
         // the ORIGINAL workspace, not the current one.
-        const signed = await getWorkspaceImageUrl(
-          metadata.sourceWorkspaceId,
-          metadata.assetId,
-        );
+        const signed = await (refreshVersion
+          ? getWorkspaceImageUrl(metadata.sourceWorkspaceId, metadata.assetId, true)
+          : getWorkspaceImageUrl(metadata.sourceWorkspaceId, metadata.assetId));
 
         if (!active) return;
 

@@ -1,3 +1,4 @@
+import { ScheduledLeaseLostError } from "./scheduledPublishingHeartbeat.js";
 import { loadPublishingImage } from "./publishingMediaService.js";
 import Post from "../../models/Post.js";
 
@@ -218,16 +219,19 @@ export class FacebookPublishingAdapter implements PublishingAdapter {
     let result: Awaited<ReturnType<typeof publishFacebookTextPost>>;
 
     try {
+      input.lease?.assertOwnership();
       result = await publishFacebookTextPost(
         {
           pageId: credentials.facebookPageId,
           pageAccessToken: credentials.pageAccessToken,
           message: post.caption,
+          ...(input.lease ? { beforeRequest: () => input.lease!.assertOwnership() } : {}),
           ...(image ? { image } : {}),
         },
         this.fetchImpl,
       );
-    } catch {
+    } catch (error) {
+      if (error instanceof ScheduledLeaseLostError) throw error;
       // We cannot know whether an external
       // request succeeded before throwing.
       //

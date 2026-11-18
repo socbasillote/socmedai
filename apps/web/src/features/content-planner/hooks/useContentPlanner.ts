@@ -55,6 +55,11 @@ export function useContentPlanner(
   const requestKey = getCalendarRequestKey(workspaceId, range);
 
   useEffect(() => {
+    const refresh = () => setRefreshVersion((version) => version + 1);
+    window.addEventListener("storm:posts-changed", refresh);
+    return () => window.removeEventListener("storm:posts-changed", refresh);
+  }, []);
+  useEffect(() => {
     let cancelled = false;
 
     if (!workspaceId) {

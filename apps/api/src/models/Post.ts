@@ -6,6 +6,7 @@ export const POST_STATUSES = [
   "publishing",
   "published",
   "failed",
+  "unknown",
 ] as const;
 
 export type PostStatus = (typeof POST_STATUSES)[number];
@@ -168,6 +169,8 @@ const postSchema = new Schema(
   },
 );
 
+postSchema.index({ status: 1, scheduledAt: 1, _id: 1 });
+postSchema.index({ status: 1, scheduledLeaseExpiresAt: 1 });
 postSchema.index({ workspaceId: 1, updatedAt: -1 });
 postSchema.index({ workspaceId: 1, status: 1, scheduledAt: 1 });
 

@@ -13,6 +13,7 @@ export function reconcileOverallPostStatus(
     return "published";
   }
 
+  if (platformStatuses.some((status) => status === "unknown")) return "unknown";
   if (
     platformStatuses.some(
       (status) =>

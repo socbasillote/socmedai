@@ -85,7 +85,7 @@ export function RecentPostsList({
                   {post.title}
                 </p>
                 <p className="mt-1 text-xs text-slate-400">{post.platform}</p>
-                {post.status === "Failed" && (
+                {(post.status === "Failed" || post.status === "Needs review") && (
                   <p className="mt-2 text-xs text-rose-700" role="status">
                     {post.lastError ||
                       "Publishing did not complete. Review this post before retrying."}

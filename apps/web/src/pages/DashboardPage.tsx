@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { useNavigate } from "react-router";
 
 import { PAGE_PATHS } from "@/app/navigation/pagePaths";
@@ -6,7 +7,7 @@ import { useFacebookOAuthCallback } from "@/features/connections/facebook/hooks/
 
 import { storeWorkspaceId } from "@/lib/workspaceSelection";
 
-import { ContentPlannerPage } from "@/pages/ContentPlannerPage";
+const ContentPlannerPage = lazy(() => import("@/pages/ContentPlannerPage").then((module) => ({ default: module.ContentPlannerPage })));
 
 import { useDashboardFacebookConnection } from "@/features/connections/facebook/hooks/useDashboardFacebookConnection";
 import { useDashboardLinkedInConnection } from "@/features/connections/linkedin/hooks/useDashboardLinkedInConnection";
@@ -20,7 +21,7 @@ import { useDashboardNotice } from "@/hooks/useDashboardNotice";
 
 import { DashboardLayout } from "@/components/DashboardLayout";
 
-import { DashboardContentStudioView } from "@/features/content-studio/components/DashboardContentStudioView";
+const DashboardContentStudioView = lazy(() => import("@/features/content-studio/components/DashboardContentStudioView").then((module) => ({ default: module.DashboardContentStudioView })));
 
 import { DashboardPlaceholderView } from "@/features/dashboard/components/DashboardPlaceholderView";
 
@@ -30,7 +31,7 @@ import { DashboardPostsView } from "@/features/posts/components/DashboardPostsVi
 
 import { DashboardOverlays } from "@/features/dashboard/components/DashboardOverlays";
 
-import { ImageStudio } from "@/features/image-studio/components/ImageStudio";
+const ImageStudio = lazy(() => import("@/features/image-studio/components/ImageStudio").then((module) => ({ default: module.ImageStudio })));
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -69,7 +70,18 @@ export default function DashboardPage() {
     handleCreateWorkspace,
   } = useDashboardWorkspace(setNotice);
 
-  const posts = useDashboardPosts(selectedWorkspaceId, setNotice);
+  const {
+    activePage,
+    mobileMenuOpen,
+    selectPage,
+    openNavigation,
+    closeNavigation,
+  } = useDashboardNavigation({
+    pagePaths: PAGE_PATHS,
+  });
+
+  const posts = useDashboardPosts(selectedWorkspaceId, setNotice,
+    activePage === "Overview" || activePage === "Posts");
 
   const { search, setSearch, selectedPost, handleStudioPostSaved } = posts;
 
@@ -112,16 +124,6 @@ export default function DashboardPage() {
     connectionsError: facebookConnectionsError,
     refreshConnections: refreshFacebookConnections,
   } = useDashboardFacebookConnection(selectedWorkspaceId);
-
-  const {
-    activePage,
-    mobileMenuOpen,
-    selectPage,
-    openNavigation,
-    closeNavigation,
-  } = useDashboardNavigation({
-    pagePaths: PAGE_PATHS,
-  });
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -207,6 +209,7 @@ export default function DashboardPage() {
           />
         )}
 
+        <Suspense fallback={<p role="status" className="p-6 text-sm text-slate-500">Loading this view...</p>}>
         {activePage === "Overview" ? (
           <DashboardOverviewView
             posts={posts}
@@ -248,6 +251,7 @@ export default function DashboardPage() {
             onReturnToOverview={() => selectPage("Overview")}
           />
         )}
+        </Suspense>
       </DashboardLayout>
 
       <DashboardOverlays

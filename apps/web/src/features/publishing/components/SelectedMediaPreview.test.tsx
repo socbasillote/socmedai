@@ -110,6 +110,7 @@ describe("SelectedMediaPreview", () => {
 
     await waitFor(() => {
       expect(getWorkspaceImageUrl).toHaveBeenCalledTimes(2);
+      expect(getWorkspaceImageUrl).toHaveBeenLastCalledWith(SOURCE_WORKSPACE_A, ASSET_A, true);
     });
   });
 

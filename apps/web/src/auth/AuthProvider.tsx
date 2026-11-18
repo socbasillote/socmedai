@@ -1,3 +1,4 @@
+import { clearQueryCache } from "@/lib/queryCache";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 
@@ -21,10 +22,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     let mounted = true;
 
+    let currentUserId: string | null = null;
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, currentSession) => {
       if (!mounted) return;
+      const nextUserId = currentSession?.user.id ?? null;
+      if (nextUserId !== currentUserId || _event === "SIGNED_OUT") clearQueryCache();
+      currentUserId = nextUserId;
 
       setSession(currentSession);
       setUser(currentSession?.user ?? null);
@@ -62,6 +67,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }
 
   async function signOut(): Promise<AuthActionResult> {
+    clearQueryCache();
     const { error } = await supabase.auth.signOut();
 
     return { error };

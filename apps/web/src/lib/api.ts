@@ -1,3 +1,4 @@
+import { cachedQuery, clearQueryCache, getQueryTtl } from "@/lib/queryCache";
 import { supabase } from "@/lib/supabase";
 
 const API_BASE_URL =
@@ -24,6 +25,7 @@ export async function apiFetch<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
+  init.signal?.throwIfAborted();
   const { data, error: sessionError } = await supabase.auth.getSession();
 
   if (sessionError) {
@@ -45,29 +47,42 @@ export async function apiFetch<T>(
 
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
 
-  const response = await fetch(`${API_BASE_URL}${normalizedPath}`, {
-    ...init,
-    headers,
-    credentials: init.credentials ?? "same-origin",
-  });
+  const method = (init.method ?? "GET").toUpperCase();
+  const mutation = method !== "GET" && method !== "HEAD";
+  const ttl = !mutation && !init.signal && init.cache !== "no-store" ? getQueryTtl(normalizedPath) : 0;
+  if (mutation || init.cache === "no-store") clearQueryCache();
+  const load = async (): Promise<T> => {
+    init.signal?.throwIfAborted();
+    const response = await fetch(`${API_BASE_URL}${normalizedPath}`, {
+      ...init,
+      headers,
+      credentials: init.credentials ?? "same-origin",
+    });
 
-  if (!response.ok) {
-    let message = `API request failed with status ${response.status}.`;
+    if (!response.ok) {
+      let message = `API request failed with status ${response.status}.`;
 
-    try {
-      const body = (await response.json()) as ApiErrorResponse;
-      message = body.message || body.error || message;
-    } catch {
-      // Keep the fallback message if the response isn't JSON.
+      try {
+        const body = (await response.json()) as ApiErrorResponse;
+        message = body.message || body.error || message;
+      } catch {
+        // Keep the fallback message if the response isn't JSON.
+      }
+
+      const retryAfter = response.headers.get("Retry-After");
+      const seconds = retryAfter === null ? NaN : Number(retryAfter);
+      const retryAfterMs = Number.isFinite(seconds)
+        ? Math.max(0, seconds * 1000)
+        : retryAfter ? Math.max(0, Date.parse(retryAfter) - Date.now()) : undefined;
+      throw new ApiError(message, response.status, retryAfterMs);
     }
 
-    const retryAfter = response.headers.get("Retry-After");
-    const seconds = retryAfter === null ? NaN : Number(retryAfter);
-    const retryAfterMs = Number.isFinite(seconds)
-      ? Math.max(0, seconds * 1000)
-      : retryAfter ? Math.max(0, Date.parse(retryAfter) - Date.now()) : undefined;
-    throw new ApiError(message, response.status, retryAfterMs);
+    return (await response.json()) as T;
+  };
+  try {
+    // Token scope prevents cached private data crossing accounts or sessions.
+    return await (ttl ? cachedQuery(`${accessToken}:${normalizedPath}`, load, ttl) : load());
+  } finally {
+    if (mutation) clearQueryCache();
   }
-
-  return (await response.json()) as T;
 }

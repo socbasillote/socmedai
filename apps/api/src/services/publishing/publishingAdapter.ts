@@ -1,3 +1,4 @@
+import type { ScheduledLeaseSignal } from "./scheduledPublishingHeartbeat.js";
 export type PublishingPlatform = "facebook" | "instagram" | "linkedin";
 
 type BasePublishingInput = {
@@ -5,6 +6,7 @@ type BasePublishingInput = {
   workspaceId: string;
   caption: string;
   mediaIds: string[];
+  lease?: ScheduledLeaseSignal;
 };
 
 export type PublishingInput =

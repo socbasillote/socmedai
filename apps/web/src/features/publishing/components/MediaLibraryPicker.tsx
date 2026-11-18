@@ -66,33 +66,21 @@ export function MediaLibraryPicker({
 
         if (!active) return;
 
-        // Every asset carries its source workspace.
-        // Signed URLs must be requested against
-        // THAT workspace, not the active workspace.
-        const results = await Promise.all(
-          response.images.map(async (image) => {
+        setImages(response.images.map((image) => ({ ...image, previewUrl: image.previewUrl ?? null })));
+        setLoading(false);
+        // Backward compatibility for older API responses. New responses already
+        // contain batched URLs, including explicit nulls for failed signing.
+        const pending = response.images.filter((image) => image.previewUrl === undefined);
+        let next = 0;
+        await Promise.all(Array.from({ length: Math.min(3, pending.length) }, async () => {
+          while (active && next < pending.length) {
+            const image = pending[next++];
             try {
-              const access = await getWorkspaceImageUrl(
-                image.sourceWorkspaceId,
-                image.assetId,
-              );
-
-              return {
-                ...image,
-                previewUrl: access.url,
-              };
-            } catch {
-              return {
-                ...image,
-                previewUrl: null,
-              };
-            }
-          }),
-        );
-
-        if (!active) return;
-
-        setImages(results);
+              const access = await getWorkspaceImageUrl(image.sourceWorkspaceId, image.assetId);
+              if (active) setImages((current) => current.map((item) => item.assetId === image.assetId ? { ...item, previewUrl: access.url } : item));
+            } catch { /* Keep the image selectable even if its preview fails. */ }
+          }
+        }));
       } catch {
         if (!active) return;
 

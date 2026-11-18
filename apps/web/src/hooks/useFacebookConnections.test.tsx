@@ -138,7 +138,7 @@ describe("useFacebookConnections", () => {
 
     expect(getFacebookConnections).toHaveBeenNthCalledWith(1, WORKSPACE_A);
 
-    expect(getFacebookConnections).toHaveBeenNthCalledWith(2, WORKSPACE_A);
+    expect(getFacebookConnections).toHaveBeenNthCalledWith(2, WORKSPACE_A, true);
   });
 
   /**

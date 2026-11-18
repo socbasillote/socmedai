@@ -1,3 +1,4 @@
+import { reconcileWorkspacePublication, changeWorkspaceSchedule } from "../services/postService.js";
 import type { RequestHandler } from "express";
 
 import {
@@ -324,6 +325,31 @@ export const publishPostNow: RequestHandler = async (req, res, next) => {
       return;
     }
 
+    next(error);
+  }
+};
+
+export const changePostSchedule: RequestHandler = async (req, res, next) => {
+  try {
+    const postId = req.params.postId;
+    const cancel = req.method === "DELETE";
+    if (typeof postId !== "string" || (!cancel && (typeof req.body?.scheduledAt !== "string" || Object.keys(req.body).some((key) => key !== "scheduledAt")))) {
+      res.status(400).json({ error: "A valid schedule is required." }); return;
+    }
+    const post = await changeWorkspaceSchedule(getAuthenticatedUser(res), postId, cancel ? undefined : new Date(req.body.scheduledAt));
+    res.json({ post });
+  } catch (error) {
+    if (error instanceof PostServiceError) { res.status(error.statusCode).json({ error: error.message }); return; }
+    next(error);
+  }
+};
+
+export const reconcilePublication: RequestHandler = async (req, res, next) => {
+  try {
+    if (typeof req.params.postId !== "string") { res.status(400).json({ error: "Invalid post." }); return; }
+    res.json({ post: await reconcileWorkspacePublication(getAuthenticatedUser(res), req.params.postId) });
+  } catch (error) {
+    if (error instanceof PostServiceError) { res.status(error.statusCode).json({ error: error.message }); return; }
     next(error);
   }
 };

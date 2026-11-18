@@ -155,7 +155,7 @@ describe("reconcileOverallPostStatus", () => {
   it("keeps the post publishing while a platform outcome is unknown", () => {
     expect(
       reconcileOverallPostStatus("publishing", ["published", "unknown"]),
-    ).toBe("publishing");
+    ).toBe("unknown");
   });
 
   it("keeps the post publishing while a platform is still in progress", () => {

@@ -1,6 +1,6 @@
 import type { RequestHandler } from "express";
 
-import { supabaseAuthClient } from "./supabase.js";
+import { verifyAccessToken } from "./verifyAccessToken.js";
 
 export const requireAuth: RequestHandler = async (req, res, next) => {
   const authorization = req.header("authorization");
@@ -19,7 +19,7 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
     const {
       data: { user },
       error,
-    } = await supabaseAuthClient.auth.getUser(accessToken);
+    } = await verifyAccessToken(accessToken);
 
     if (error || !user) {
       res.status(401).json({

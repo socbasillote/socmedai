@@ -12,6 +12,7 @@ export type WorkerDependencies = {
     modifiedCount: number;
   }>;
 
+  releaseUnsubmittedClaim?: (postId: string, claimId: string) => Promise<unknown>;
   claimNextDuePost: () => Promise<ClaimedScheduledPost | null>;
 
   dispatchScheduledPost: (
@@ -31,6 +32,8 @@ export type WorkerDependencies = {
 export type WorkerOptions = {
   automaticPublishingEnabled: boolean;
   pollIntervalMs?: number;
+  concurrency?: number;
+  batchSize?: number;
 };
 
 export function createScheduledPostWorkerRuntime(
@@ -43,12 +46,15 @@ export function createScheduledPostWorkerRuntime(
     throw new Error("Invalid worker polling interval.");
   }
 
+  const concurrency = options.concurrency ?? 1;
+  const batchSize = options.batchSize ?? 1;
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16 || !Number.isInteger(batchSize) || batchSize < 1 || batchSize > 100) throw new Error("Invalid worker batch configuration.");
   let interval: ReturnType<typeof setInterval> | undefined;
   let activePoll: Promise<void> | null = null;
   let stopped = false;
 
   /**
-   * Process at most one scheduled post.
+   * Process a bounded batch of due scheduled posts.
    *
    * The activePoll reference prevents overlapping cycles.
    */
@@ -57,42 +63,33 @@ export function createScheduledPostWorkerRuntime(
       return Promise.resolve();
     }
 
-    const cycle = async (): Promise<void> => {
+    const cycle = async (): Promise<boolean> => {
       try {
-        const recovery = await dependencies.recoverStalePublishingPosts();
-
-        if (recovery.modifiedCount > 0) {
-          console.warn(
-            `[scheduled-post-worker] Recovered ${recovery.modifiedCount} stale claim(s).`,
-          );
-        }
-
         if (!automaticPublishingEnabled || stopped) {
-          return;
+          return false;
         }
 
         const claimed = await dependencies.claimNextDuePost();
 
         if (!claimed) {
-          return;
+          return false;
         }
 
         const postId = String(claimed._id);
         const claimId = claimed.scheduledClaimId;
 
         if (typeof claimId !== "string" || !claimId.trim()) {
-          console.error("[scheduled-post-worker] Missing claim ownership ID.", {
-            postId,
-          });
-          return;
+          console.error("[scheduled-post-worker] Missing claim ownership ID.", { postId });
+          return false;
         }
 
         if (stopped) {
+          await dependencies.releaseUnsubmittedClaim?.(postId, claimId);
           console.warn(
             "[scheduled-post-worker] Shutdown after claim; dispatch withheld.",
             { postId },
           );
-          return;
+          return false;
         }
 
         try {
@@ -117,14 +114,28 @@ export function createScheduledPostWorkerRuntime(
 
           // No automatic retry.
         }
+        return true;
       } catch (error) {
         console.error("[scheduled-post-worker] Polling failed:", error);
+        return false;
       }
     };
 
     // The async function executes synchronously until
     // its first await. Store its promise as the active cycle.
-    const task = cycle();
+    const task = (async () => {
+      try {
+        const recovery = await dependencies.recoverStalePublishingPosts();
+        if (recovery.modifiedCount > 0) console.warn(`[scheduled-post-worker] Recovered ${recovery.modifiedCount} stale claim(s).`);
+      } catch (error) { console.error("[scheduled-post-worker] Polling failed:", error); return; }
+      // Drain a bounded batch without overlapping polling cycles.
+      await Promise.all(Array.from({ length: options.automaticPublishingEnabled ? concurrency : 1 }, async () => {
+        for (let index = 0; index < batchSize && !stopped; index++) {
+          if (!await cycle()) break;
+          if (!automaticPublishingEnabled) break;
+        }
+      }));
+    })();
     activePoll = task;
 
     void task.finally(() => {

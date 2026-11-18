@@ -222,15 +222,13 @@ export function getWorkspaceImageStatus(workspaceId: string, assetId: string) {
   );
 }
 
-export function getWorkspaceImageUrl(workspaceId: string, assetId: string) {
+export function getWorkspaceImageUrl(workspaceId: string, assetId: string, force = false) {
   if (!WORKSPACE_ID_PATTERN.test(assetId)) {
     throw new Error("Invalid image ID.");
   }
 
-  return apiFetch<PrivateImageAccess>(
-    `${imageGenerationPath(workspaceId)}/` +
-      `${encodeURIComponent(assetId)}/url`,
-  );
+  const path = `${imageGenerationPath(workspaceId)}/${encodeURIComponent(assetId)}/url`;
+  return force ? apiFetch<PrivateImageAccess>(path, { cache: "no-store" }) : apiFetch<PrivateImageAccess>(path);
 }
 
 export function getWorkspaceImageHistory(

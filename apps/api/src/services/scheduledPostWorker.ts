@@ -141,7 +141,7 @@ export async function recoverStalePublishingPosts(
     },
     {
       $set: {
-        status: "failed",
+        status: "unknown",
         lastError: STALE_CLAIM_ERROR,
       },
     },
@@ -149,4 +149,9 @@ export async function recoverStalePublishingPosts(
       runValidators: true,
     },
   );
+}
+
+export async function releaseUnsubmittedScheduledClaim(postId: string, scheduledClaimId: string) {
+  return Post.updateOne({ _id: postId, status: "publishing", scheduledClaimId, attemptCount: 1, "platformResults.0": { $exists: false } },
+    { $set: { status: "scheduled", attemptCount: 0, scheduledClaimId: null, scheduledLeaseExpiresAt: null }, $unset: { claimedAt: "" } });
 }

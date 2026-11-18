@@ -1,5 +1,6 @@
 import {
   claimNextDuePost,
+  releaseUnsubmittedScheduledClaim,
   recoverStalePublishingPosts,
 } from "./scheduledPostWorker.js";
 
@@ -17,6 +18,7 @@ const runtime = createScheduledPostWorkerRuntime(
     recoverStalePublishingPosts,
 
     claimNextDuePost,
+    releaseUnsubmittedClaim: releaseUnsubmittedScheduledClaim,
 
     dispatchScheduledPost,
 
@@ -26,6 +28,8 @@ const runtime = createScheduledPostWorkerRuntime(
     automaticPublishingEnabled: AUTOMATIC_PUBLISHING_ENABLED,
 
     pollIntervalMs: 5_000,
+    concurrency: 4,
+    batchSize: 10,
   },
 );
 

@@ -11,6 +11,7 @@ export type MediaLibraryItem = {
   width: number;
   height: number;
   createdAt: string;
+  previewUrl?: string | null;
 };
 
 export type MediaLibraryResponse = {
@@ -42,6 +43,7 @@ export async function getMediaLibrary(
     workspaceId,
     scope,
     limit: String(limit),
+    includePreviews: "true",
   });
 
   return apiFetch<MediaLibraryResponse>(
@@ -51,6 +53,7 @@ export async function getMediaLibrary(
 
 export async function getMediaLibraryItem(
   assetId: string,
+  force = false,
 ): Promise<MediaLibraryItem> {
   if (!OBJECT_ID_PATTERN.test(assetId)) {
     throw new Error("Invalid media asset ID.");
@@ -58,7 +61,7 @@ export async function getMediaLibraryItem(
 
   const response = await apiFetch<{
     image: MediaLibraryItem;
-  }>(`/api/ai/media/library/${encodeURIComponent(assetId)}`);
+  }>(`/api/ai/media/library/${encodeURIComponent(assetId)}`, force ? { cache: "no-store" } : {});
 
   return response.image;
 }

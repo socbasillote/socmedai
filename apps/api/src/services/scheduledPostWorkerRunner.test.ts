@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./scheduledPostWorker.js", () => ({
   recoverStalePublishingPosts: mocks.recoverStalePublishingPosts,
+  claimNextDuePost: vi.fn(async () => null),
+  releaseUnsubmittedScheduledClaim: vi.fn(),
 }));
 
 async function flushPromises(): Promise<void> {
@@ -17,6 +19,7 @@ describe("scheduledPostWorkerRunner", () => {
   let stopWorker: (() => Promise<void>) | undefined;
 
   beforeEach(() => {
+    process.env.SCHEDULED_PUBLISHING_ENABLED = "false";
     vi.resetModules();
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -80,7 +83,7 @@ describe("scheduledPostWorkerRunner", () => {
       await startWorker();
 
       expect(consoleError).toHaveBeenCalledWith(
-        "[scheduled-post-worker] Recovery poll failed:",
+        "[scheduled-post-worker] Polling failed:",
         error,
       );
 

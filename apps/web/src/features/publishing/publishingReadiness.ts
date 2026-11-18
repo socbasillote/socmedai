@@ -238,6 +238,13 @@ export function evaluatePublishingReadiness(
           ),
         );
 
+        if (action !== "draft") {
+          const limit = destination.platform === "linkedin" ? 3000 : 5000;
+          if (content.caption.length > limit) {
+            items.push(checklist("caption-length", "Caption length", "invalid", `Caption must not exceed ${limit} characters.`));
+          }
+        }
+
         const mediaRequired =
           destination.format === "image" || destination.format === "video";
 

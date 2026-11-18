@@ -56,6 +56,18 @@ export async function claimImmediatePost({
       _id: postId,
       workspaceId,
       status: "draft",
+      // Validate the same persisted caption atomically with the claim so an
+      // overlapping draft edit cannot consume an attempt with invalid content.
+      $expr: {
+        $and: [
+          { $gt: [{ $strLenCP: { $trim: { input: "$caption" } } }, 0] },
+          { $lte: [{ $add: [
+            { $strLenCP: "$caption" },
+            // JavaScript length counts astral characters as two UTF-16 units.
+            { $size: { $regexFindAll: { input: "$caption", regex: "[\\x{10000}-\\x{10FFFF}]" } } },
+          ] }, { $cond: [{ $in: ["linkedin", "$platforms"] }, 3000, 5000] }] },
+        ],
+      },
 
       // Exactly one supported platform must be selected.
       $or: [
@@ -123,7 +135,7 @@ export async function claimImmediatePost({
     throw new ImmediatePublishingError(
       "This post is not eligible for immediate publishing. " +
         "It must be a Facebook-only or LinkedIn-only draft " +
-        "with a selected publishing connection and no previous publishing attempt.",
+        "with a selected publishing connection and no previous publishing attempt. Captions must contain 1?3,000 characters for LinkedIn or 1?5,000 for Facebook.",
       409,
     );
   }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { getWorkspacePostsPage, type Post } from "@/lib/posts";
 
 type PostStatusFilter = "all" | "draft" | "scheduled" | "published" | "failed";
@@ -15,6 +15,7 @@ type UsePostPaginationOptions = {
   setHasMorePosts: (hasMore: boolean) => void;
   setDraftCount: (count: number) => void;
   setPostsLoadError: (error: string) => void;
+  enabled?: boolean;
 };
 
 export function usePostPagination({
@@ -28,26 +29,35 @@ export function usePostPagination({
   setHasMorePosts,
   setDraftCount,
   setPostsLoadError,
+  enabled = true,
 }: UsePostPaginationOptions) {
-  const [loadingMorePosts, setLoadingMorePosts] = useState(false);
+  const requestKey = JSON.stringify([selectedWorkspaceId, search, statusFilter, platformFilter, enabled]);
+  const [loadingKey, setLoadingKey] = useState<string | null>(null);
+  const loadingMorePosts = loadingKey === requestKey;
+  const pending = useRef<AbortController | null>(null);
+  useLayoutEffect(() => () => { pending.current?.abort(); pending.current = null; }, [requestKey]);
 
   async function handleLoadMorePosts() {
-    if (!selectedWorkspaceId || !nextPostsCursor || loadingMorePosts) {
+    if (!enabled || !selectedWorkspaceId || !nextPostsCursor || loadingMorePosts || pending.current) {
       return;
     }
 
-    setLoadingMorePosts(true);
+    const controller = new AbortController();
+    pending.current = controller;
+    setLoadingKey(requestKey);
     setPostsLoadError("");
 
     try {
       const result = await getWorkspacePostsPage(selectedWorkspaceId, {
         cursor: nextPostsCursor,
+        signal: controller.signal,
         limit: 20,
         search,
         status: statusFilter,
         platform: platformFilter,
       });
 
+      if (controller.signal.aborted) return;
       setSavedPosts((currentPosts) => {
         const existingIds = new Set(currentPosts.map((post) => post._id));
         const newPosts = result.posts.filter(
@@ -61,11 +71,15 @@ export function usePostPagination({
       setHasMorePosts(result.hasMore);
       setDraftCount(result.draftCount);
     } catch (error) {
+      if (controller.signal.aborted) return;
       setPostsLoadError(
         error instanceof Error ? error.message : "Unable to load more posts.",
       );
     } finally {
-      setLoadingMorePosts(false);
+      if (pending.current === controller) {
+        pending.current = null;
+        setLoadingKey(null);
+      }
     }
   }
 

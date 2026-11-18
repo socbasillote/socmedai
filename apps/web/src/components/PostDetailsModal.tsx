@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { changePostSchedule, reconcilePublication } from "@/lib/posts";
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 
 import type { Post } from "@/lib/posts";
@@ -22,11 +23,8 @@ function formatDate(value?: string): string {
 }
 
 function formatStatus(status: Post["status"]): string {
+  if (status === "unknown") return "Needs review";
   return status.charAt(0).toUpperCase() + status.slice(1);
-}
-
-function getLinkedInPublishingResult(post: Post) {
-  return post.platformResults?.find((result) => result.platform === "linkedin");
 }
 
 function getLinkedInPostUrl(externalPostId?: string): string | null {
@@ -47,20 +45,22 @@ function getLinkedInPostUrl(externalPostId?: string): string | null {
   )}/`;
 }
 
-export function PostDetailsModal({ post, onClose }: PostDetailsModalProps) {
-  const linkedInResult = getLinkedInPublishingResult(post);
-
-  const linkedInPostUrl = getLinkedInPostUrl(linkedInResult?.externalPostId);
-
-  console.log("[Storm] Post publishing debug:", {
-    postId: post._id,
-    postStatus: post.status,
-    platformResults: post.platformResults,
-    linkedInResult,
-    linkedInPostUrl,
-    shouldShowLinkedInButton:
-      linkedInResult?.status === "published" && Boolean(linkedInPostUrl),
-  });
+export function PostDetailsModal({ post: initialPost, onClose }: PostDetailsModalProps) {
+  const [post, setPost] = useState(initialPost);
+  const [schedule, setSchedule] = useState("");
+  const [pendingSchedule, setPendingSchedule] = useState(false);
+  const [scheduleError, setScheduleError] = useState("");
+  async function changeSchedule(action: "cancel" | "reschedule" | "reconcile") {
+    if (pendingSchedule) return;
+    if (action === "reschedule" && (!schedule || !Number.isFinite(new Date(schedule).getTime()) || new Date(schedule).getTime() <= Date.now())) { setScheduleError("Choose a valid future date and time."); return; }
+    setPendingSchedule(true); setScheduleError("");
+    try {
+      setPost(action === "reconcile" ? await reconcilePublication(post._id) : await changePostSchedule(post._id, action === "reschedule" ? new Date(schedule).toISOString() : undefined));
+      window.dispatchEvent(new Event("storm:posts-changed"));
+    } catch (error) { setScheduleError(error instanceof Error ? error.message : "Unable to update this post."); }
+    finally { setPendingSchedule(false); }
+  }
+  const publishingResults = post.platformResults ?? [];
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -197,73 +197,49 @@ export function PostDetailsModal({ post, onClose }: PostDetailsModalProps) {
             )}
           </div>
 
-          {linkedInResult && (
-            <section className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-              <h3 className="text-sm font-bold text-slate-900">
-                LinkedIn Publishing Details
-              </h3>
-
-              <div className="mt-4 space-y-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase text-slate-500">
-                    Publishing Status
-                  </p>
-
-                  <p className="mt-1 text-sm font-semibold capitalize text-slate-800">
-                    {linkedInResult.status}
-                  </p>
+          {publishingResults.map((result) => {
+            const platformLabel = result.platform === "facebook" ? "Facebook" : result.platform === "linkedin" ? "LinkedIn" : "Instagram";
+            const postUrl = result.platform === "linkedin" ? getLinkedInPostUrl(result.externalPostId)
+              : result.platform === "facebook" && /^\d+(?:_\d+)?$/.test(result.externalPostId ?? "")
+                ? `https://www.facebook.com/${result.externalPostId}` : null;
+            return (
+              <section key={result.platform} className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                <h3 className="text-sm font-bold text-slate-900">{platformLabel} Publishing Details</h3>
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-slate-500">Publishing Status</p>
+                    <p className="mt-1 text-sm font-semibold capitalize text-slate-800">{result.status}</p>
+                  </div>
+                  {result.publishedAt && <div>
+                    <p className="text-xs font-semibold uppercase text-slate-500">Published on {platformLabel}</p>
+                    <p className="mt-1 text-sm text-slate-800">{formatDate(result.publishedAt)}</p>
+                  </div>}
+                  {result.externalPostId && <div>
+                    <p className="text-xs font-semibold uppercase text-slate-500">{platformLabel} Post ID</p>
+                    <p className="mt-1 break-all font-mono text-xs text-slate-700">{result.externalPostId}</p>
+                  </div>}
+                  {result.lastError && <div role="alert">
+                    <p className="text-xs font-semibold uppercase text-rose-600">Publishing Error</p>
+                    <p className="mt-1 text-sm text-rose-700">{result.lastError}</p>
+                  </div>}
+                  {result.status === "published" && postUrl && <a href={postUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white">
+                    View on {platformLabel}
+                  </a>}
                 </div>
+              </section>
+            );
+          })}
 
-                {linkedInResult.publishedAt && (
-                  <div>
-                    <p className="text-xs font-semibold uppercase text-slate-500">
-                      Published on LinkedIn
-                    </p>
-
-                    <p className="mt-1 text-sm text-slate-800">
-                      {formatDate(linkedInResult.publishedAt)}
-                    </p>
-                  </div>
-                )}
-
-                {linkedInResult.externalPostId && (
-                  <div>
-                    <p className="text-xs font-semibold uppercase text-slate-500">
-                      LinkedIn Post ID
-                    </p>
-
-                    <p className="mt-1 break-all font-mono text-xs text-slate-700">
-                      {linkedInResult.externalPostId}
-                    </p>
-                  </div>
-                )}
-
-                {linkedInResult.lastError && (
-                  <div role="alert">
-                    <p className="text-xs font-semibold uppercase text-rose-600">
-                      Publishing Error
-                    </p>
-
-                    <p className="mt-1 text-sm text-rose-700">
-                      {linkedInResult.lastError}
-                    </p>
-                  </div>
-                )}
-
-                {linkedInResult.status === "published" && linkedInPostUrl && (
-                  <a
-                    href={linkedInPostUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center rounded-xl bg-[#0A66C2] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#004182]"
-                  >
-                    View on LinkedIn ↗
-                  </a>
-                )}
-              </div>
-            </section>
-          )}
-
+          {post.status === "scheduled" && <section className="space-y-3 rounded-xl border border-slate-200 p-4">
+            <h3 className="font-semibold">Manage schedule</h3>
+            <label className="block text-sm">New publishing time<input aria-label="New publishing time" type="datetime-local" value={schedule} onChange={(event) => setSchedule(event.target.value)} disabled={pendingSchedule} className="mt-2 w-full rounded-lg border p-2" /></label>
+            <p className="text-xs text-slate-500">Times use your browser's local time zone. Cancelling returns the post to drafts.</p>
+            <button type="button" disabled={pendingSchedule} onClick={() => void changeSchedule("reschedule")} className="mr-3 rounded-lg bg-violet-600 px-3 py-2 text-sm text-white">Reschedule</button>
+            <button type="button" disabled={pendingSchedule} onClick={() => void changeSchedule("cancel")} className="rounded-lg border px-3 py-2 text-sm">Cancel schedule</button>
+          </section>}
+          {post.status === "unknown" && <button type="button" disabled={pendingSchedule} onClick={() => void changeSchedule("reconcile")} className="rounded-lg border px-3 py-2 text-sm">Reconcile confirmed publication</button>}
+          {scheduleError && <p role="alert" className="text-sm text-rose-700">{scheduleError}</p>}
           {post.lastError && (
             <section
               role="alert"

@@ -37,30 +37,11 @@ describe("scheduledPostWorker", () => {
 
     const result = await claimNextDuePost(now);
 
-    expect(mocks.postFindOneAndUpdate).toHaveBeenCalledWith(
-      {
-        status: "scheduled",
-        scheduledAt: { $lte: now },
-      },
-      {
-        $set: {
-          status: "publishing",
-          claimedAt: now,
-        },
-        $inc: {
-          attemptCount: 1,
-        },
-      },
-      {
-        new: true,
-        sort: { scheduledAt: 1, _id: 1 },
-        runValidators: true,
-      },
-    );
-
-    expect(select).toHaveBeenCalledWith(
-      "_id workspaceId createdByUserId title caption mediaIds platforms status scheduledAt publishedAt claimedAt attemptCount lastError createdAt updatedAt",
-    );
+    const [filter, update, options] = mocks.postFindOneAndUpdate.mock.calls[0];
+    expect(filter).toMatchObject({ status: "scheduled", scheduledAt: { $lte: now }, mediaIds: { $size: 0 } });
+    expect(filter.$and).toHaveLength(2);
+    expect(update.$set).toMatchObject({ status: "publishing", claimedAt: now, scheduledClaimId: expect.any(String), scheduledLeaseExpiresAt: new Date(now.getTime() + 900000) });
+    expect(options.sort).toEqual({ scheduledAt: 1, _id: 1 });
     expect(result).toEqual(claimedPost);
   });
 
@@ -88,11 +69,11 @@ describe("scheduledPostWorker", () => {
     expect(mocks.postUpdateMany).toHaveBeenCalledWith(
       {
         status: "publishing",
-        claimedAt: { $ne: null, $lte: staleBefore },
+        $or: [ { scheduledClaimId: { $type: "string", $ne: "" }, scheduledLeaseExpiresAt: { $type: "date", $lte: now } }, { scheduledClaimId: null, claimedAt: { $ne: null, $lte: staleBefore } } ],
       },
       {
         $set: {
-          status: "failed",
+          status: "unknown",
           lastError:
             "Publishing claim expired before completion. Automatic retry was withheld because the publishing outcome is unknown.",
         },

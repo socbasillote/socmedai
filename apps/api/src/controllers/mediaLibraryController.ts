@@ -1,3 +1,4 @@
+import { signAuthorizedLibraryPreviews } from "../services/media/mediaLibraryPreviews.js";
 import type { RequestHandler } from "express";
 
 import type { AuthenticatedUser } from "../services/userProfileService.js";
@@ -15,7 +16,7 @@ export const getMediaLibraryController: RequestHandler = async (
   next,
 ) => {
   try {
-    const allowedKeys = ["workspaceId", "scope", "limit"];
+    const allowedKeys = ["workspaceId", "scope", "limit", "includePreviews"];
 
     if (Object.keys(req.query).some((key) => !allowedKeys.includes(key))) {
       res.status(400).json({
@@ -29,6 +30,7 @@ export const getMediaLibraryController: RequestHandler = async (
     const limit = req.query.limit;
 
     if (
+      (req.query.includePreviews !== undefined && req.query.includePreviews !== "true") ||
       typeof workspaceId !== "string" ||
       (scope !== "current" && scope !== "all") ||
       (limit !== undefined &&
@@ -50,7 +52,9 @@ export const getMediaLibraryController: RequestHandler = async (
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("Referrer-Policy", "no-referrer");
 
-    res.status(200).json(result);
+    const images = req.query.includePreviews === "true"
+      ? await signAuthorizedLibraryPreviews(result.images) : result.images;
+    res.status(200).json({ ...result, images });
   } catch (error) {
     if (error instanceof MediaLibraryError) {
       res.status(error.statusCode).json({

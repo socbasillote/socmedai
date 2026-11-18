@@ -3,6 +3,8 @@ import { Router } from "express";
 import { requireAuth } from "../auth/requireAuth.js";
 import {
   createPost,
+  changePostSchedule,
+  reconcilePublication,
   listPostsByWorkspace,
   listCalendarPostsByWorkspace,
   getPostById,
@@ -25,6 +27,9 @@ postRoutes.get(
 );
 
 postRoutes.post("/:postId/publish", publishPostNow);
+postRoutes.post("/:postId/reconcile", reconcilePublication);
+postRoutes.patch("/:postId/schedule", changePostSchedule);
+postRoutes.delete("/:postId/schedule", changePostSchedule);
 
 postRoutes.get("/:postId", getPostById);
 

@@ -1,3 +1,4 @@
+import PublishingAttemptEvidence from "../../models/PublishingAttemptEvidence.js";
 import type { PostPlatform } from "../../models/Post.js";
 import {
   claimPlatformResult,
@@ -144,7 +145,8 @@ export class PublishingOrchestrator {
           // Last cooperative cancellation point before external publishing.
           lease?.assertOwnership();
 
-          result = await this.adapter.publish(input);
+          result = await this.adapter.publish(lease ? { ...input, lease } : input);
+
 
           if (result.postId !== postId || result.platform !== platform) {
             result = {
@@ -182,6 +184,9 @@ export class PublishingOrchestrator {
         }
       }
 
+      // Evidence is append-only; it never finalizes a post owned by another worker.
+      if (claimContext) await PublishingAttemptEvidence.create({ postId, claimId: claimContext.scheduledClaimId, platform, outcome: result.outcome,
+        ...(result.outcome === "published" ? { externalPostId: result.externalPostId, publishedAt: result.publishedAt } : { message: result.message }) });
       lease?.assertOwnership();
 
       switch (result.outcome) {

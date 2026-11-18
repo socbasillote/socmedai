@@ -1,3 +1,4 @@
+import { ScheduledLeaseLostError } from "../publishing/scheduledPublishingHeartbeat.js";
 import { env } from "../../config/env.js";
 
 import { FACEBOOK_POST_MESSAGE_MAX_LENGTH } from "./facebookPublishInput.js";
@@ -6,6 +7,7 @@ export type FacebookTextPostInput = {
   pageId: string;
   pageAccessToken: string;
   message: string;
+  beforeRequest?: () => void;
   image?: Uint8Array;
 };
 
@@ -104,6 +106,7 @@ export async function publishFacebookTextPost(
   let response: Response;
 
   try {
+    input.beforeRequest?.();
     response = await fetchImpl(endpoint, {
       method: "POST",
       headers: {
@@ -115,7 +118,8 @@ export async function publishFacebookTextPost(
       redirect: "error",
       signal: AbortSignal.timeout(30_000),
     });
-  } catch {
+  } catch (error) {
+      if (error instanceof ScheduledLeaseLostError) throw error;
     return unknown(
       "Facebook publishing could not be confirmed. " +
         "Check the Page before retrying.",
@@ -128,7 +132,8 @@ export async function publishFacebookTextPost(
 
     try {
       payload = await response.json();
-    } catch {
+    } catch (error) {
+      if (error instanceof ScheduledLeaseLostError) throw error;
       return unknown(
         "Facebook returned an invalid publishing response. " +
           "Check the Page before retrying.",

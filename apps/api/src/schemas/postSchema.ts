@@ -94,6 +94,8 @@ export const createPostSchema = z
       }
     }
     if (data.scheduledAt !== undefined) {
+      const limit = data.platforms.includes("linkedin") ? 3000 : 5000;
+      if (data.caption.length > limit) context.addIssue({ code: "custom", path: ["caption"], message: `Caption must not exceed ${limit} characters for scheduled publishing.` });
       // Scheduled publishing currently supports one destination.
       if (
         data.platforms.length !== 1 ||

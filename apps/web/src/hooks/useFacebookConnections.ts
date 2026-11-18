@@ -55,7 +55,7 @@ export function useFacebookConnections(selectedWorkspaceId: string) {
 
     async function loadConnections() {
       try {
-        const response = await getFacebookConnections(workspaceId);
+        const response = await (refreshKey > 0 ? getFacebookConnections(workspaceId, true) : getFacebookConnections(workspaceId));
 
         // Ignore results from an old workspace
         // or a component that has unmounted.

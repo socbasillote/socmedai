@@ -51,6 +51,7 @@ describe("updatePlatformResult", () => {
     expect(findOneAndUpdateMock).toHaveBeenCalledWith(
       {
         _id: "post-123",
+        status: "publishing", scheduledAt: null, scheduledClaimId: null,
         platformResults: {
           $elemMatch: {
             platform: "facebook",
@@ -100,6 +101,7 @@ describe("updatePlatformResult", () => {
     expect(findOneAndUpdateMock).toHaveBeenCalledWith(
       {
         _id: "post-123",
+        status: "publishing", scheduledAt: null, scheduledClaimId: null,
         platformResults: {
           $elemMatch: {
             platform: "facebook",

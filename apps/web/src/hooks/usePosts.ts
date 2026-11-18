@@ -10,6 +10,7 @@ export function usePosts(
   search: string,
   statusFilter: PostStatusFilter,
   platformFilter: PostPlatformFilter,
+  enabled = true,
 ) {
   const [savedPosts, setSavedPosts] = useState<Post[]>([]);
   const [draftCount, setDraftCount] = useState(0);
@@ -18,8 +19,22 @@ export function usePosts(
   const [nextPostsCursor, setNextPostsCursor] = useState<string | null>(null);
   const [hasMorePosts, setHasMorePosts] = useState(false);
 
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  useEffect(() => {
+    const refresh = () => setRefreshVersion((version) => version + 1);
+    window.addEventListener("storm:posts-changed", refresh);
+    return () => window.removeEventListener("storm:posts-changed", refresh);
+  }, []);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
+    if (!enabled || search !== debouncedSearch) return;
 
     async function loadPosts() {
       if (!selectedWorkspaceId) {
@@ -40,7 +55,8 @@ export function usePosts(
       try {
         const result = await getWorkspacePostsPage(selectedWorkspaceId, {
           limit: 20,
-          search,
+          search: debouncedSearch,
+          signal: controller.signal,
           status: statusFilter,
           platform: platformFilter,
         });
@@ -74,21 +90,22 @@ export function usePosts(
 
     return () => {
       active = false;
+      controller.abort();
     };
-  }, [selectedWorkspaceId, search, statusFilter, platformFilter]);
+  }, [selectedWorkspaceId, search, debouncedSearch, statusFilter, platformFilter, enabled, refreshVersion]);
 
   return {
     savedPosts,
     setSavedPosts,
     draftCount,
     setDraftCount,
-    postsLoading,
+    postsLoading: enabled && (postsLoading || search !== debouncedSearch),
     setPostsLoading,
     postsLoadError,
     setPostsLoadError,
-    nextPostsCursor,
+    nextPostsCursor: search === debouncedSearch ? nextPostsCursor : null,
     setNextPostsCursor,
-    hasMorePosts,
+    hasMorePosts: search === debouncedSearch && hasMorePosts,
     setHasMorePosts,
   };
 }

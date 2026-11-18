@@ -286,10 +286,10 @@ describe("Facebook OAuth callback integration", () => {
     renderApp("/?facebook=connected");
 
     // Storm recognizes the Facebook callback.
-    expect(screen.getByText("Finish Connecting Facebook")).toBeInTheDocument();
+    expect(await screen.findByText("Finish Connecting Facebook")).toBeInTheDocument();
 
     // No initiating workspace exists in sessionStorage.
-    expect(screen.getByRole("alert")).toHaveTextContent(
+    expect(await screen.findByRole("alert")).toHaveTextContent(
       "could not identify the workspace",
     );
 
@@ -341,7 +341,7 @@ describe("Facebook OAuth callback integration", () => {
 
     renderApp("/?facebook=connected");
 
-    expect(screen.getByRole("alert")).toHaveTextContent(
+    expect(await screen.findByRole("alert")).toHaveTextContent(
       "no longer available to your account",
     );
 
@@ -456,7 +456,7 @@ describe("Facebook OAuth callback integration", () => {
 
     renderApp("/?source=campaign&facebook=connected&tab=accounts#details");
 
-    expect(screen.getByText("Finish Connecting Facebook")).toBeInTheDocument();
+    expect(await screen.findByText("Finish Connecting Facebook")).toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", {

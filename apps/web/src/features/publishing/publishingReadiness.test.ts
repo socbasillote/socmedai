@@ -238,3 +238,10 @@ describe("Publishing readiness", () => {
     );
   });
 });
+
+it.each([[facebook, 5000], [linkedin, 3000]] as const)("blocks oversized captions for $platform", (destination, limit) => {
+ const draft = setSharedCaption(draftWith(destination), "x".repeat(limit + 1));
+ expect(evaluatePublishingReadiness(draft, context, "now").ready).toBe(false);
+ expect(evaluatePublishingReadiness(draft, context, "draft").ready).toBe(true);
+ expect(evaluatePublishingReadiness(setSharedCaption(draft, "x".repeat(limit)), context, "now").ready).toBe(true);
+});

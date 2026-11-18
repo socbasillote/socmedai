@@ -1,9 +1,10 @@
+import { lazy, Suspense } from "react";
 import { useLocation, Navigate } from "react-router";
 import { useAuth } from "@/auth/useAuth";
 
-import AuthPage from "@/auth/AuthPage";
-import { PostEditorRoute } from "@/components/PostEditorRoute";
-import DashboardPage from "@/pages/DashboardPage";
+const AuthPage = lazy(() => import("@/auth/AuthPage"));
+const PostEditorRoute = lazy(() => import("@/components/PostEditorRoute").then((module) => ({ default: module.PostEditorRoute })));
+const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 
 export default function App() {
   const location = useLocation();
@@ -36,7 +37,7 @@ export default function App() {
   }
 
   if (isAuthRoute) {
-    return <AuthPage />;
+    return <Suspense fallback={<RouteLoading />}><AuthPage /></Suspense>;
   }
 
   const isNewPostRoute = location.pathname === "/posts/new";
@@ -45,12 +46,16 @@ export default function App() {
 
   if (isNewPostRoute || editPostMatch) {
     return (
-      <PostEditorRoute
+      <Suspense fallback={<RouteLoading />}><PostEditorRoute
         mode={isNewPostRoute ? "create" : "edit"}
         postId={editPostMatch?.[1]}
-      />
+      /></Suspense>
     );
   }
 
-  return <DashboardPage />;
+  return <Suspense fallback={<RouteLoading />}><DashboardPage /></Suspense>;
+}
+
+function RouteLoading() {
+  return <main className="flex min-h-screen items-center justify-center bg-slate-50"><p role="status" className="text-sm text-slate-500">Loading your workspace...</p></main>;
 }

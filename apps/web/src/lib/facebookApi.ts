@@ -67,6 +67,7 @@ export type FacebookConnectionsResponse = {
  */
 export async function getFacebookConnections(
   workspaceId: string,
+  force = false,
 ): Promise<FacebookConnectionsResponse> {
   const normalizedWorkspaceId = workspaceId.trim();
 
@@ -82,6 +83,7 @@ export async function getFacebookConnections(
     `/api/facebook/connections?${params.toString()}`,
     {
       method: "GET",
+      ...(force ? { cache: "no-store" as const } : {}),
     },
   );
 }

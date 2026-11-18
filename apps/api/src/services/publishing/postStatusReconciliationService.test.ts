@@ -96,7 +96,7 @@ describe("reconcilePostStatus", () => {
     expect(findOneAndUpdateMock).toHaveBeenCalledWith(
       expect.any(Object),
       expect.objectContaining({
-        $set: { status: "publishing" },
+        $set: { status: "unknown" },
         $unset: { publishedAt: "" },
       }),
       expect.any(Object),
@@ -127,7 +127,7 @@ describe("reconcilePostStatus", () => {
 
   it("preserves the existing status for simulated results", async () => {
     setupPost({
-      status: "scheduled",
+      status: "publishing",
       platformResults: [
         { platform: "facebook", status: "simulated" },
         { platform: "instagram", status: "simulated" },
@@ -137,9 +137,9 @@ describe("reconcilePostStatus", () => {
     await reconcilePostStatus(postId);
 
     expect(findOneAndUpdateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "scheduled" }),
+      expect.objectContaining({ status: "publishing" }),
       expect.objectContaining({
-        $set: { status: "scheduled" },
+        $set: { status: "publishing" },
         $unset: { publishedAt: "" },
       }),
       expect.any(Object),

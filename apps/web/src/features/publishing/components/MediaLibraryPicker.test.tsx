@@ -250,4 +250,12 @@ describe("MediaLibraryPicker workspace filters", () => {
       expect(getMediaLibrary).toHaveBeenCalledWith(WORKSPACE_B, "current", 12);
     });
   });
+  it("uses batched previews without per-image API requests", async () => {
+    vi.mocked(getMediaLibrary).mockResolvedValue({ scope: "current", activeWorkspaceId: WORKSPACE_A,
+      images: [{ ...coffeeImage, previewUrl: "https://example.test/batch-a" }, { ...beautyImage, previewUrl: null }] });
+    render(<MediaLibraryPicker workspaceId={WORKSPACE_A} selectedAssetId={null} onSelect={vi.fn()} />);
+    await screen.findByRole("button", { name: `Select image ${ASSET_A}` });
+    expect(getWorkspaceImageUrl).not.toHaveBeenCalled();
+  });
+
 });

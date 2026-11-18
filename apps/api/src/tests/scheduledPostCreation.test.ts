@@ -117,6 +117,7 @@ beforeEach(async () => {
     workspaceId,
     status: "connected",
     scopes: ["w_member_social"],
+    tokenExpiresAt: new Date(Date.now() + 30 * 86400000),
   });
 });
 

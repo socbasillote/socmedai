@@ -292,7 +292,7 @@ test("confirmed external success with expired lease is not automatically retried
 
   const recovered = await Post.findById(post._id).lean();
 
-  assert.equal(recovered?.status, "failed");
+  assert.equal(recovered?.status, "unknown");
   assert.equal(recovered?.attemptCount, 1);
 
   assert.match(recovered?.lastError ?? "", /outcome is unknown/i);

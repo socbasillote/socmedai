@@ -1,7 +1,9 @@
+import { ScheduledLeaseLostError } from "../publishing/scheduledPublishingHeartbeat.js";
 export type LinkedInTextPostInput = {
   accessToken: string;
   linkedinMemberId: string;
   caption: string;
+  beforeRequest?: () => void;
   image?: Uint8Array;
 };
 
@@ -51,6 +53,7 @@ export async function publishLinkedInTextPost(
     // These steps only upload an asset. No public post exists until /rest/posts.
     try {
       if (!input.image.length || input.image.length > 10 * 1024 * 1024) throw new Error("Invalid image");
+      input.beforeRequest?.();
       const registration = await fetchImpl("https://api.linkedin.com/rest/images?action=initializeUpload", {
         method: "POST",
         headers: {
@@ -71,6 +74,7 @@ export async function publishLinkedInTextPost(
       // Avoid sending tokens or private bytes to an unexpected upload host.
       if (uploadUrl.protocol !== "https:" || uploadUrl.hostname !== "www.linkedin.com" ||
           !uploadUrl.pathname.startsWith("/dms-uploads/") || uploadUrl.port || uploadUrl.username || uploadUrl.password) throw new Error("Invalid upload URL");
+      input.beforeRequest?.();
       const uploaded = await fetchImpl(uploadUrl.toString(), {
         method: "PUT",
         headers: { Authorization: `Bearer ${input.accessToken}`, "Content-Type": "image/jpeg" },
@@ -80,7 +84,8 @@ export async function publishLinkedInTextPost(
       });
       if (!uploaded.ok) throw new Error("Upload rejected");
       imageUrn = value.image;
-    } catch {
+    } catch (error) {
+      if (error instanceof ScheduledLeaseLostError) throw error;
       return { outcome: "failed", message: "LinkedIn image upload failed. No post was submitted." };
     }
   }
@@ -102,6 +107,7 @@ export async function publishLinkedInTextPost(
   let response: Response;
 
   try {
+    input.beforeRequest?.();
     response = await fetchImpl("https://api.linkedin.com/rest/posts", {
       method: "POST",
       headers: {
@@ -114,7 +120,8 @@ export async function publishLinkedInTextPost(
       redirect: "error",
       signal: AbortSignal.timeout(30_000),
     });
-  } catch {
+  } catch (error) {
+      if (error instanceof ScheduledLeaseLostError) throw error;
     return {
       outcome: "unknown",
       message:

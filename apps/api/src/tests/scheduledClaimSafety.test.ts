@@ -151,7 +151,7 @@ test("stale publishing claims are failed without automatic retry", async () => {
 
   const persisted = await Post.findById(post._id).lean();
 
-  assert.equal(persisted?.status, "failed");
+  assert.equal(persisted?.status, "unknown");
   assert.equal(persisted?.attemptCount, 1);
 
   assert.match(persisted?.lastError ?? "", /outcome is unknown/i);
@@ -240,7 +240,7 @@ test("publishing claims are recovered at the timeout boundary", async () => {
 
   const persisted = await Post.findById(post._id).lean();
 
-  assert.equal(persisted?.status, "failed");
+  assert.equal(persisted?.status, "unknown");
   assert.equal(persisted?.attemptCount, 1);
 
   assert.match(persisted?.lastError ?? "", /outcome is unknown/i);
@@ -298,7 +298,7 @@ test("a recovered post rejects late publishing results", async () => {
   // The recovered post must remain failed.
   const persisted = await Post.findById(post._id).lean();
 
-  assert.equal(persisted?.status, "failed");
+  assert.equal(persisted?.status, "unknown");
   assert.equal(persisted?.attemptCount, 1);
 
   assert.notEqual(persisted?.platformResults?.[0]?.status, "published");
@@ -587,7 +587,7 @@ test("expired scheduled lease is recovered without retry", async () => {
     .lean();
 
   assert.ok(persisted);
-  assert.equal(persisted.status, "failed");
+  assert.equal(persisted.status, "unknown");
   assert.equal(persisted.attemptCount, 1);
 
   assert.match(persisted.lastError ?? "", /outcome is unknown/i);

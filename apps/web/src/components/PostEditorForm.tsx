@@ -1,6 +1,6 @@
 import { Check, ImagePlus, Send, PenLine } from "lucide-react";
 import { PublishingCaptionGenerator } from "@/features/publishing/components/PublishingCaptionGenerator";
-import { useState, type FormEvent } from "react";
+import { lazy, Suspense, useState, type FormEvent } from "react";
 import type { PostPlatform } from "@/lib/posts";
 
 import {
@@ -10,7 +10,7 @@ import {
 
 import { MediaLibraryPicker } from "@/features/publishing/components/MediaLibraryPicker";
 import { SelectedMediaPreview } from "@/features/publishing/components/SelectedMediaPreview";
-import { PublishingImageGenerator } from "@/features/publishing/components/PublishingImageGenerator";
+const PublishingImageGenerator = lazy(() => import("@/features/publishing/components/PublishingImageGenerator").then((module) => ({ default: module.PublishingImageGenerator })));
 
 type PostMode = "draft" | "scheduled" | "immediate";
 
@@ -417,7 +417,7 @@ export function PostEditorForm({
             </div>
 
             <div className="mt-5">
-              <PublishingImageGenerator
+              <Suspense fallback={<p role="status">Loading image generator...</p>}><PublishingImageGenerator
                 key={`${recoveryOwnerUserId ?? "no-user"}:${workspaceId ?? "no-workspace"}`}
                 workspaceId={workspaceId}
                 ownerUserId={recoveryOwnerUserId}
@@ -436,7 +436,7 @@ export function PostEditorForm({
                   setGeneratorOpen(false);
                   setLibraryOpen(false);
                 }}
-              />
+              /></Suspense>
             </div>
           </section>
         )}

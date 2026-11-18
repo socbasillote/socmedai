@@ -46,7 +46,7 @@ export function useLinkedInConnection(
       setStatusError("");
 
       try {
-        const result = await getLinkedInStatus(selectedWorkspaceId);
+        const result = await (refreshKey > 0 ? getLinkedInStatus(selectedWorkspaceId, true) : getLinkedInStatus(selectedWorkspaceId));
 
         if (!active) return;
 

@@ -9,6 +9,7 @@ type PostStatus = Post["status"];
  * Preserve existing capitalization behavior.
  */
 export function getPostStatusLabel(status: PostStatus): string {
+  if (status === "unknown") return "Needs review";
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
@@ -21,6 +22,7 @@ export function getPostStatusLabel(status: PostStatus): string {
  */
 export function getPostStatusColor(status: PostStatus): string {
   switch (status) {
+    case "unknown": return "bg-amber-100 text-amber-800";
     case "failed":
       return "bg-rose-100 text-rose-700";
 

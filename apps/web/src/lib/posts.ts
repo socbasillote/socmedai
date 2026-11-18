@@ -5,13 +5,13 @@ export type PostStatus =
   | "scheduled"
   | "publishing"
   | "published"
-  | "failed";
+  | "failed" | "unknown";
 
 export type PostPlatform = "facebook" | "instagram" | "linkedin";
 
 export type PostPlatformResult = {
   platform: PostPlatform;
-  status: "pending" | "publishing" | "published" | "failed" | "unknown";
+  status: "pending" | "publishing" | "published" | "failed" | "unknown" | "unknown";
   externalPostId?: string;
   publishedAt?: string;
   lastError?: string;
@@ -83,7 +83,7 @@ export type PaginatedPostsResponse = {
 
 export type PublishingOutcome =
   | "published"
-  | "failed"
+  | "failed" | "unknown"
   | "unknown"
   | "simulated";
 
@@ -134,6 +134,7 @@ export async function getWorkspacePostsPage(
   workspaceId: string,
   options?: {
     cursor?: string;
+    signal?: AbortSignal;
     limit?: number;
     search?: string;
     status?:
@@ -142,7 +143,7 @@ export async function getWorkspacePostsPage(
       | "scheduled"
       | "publishing"
       | "published"
-      | "failed";
+      | "failed" | "unknown";
     platform?: "all" | "facebook" | "instagram" | "linkedin";
   },
 ): Promise<PaginatedPostsResponse & { draftCount: number }> {
@@ -173,7 +174,7 @@ export async function getWorkspacePostsPage(
     `/api/posts/workspaces/${encodeURIComponent(workspaceId)}` +
     (query ? `?${query}` : "");
 
-  return apiFetch<PaginatedPostsResponse & { draftCount: number }>(path);
+  return apiFetch<PaginatedPostsResponse & { draftCount: number }>(path, options?.signal ? { signal: options.signal } : {});
 }
 
 export async function deleteDraftPost(postId: string): Promise<void> {
@@ -209,4 +210,12 @@ export async function publishPostNow(
       method: "POST",
     },
   );
+}
+
+export async function changePostSchedule(postId: string, scheduledAt?: string): Promise<Post> {
+  const result = await apiFetch<{ post: Post }>(`/api/posts/${encodeURIComponent(postId)}/schedule`, { method: scheduledAt ? "PATCH" : "DELETE", ...(scheduledAt ? { body: JSON.stringify({ scheduledAt }) } : {}) });
+  return result.post;
+}
+export async function reconcilePublication(postId: string): Promise<Post> {
+  return (await apiFetch<{ post: Post }>(`/api/posts/${encodeURIComponent(postId)}/reconcile`, { method: "POST" })).post;
 }

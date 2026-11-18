@@ -1,3 +1,5 @@
+import PublishingAttemptEvidence from "../models/PublishingAttemptEvidence.js";
+import LinkedInConnection from "../models/LinkedInConnection.js";
 import mongoose from "mongoose";
 
 import Post from "../models/Post.js";
@@ -192,6 +194,8 @@ export async function createWorkspacePost(
   const scheduledAt = isScheduled ? new Date(input.scheduledAt!) : undefined;
 
   if (isScheduled) {
+    const captionLimit = input.platforms.includes("linkedin") ? 3000 : 5000;
+    if (input.caption.length > captionLimit) throw new PostServiceError(`Caption must not exceed ${captionLimit} characters.`, 400);
     // 1. Require a valid future date.
     if (
       !scheduledAt ||
@@ -280,6 +284,13 @@ export async function createWorkspacePost(
     }
   }
 
+  if (isScheduled && linkedinConnectionId) {
+    const connection = await LinkedInConnection.findById(linkedinConnectionId).select("tokenExpiresAt").lean();
+    if (!connection?.tokenExpiresAt || connection.tokenExpiresAt.getTime() <= scheduledAt!.getTime()) {
+      throw new PostServiceError("Reconnect LinkedIn: its credentials expire before the scheduled publishing time.", 409);
+    }
+  }
+
   const post = await Post.create({
     workspaceId: authorization.workspace._id,
     createdByUserId: authorization.profile._id,
@@ -334,7 +345,7 @@ export async function listWorkspacePosts(
   }
 
   const fields =
-    "_id workspaceId createdByUserId title caption mediaIds platforms status scheduledAt publishedAt platformResults createdAt updatedAt";
+    "_id workspaceId createdByUserId title caption mediaIds platforms status scheduledAt publishedAt lastError platformResults createdAt updatedAt";
 
   const workspaceFilter = {
     workspaceId: authorization.workspace._id,
@@ -462,7 +473,7 @@ export async function getWorkspacePostById(
     workspaceId: authorization.workspace._id,
   })
     .select(
-      "_id workspaceId createdByUserId title caption mediaIds platforms platformConnections status scheduledAt publishedAt lastError createdAt updatedAt",
+      "_id workspaceId createdByUserId title caption mediaIds platforms platformConnections status scheduledAt publishedAt lastError platformResults createdAt updatedAt",
     )
     .lean();
 
@@ -723,4 +734,88 @@ export async function listWorkspaceCalendarPosts(
     String(authorization.workspace._id),
     range,
   );
+}
+
+export async function changeWorkspaceSchedule(authUser: AuthenticatedUser, postId: string, scheduledAt?: Date) {
+  const existing = await getWorkspacePostById(authUser, postId);
+  if (!existing) throw new PostServiceError("Post not found.", 404);
+  const workspaceId = String(existing.workspaceId);
+  if (scheduledAt) {
+    if (existing.platforms.length !== 1 || !["facebook", "linkedin"].includes(existing.platforms[0]) || existing.mediaIds.length) throw new PostServiceError("Scheduled publishing requires one text-only Facebook or LinkedIn destination.", 400);
+    const limit = existing.platforms[0] === "linkedin" ? 3000 : 5000;
+    if (!existing.caption.trim() || existing.caption.length > limit) throw new PostServiceError(`Caption must contain 1-${limit} characters.`, 400);
+    if (existing.platforms[0] === "facebook" && !await validatePostFacebookSelection(workspaceId, existing.platforms, existing.platformConnections?.facebook ? String(existing.platformConnections.facebook) : undefined)) throw new PostServiceError("Select an active Facebook Page before rescheduling.", 409);
+    if (!Number.isFinite(scheduledAt.getTime()) || scheduledAt.getTime() <= Date.now()) throw new PostServiceError("Choose a valid future publishing time.", 400);
+    if (existing.platforms.includes("linkedin")) {
+      const connection = await LinkedInConnection.findOne({ _id: existing.platformConnections?.linkedin, workspaceId, status: "connected" }).select("tokenExpiresAt").lean();
+      if (!connection?.tokenExpiresAt || connection.tokenExpiresAt.getTime() <= scheduledAt.getTime()) throw new PostServiceError("Reconnect LinkedIn before scheduling beyond credential expiry.", 409);
+    }
+  }
+  const post = await Post.findOneAndUpdate({ _id: postId, workspaceId, status: "scheduled", attemptCount: 0 },
+    scheduledAt ? { $set: { scheduledAt } } : { $set: { status: "draft" }, $unset: { scheduledAt: "" } },
+    { returnDocument: "after", runValidators: true });
+  if (!post) throw new PostServiceError("This schedule has already been claimed or changed. Refresh before trying again.", 409);
+  return post.toObject();
+}
+
+export async function reconcileWorkspacePublication(authUser: AuthenticatedUser, postId: string) {
+  const authorizedPost = await getWorkspacePostById(authUser, postId);
+  const post = await Post.findById(postId)
+    .select("status platforms platformResults scheduledAt +scheduledClaimId")
+    .lean();
+  if (!post || post.status !== "unknown") {
+    throw new PostServiceError("Only uncertain publishing outcomes can be reconciled.", 409);
+  }
+
+  // Scheduled attempts require evidence for their claim. Immediate attempts
+  // can already have a confirmed result when only overall reconciliation failed.
+  const evidence = post.scheduledClaimId
+    ? await PublishingAttemptEvidence.findOne({
+        postId,
+        claimId: post.scheduledClaimId,
+        outcome: "published",
+        platform: post.platforms[0],
+        externalPostId: { $type: "string", $ne: "" },
+      }).sort({ createdAt: -1 }).lean()
+    : !post.scheduledAt ? post.platformResults.find(
+        (result: { platform: string; status: string }) =>
+          result.platform === post.platforms[0] && result.status === "published",
+      ) : undefined;
+
+  if (post.platforms.length !== 1 || !evidence?.externalPostId?.trim() ||
+      !(evidence.publishedAt instanceof Date) || !Number.isFinite(evidence.publishedAt.getTime())) {
+    throw new PostServiceError("No confirmed publication evidence is available. Check the destination account before retrying.", 409);
+  }
+
+  const updated = await Post.findOneAndUpdate({
+    _id: postId,
+    workspaceId: authorizedPost.workspaceId,
+    status: "unknown",
+    platforms: post.platforms,
+    scheduledClaimId: post.scheduledClaimId ?? null,
+    ...(!post.scheduledClaimId ? {
+      scheduledAt: null,
+      platformResults: { $elemMatch: {
+        platform: evidence.platform,
+        status: "published",
+        externalPostId: evidence.externalPostId,
+        publishedAt: evidence.publishedAt,
+      } },
+    } : {}),
+  }, {
+    $set: {
+      status: "published",
+      publishedAt: evidence.publishedAt,
+      platformResults: [{
+        platform: evidence.platform,
+        status: "published",
+        externalPostId: evidence.externalPostId,
+        publishedAt: evidence.publishedAt,
+        attemptCount: 1,
+      }],
+    },
+    $unset: { lastError: "" },
+  }, { returnDocument: "after", runValidators: true });
+  if (!updated) throw new PostServiceError("The publishing outcome changed. Refresh and review it again.", 409);
+  return updated.toObject();
 }

@@ -22,6 +22,8 @@ export type ScheduledLeaseLossReason = "ownership-rejected" | "renewal-error";
 
 export class ScheduledLeaseSignal {
   private lost = false;
+  private expiresAt = Number.POSITIVE_INFINITY;
+  setExpiration(date: Date): void { this.expiresAt = date.getTime(); }
   private reasonValue: ScheduledLeaseLossReason | null = null;
 
   get ownershipLost(): boolean {
@@ -51,6 +53,7 @@ export class ScheduledLeaseSignal {
    * Call before starting a new external operation.
    */
   assertOwnership(): void {
+    if (Date.now() >= this.expiresAt) this.markLost("ownership-rejected");
     if (this.lost) {
       throw new ScheduledLeaseLostError(
         `Scheduled publishing lease ownership lost: ${this.reasonValue}.`,
@@ -86,6 +89,7 @@ export async function withScheduledPublishingHeartbeat<T>(
   }
 
   // Verify ownership before invoking the dispatcher.
+  const initialRenewalStarted = Date.now();
   const ownsClaim = await renewScheduledPublishingLease({
     postId,
     scheduledClaimId,
@@ -97,17 +101,20 @@ export async function withScheduledPublishingHeartbeat<T>(
     );
   }
 
+  leaseSignal.setExpiration(new Date(initialRenewalStarted + SCHEDULED_LEASE_DURATION_MS));
   let stopped = false;
   let heartbeatInFlight: Promise<void> | null = null;
   let ownershipLost = false;
 
   const renew = async (): Promise<void> => {
     try {
+      const renewalStarted = Date.now();
       const renewed = await renewScheduledPublishingLease({
         postId,
         scheduledClaimId,
       });
 
+      if (renewed) leaseSignal.setExpiration(new Date(renewalStarted + SCHEDULED_LEASE_DURATION_MS));
       if (!renewed) {
         ownershipLost = true;
         leaseSignal.markLost("ownership-rejected");

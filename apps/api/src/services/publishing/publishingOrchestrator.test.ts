@@ -108,7 +108,7 @@ describe("PublishingOrchestrator", () => {
       workspaceId: "workspace-123",
       caption: "Test caption",
       mediaIds: [],
-      platforms: ["facebook"],
+      platforms: ["facebook"], platformConnections: { facebook: "page" },
     });
 
     expect(events).toEqual([
@@ -130,8 +130,7 @@ describe("PublishingOrchestrator", () => {
       expect.objectContaining({
         platform: "facebook",
         status: "simulated",
-      }),
-    );
+      }), undefined);
   });
 
   it("persists publication details only after confirmed publication", async () => {
@@ -154,7 +153,7 @@ describe("PublishingOrchestrator", () => {
       workspaceId: "workspace-123",
       caption: "Confirmed publication test",
       mediaIds: [],
-      platforms: ["facebook"],
+      platforms: ["facebook"], platformConnections: { facebook: "page" },
     });
 
     expect(updateMock).toHaveBeenCalledOnce();
@@ -165,7 +164,7 @@ describe("PublishingOrchestrator", () => {
       externalPostId: "external-123",
       publishedAt,
       attemptCount: 1,
-    });
+    }, undefined);
 
     expect(result.results).toMatchObject([
       {
@@ -193,7 +192,7 @@ describe("PublishingOrchestrator", () => {
       workspaceId: "workspace-123",
       caption: "Failure test",
       mediaIds: [],
-      platforms: ["facebook"],
+      platforms: ["facebook"], platformConnections: { facebook: "page" },
     });
 
     expect(updateMock).toHaveBeenCalledOnce();
@@ -203,7 +202,7 @@ describe("PublishingOrchestrator", () => {
       status: "failed",
       lastError: "Platform rejected the request.",
       attemptCount: 1,
-    });
+    }, undefined);
 
     expect(result.results).toMatchObject([
       {
@@ -227,7 +226,7 @@ describe("PublishingOrchestrator", () => {
       workspaceId: "workspace-123",
       caption: "Uncertain outcome test",
       mediaIds: [],
-      platforms: ["facebook"],
+      platforms: ["facebook"], platformConnections: { facebook: "page" },
     });
 
     expect(updateMock).toHaveBeenCalledOnce();
@@ -237,7 +236,7 @@ describe("PublishingOrchestrator", () => {
       status: "unknown",
       lastError: "Publishing outcome is unknown after an unexpected error.",
       attemptCount: 1,
-    });
+    }, undefined);
 
     expect(result.results).toMatchObject([
       {
@@ -273,6 +272,7 @@ describe("PublishingOrchestrator", () => {
       mediaIds: [],
       platforms: ["facebook", "linkedin"],
       platformConnections: {
+        facebook: "page",
         linkedin: "507f1f77bcf86cd799439011",
       },
     });
@@ -295,8 +295,7 @@ describe("PublishingOrchestrator", () => {
       expect.objectContaining({
         platform: "facebook",
         status: "unknown",
-      }),
-    );
+      }), undefined);
 
     expect(updateMock).toHaveBeenNthCalledWith(
       2,
@@ -304,8 +303,7 @@ describe("PublishingOrchestrator", () => {
       expect.objectContaining({
         platform: "linkedin",
         status: "simulated",
-      }),
-    );
+      }), undefined);
   });
 
   it.each(["published", "unknown", "simulated", "publishing", "failed"])(
@@ -324,7 +322,7 @@ describe("PublishingOrchestrator", () => {
         workspaceId: "workspace-123",
         caption: "Do not republish",
         mediaIds: [],
-        platforms: ["facebook"],
+        platforms: ["facebook"], platformConnections: { facebook: "page" },
       });
 
       expect(adapter.publish).not.toHaveBeenCalled();
@@ -359,7 +357,7 @@ describe("PublishingOrchestrator", () => {
         workspaceId: "workspace-123",
         caption: "Do not duplicate this post",
         mediaIds: [],
-        platforms: ["facebook"],
+        platforms: ["facebook"], platformConnections: { facebook: "page" },
       }),
     ).rejects.toThrow("Database write failed.");
 
@@ -374,8 +372,7 @@ describe("PublishingOrchestrator", () => {
         externalPostId: "external-write-failure-123",
         publishedAt,
         attemptCount: 1,
-      }),
-    );
+      }), undefined);
   });
 
   it("stops processing when saving a platform result fails", async () => {
@@ -401,7 +398,7 @@ describe("PublishingOrchestrator", () => {
         workspaceId: "workspace-123",
         caption: "Test multi-platform publishing",
         mediaIds: [],
-        platforms: ["facebook", "instagram", "linkedin"],
+        platforms: ["facebook", "instagram", "linkedin"], platformConnections: { facebook: "page" },
       }),
     ).rejects.toThrow("Instagram result save failed.");
 
@@ -439,7 +436,7 @@ describe("PublishingOrchestrator", () => {
       workspaceId: "workspace-123",
       caption: "Validate publication confirmation",
       mediaIds: [],
-      platforms: ["facebook"],
+      platforms: ["facebook"], platformConnections: { facebook: "page" },
     });
 
     expect(adapter.publish).toHaveBeenCalledOnce();
@@ -452,8 +449,7 @@ describe("PublishingOrchestrator", () => {
         lastError:
           "Publishing adapter returned an invalid publication confirmation; external outcome is unknown.",
         attemptCount: 1,
-      }),
-    );
+      }), undefined);
 
     expect(result.results).toMatchObject([
       {
@@ -482,11 +478,11 @@ describe("PublishingOrchestrator", () => {
       workspaceId: "workspace-123",
       caption: "Reconciliation test",
       mediaIds: [],
-      platforms: ["facebook"],
+      platforms: ["facebook"], platformConnections: { facebook: "page" },
     });
 
     expect(reconcileMock).toHaveBeenCalledOnce();
-    expect(reconcileMock).toHaveBeenCalledWith("post-reconcile");
+    expect(reconcileMock).toHaveBeenCalledWith("post-reconcile", undefined);
   });
 
   it("passes the selected LinkedIn connection to the adapter", async () => {
@@ -511,6 +507,7 @@ describe("PublishingOrchestrator", () => {
       mediaIds: [],
       platforms: ["linkedin"],
       platformConnections: {
+        facebook: "page",
         linkedin: connectionId,
       },
     });
@@ -526,17 +523,16 @@ describe("PublishingOrchestrator", () => {
       mediaIds: [],
     });
 
-    expect(claimMock).toHaveBeenCalledWith("post-123", "linkedin");
+    expect(claimMock).toHaveBeenCalledWith("post-123", "linkedin", undefined);
 
     expect(updateMock).toHaveBeenCalledWith(
       "post-123",
       expect.objectContaining({
         platform: "linkedin",
         status: "simulated",
-      }),
-    );
+      }), undefined);
 
-    expect(reconcileMock).toHaveBeenCalledWith("post-123");
+    expect(reconcileMock).toHaveBeenCalledWith("post-123", undefined);
 
     expect(result.postId).toBe("post-123");
   });
@@ -563,7 +559,7 @@ describe("PublishingOrchestrator", () => {
     });
 
     // The platform attempt is claimed before the missing-account check.
-    expect(claimMock).toHaveBeenCalledWith("post-123", "linkedin");
+    expect(claimMock).toHaveBeenCalledWith("post-123", "linkedin", undefined);
 
     // Publishing must stop before reaching the adapter.
     expect(adapter.publish).not.toHaveBeenCalled();
@@ -575,11 +571,10 @@ describe("PublishingOrchestrator", () => {
         platform: "linkedin",
         status: "failed",
         lastError: "No LinkedIn account was selected for this post.",
-      }),
-    );
+      }), undefined);
 
     // The overall post status must be reconciled.
-    expect(reconcileMock).toHaveBeenCalledWith("post-123");
+    expect(reconcileMock).toHaveBeenCalledWith("post-123", undefined);
   });
 });
 
@@ -647,6 +642,7 @@ describe("platform-specific connection routing", () => {
       mediaIds: [],
       platforms: ["linkedin"],
       platformConnections: {
+        facebook: "page",
         linkedin: linkedinConnectionId,
       },
     });
@@ -721,32 +717,11 @@ describe("platform-specific connection routing", () => {
     ]);
   });
 
-  it("preserves Facebook dry-run behavior without a connection ID", async () => {
+  it("rejects Facebook publication without an explicit connection", async () => {
     const adapter = createRecordingAdapter();
-    const orchestrator = new PublishingOrchestrator(adapter);
-
-    const result = await orchestrator.processPost({
-      _id: "post-facebook-dry-run",
-      workspaceId,
-      caption: "Facebook dry-run test",
-      mediaIds: [],
-      platforms: ["facebook"],
-    });
-
-    expect(adapter.publish).toHaveBeenCalledWith({
-      postId: "post-facebook-dry-run",
-      workspaceId,
-      platform: "facebook",
-      caption: "Facebook dry-run test",
-      mediaIds: [],
-    });
-
-    expect(result.results).toMatchObject([
-      {
-        platform: "facebook",
-        outcome: "simulated",
-      },
-    ]);
+    const result = await new PublishingOrchestrator(adapter).processPost({ _id: "missing", workspaceId, caption: "Test", mediaIds: [], platforms: ["facebook"] });
+    expect(adapter.publish).not.toHaveBeenCalled();
+    expect(result.results[0].outcome).toBe("failed");
   });
 
   it("rejects LinkedIn publishing without a selected account", async () => {
@@ -781,7 +756,6 @@ describe("platform-specific connection routing", () => {
         platform: "linkedin",
         status: "failed",
         lastError: "No LinkedIn account was selected for this post.",
-      }),
-    );
+      }), undefined);
   });
 });
