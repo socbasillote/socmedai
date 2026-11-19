@@ -399,6 +399,15 @@ const mediaAssetSchema = new Schema(
       default: undefined,
     },
 
+    referenceImage: {
+      type: new Schema({
+        referenceId: { type: Schema.Types.ObjectId, required: true },
+        storageKey: { type: String, required: true },
+        sha256: { type: String, required: true, match: SHA256_HEX_PATTERN },
+        usage: { type: String, required: true, enum: ["inspiration", "edit", "design"] },
+      }, { _id: false, strict: "throw" }),
+      default: undefined, immutable: true,
+    },
     logoOverlaySnapshot: {
       type: logoOverlaySnapshotSchema,
       default: undefined,

@@ -1,3 +1,4 @@
+import { uploadImageReference } from "../services/media/imageReferenceService.js";
 import express from "express";
 import request from "supertest";
 
@@ -36,6 +37,9 @@ vi.mock("../auth/requireAuth.js", () => ({
   },
 }));
 
+vi.mock("../services/media/imageReferenceService.js", async (original) => ({
+  ...await original<typeof import("../services/media/imageReferenceService.js")>(), uploadImageReference: vi.fn(),
+}));
 vi.mock("../services/imageGenerationQueueService.js", () => ({
   enqueueImageGeneration: vi.fn(),
 }));
@@ -337,4 +341,17 @@ describe("Image generation HTTP routes", () => {
       "Internal storage signing secret",
     );
   });
+});
+
+it("authenticates reference uploads and passes binary image data to private storage", async () => {
+  vi.mocked(uploadImageReference).mockResolvedValue({ referenceId: assetId, width: 80, height: 60 });
+  const bytes = Buffer.from([1, 2, 3]);
+  const unauthorized = await request(app).post(`${endpoint}/references`).set("Content-Type", "image/png").send(bytes);
+  expect(unauthorized.status).toBe(401);
+  expect(uploadImageReference).not.toHaveBeenCalled();
+  const response = await request(app).post(`${endpoint}/references`).set("Authorization", "Bearer test-user").set("Content-Type", "image/png").send(bytes);
+  expect(response.status).toBe(201);
+  expect(response.body.referenceId).toBe(assetId);
+  expect(uploadImageReference).toHaveBeenCalledWith({ id: "test-supabase-user" }, workspaceId, bytes);
+  expect(enqueueImageGeneration).not.toHaveBeenCalled();
 });

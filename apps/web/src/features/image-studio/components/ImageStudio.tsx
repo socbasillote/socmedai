@@ -1,3 +1,5 @@
+import { ImageReferenceInput } from "./ImageReferenceInput";
+import { useImageReference } from "../hooks/useImageReference";
 import { ImageGenerationProgress } from "./ImageGenerationProgress";
 import { ApiError } from "@/lib/api";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -290,7 +292,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
   function handleGenerate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!selectedWorkspaceId || submitting) return;
+    if (!selectedWorkspaceId || submitting || referencePhoto.blocked) return;
 
     try {
       const normalizedPrompt = validateImagePrompt(prompt);
@@ -302,6 +304,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
           prompt: normalizedPrompt,
           aspectRatio,
           branding: buildSelectedBranding(),
+          ...(referencePhoto.reference ? { reference: referencePhoto.reference } : {}),
         },
       });
 
@@ -333,6 +336,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
     }
   }
 
+  const referencePhoto = useImageReference(selectedWorkspaceId, null, submitting || pendingRetry !== null || details?.state === "processing");
   const availableCredits = credits?.credits.available;
   const costPerImage = credits?.credits.costPerImage;
 
@@ -355,6 +359,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
     details?.state === "action_required" ||
     !credits ||
     insufficientCredits ||
+    referencePhoto.blocked ||
     dailyLimitReached ||
     activeLimitReached ||
     prompt.trim().length < 10 ||
@@ -436,6 +441,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
           onSubmit={handleGenerate}
           className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5"
         >
+          <ImageReferenceInput key={referencePhoto.scope} {...referencePhoto.fieldProps} />
           <div className="space-y-2">
             <label
               htmlFor="image-studio-prompt"
@@ -791,8 +797,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                 role="status"
                 className="p-5 text-center text-sm text-amber-800"
               >
-                This generation requires recovery. No additional generation will
-                be started automatically.
+                {details.message ?? "This generation requires recovery. No additional generation will be started automatically."}
               </p>
             ) : details?.status === "failed" ? (
               <p role="status" className="p-5 text-center text-sm text-red-700">

@@ -79,6 +79,10 @@ export const generateImageSchema = z
       .max(3000, "The image prompt cannot exceed 3,000 characters."),
 
     aspectRatio: imageAspectRatioSchema.default("square"),
+    reference: z.object({
+      id: z.string().regex(/^[a-f0-9]{24}$/i).transform((id) => id.toLowerCase()),
+      usage: z.enum(["inspiration", "edit", "design"]),
+    }).strict().optional(),
 
     branding: imageBrandingSchema.default({ type: "none" }),
   })

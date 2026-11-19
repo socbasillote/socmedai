@@ -67,6 +67,7 @@ export type ImageGenerationDetails = {
   status: ImageGenerationStatus;
   state: ImageGenerationState;
   progress?: ImageGenerationProgress;
+  message?: string;
   createdAt: string;
   updatedAt: string;
   image?: {
@@ -82,12 +83,31 @@ export type PrivateImageAccess = {
   expiresIn: number;
 };
 
+export type ImageReferenceUsage = "inspiration" | "edit" | "design";
+export type ImageReference = { id: string; usage: ImageReferenceUsage };
+export function validateImageReference(value: ImageReference): ImageReference {
+  if (!value || !/^[a-f0-9]{24}$/i.test(value.id) || !["inspiration", "edit", "design"].includes(value.usage) ||
+      Object.keys(value).some((key) => key !== "id" && key !== "usage")) {
+    throw new Error("Choose an uploaded photo and how AI should use it.");
+  }
+  return { id: value.id.toLowerCase(), usage: value.usage };
+}
+export function uploadWorkspaceImageReference(workspaceId: string, file: File, signal?: AbortSignal) {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || !file.size || file.size > 10 * 1024 * 1024) {
+    throw new Error("Choose a JPG, PNG, or WebP photo up to 10 MB.");
+  }
+  return apiFetch<{ referenceId: string; width: number; height: number }>(`${imageGenerationPath(workspaceId)}/references`, {
+    method: "POST", headers: { "Content-Type": file.type }, body: file, signal,
+  });
+}
+
 export type GenerateImageCommand = {
   idempotencyKey: string;
   image: {
     prompt: string;
     aspectRatio: ImageAspectRatio;
     branding?: ImageBranding;
+    reference?: ImageReference;
   };
 };
 
@@ -96,6 +116,7 @@ export type ImageHistoryItem = {
   status: "pending" | "ready" | "failed";
   state: "processing" | "ready" | "failed" | "action_required";
   progress?: ImageGenerationProgress;
+  message?: string;
   createdAt: string;
   updatedAt: string;
   aspectRatio: "square" | "portrait" | "landscape";

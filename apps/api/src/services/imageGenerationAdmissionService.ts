@@ -1,3 +1,5 @@
+import ImageReference from "../models/ImageReference.js";
+import { referenceStorageKey } from "./media/imageReferenceService.js";
 import mongoose from "mongoose";
 
 import MediaAsset from "../models/MediaAsset.js";
@@ -431,6 +433,17 @@ export async function admitImageGeneration(input: AdmissionInput) {
           };
         }
 
+        let referenceImage;
+        if (parsed.data.reference) {
+          const reference = await ImageReference.findOne({
+            _id: parsed.data.reference.id, workspaceId: workspace._id, createdByUserId: profile._id,
+          }).session(session).lean();
+          if (!reference || reference.storageKey !== referenceStorageKey(String(workspace._id), String(reference._id))) {
+            throw new ImageAdmissionError("Reference photo not found in this workspace.", 404);
+          }
+          referenceImage = { referenceId: reference._id, storageKey: reference.storageKey,
+            sha256: reference.sha256, usage: parsed.data.reference.usage };
+        }
         const now = new Date();
         const dayUtc = utcUsageDay(now);
 
@@ -537,6 +550,7 @@ export async function admitImageGeneration(input: AdmissionInput) {
               },
               logoOverlaySnapshot,
               brandingSnapshot,
+              ...(referenceImage ? { referenceImage } : {}),
             },
           ],
           { session },

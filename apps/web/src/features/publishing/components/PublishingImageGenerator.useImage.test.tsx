@@ -180,7 +180,7 @@ describe("Publishing image selection", () => {
 
     await submitImageGeneration();
 
-    await screen.findByText(/image generation is processing/i);
+    await screen.findByText(/generation in progress/i);
 
     expect(
       screen.queryByRole("button", {

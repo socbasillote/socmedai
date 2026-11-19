@@ -1,3 +1,5 @@
+import ImageReference from "../models/ImageReference.js";
+import { referenceStorageKey, type ReferenceSnapshot } from "./media/imageReferenceService.js";
 import { createHash, randomUUID } from "node:crypto";
 import mongoose, { type HydratedDocument } from "mongoose";
 
@@ -68,6 +70,7 @@ type ClaimedMediaAsset = HydratedDocument<{
 
   status: "pending" | "ready" | "failed";
 
+  referenceImage?: ReferenceSnapshot;
   generationExecution?: MediaGenerationExecution;
 }>;
 
@@ -130,6 +133,14 @@ export function fingerprintImageGeneration(
   generation: GenerationConfiguration,
 ): string {
   const validated = generateImageSchema.parse(input);
+
+  if (validated.reference) {
+    return createHash("sha256").update(JSON.stringify([
+      "storm-image-generation-v3", validated.prompt, validated.aspectRatio,
+      generation.provider, generation.model, validated.branding,
+      validated.reference.id, validated.reference.usage,
+    ])).digest("hex");
+  }
 
   // Preserve historical fingerprints for requests
   // without branding. This protects existing
@@ -241,6 +252,15 @@ export async function reserveImageGeneration(input: ReservationInput) {
     };
   }
 
+  let referenceImage;
+  if (parsed.data.reference) {
+    const reference = await ImageReference.findOne({ _id: parsed.data.reference.id,
+      workspaceId: authorized.workspaceId, createdByUserId: authorized.profileId }).lean();
+    if (!reference || reference.storageKey !== referenceStorageKey(String(authorized.workspaceId), String(reference._id))) {
+      throw new MediaGenerationClaimError("Reference photo not found in this workspace.", 404);
+    }
+    referenceImage = { referenceId: reference._id, storageKey: reference.storageKey, sha256: reference.sha256, usage: parsed.data.reference.usage };
+  }
   try {
     const asset = await MediaAsset.create({
       workspaceId: authorized.workspaceId,
@@ -259,6 +279,7 @@ export async function reserveImageGeneration(input: ReservationInput) {
       },
 
       idempotencyKey: input.idempotencyKey,
+      ...(referenceImage ? { referenceImage } : {}),
       requestFingerprint: fingerprint,
 
       generationExecution: {

@@ -1,3 +1,4 @@
+import { validateImageReference } from "./imageGeneration";
 import type { GenerateImageCommand, ImageBranding } from "./imageGeneration";
 
 function snapshotBranding(
@@ -49,6 +50,7 @@ export function snapshotImageGenerationCommand(
     prompt: command.image.prompt,
     aspectRatio: command.image.aspectRatio,
     ...(branding ? { branding } : {}),
+    ...(command.image.reference ? { reference: Object.freeze(validateImageReference(command.image.reference)) } : {}),
   });
 
   return Object.freeze({

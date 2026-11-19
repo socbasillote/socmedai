@@ -1,3 +1,4 @@
+import { loadReferenceImage } from "./media/imageReferenceService.js";
 import MediaAsset from "../models/MediaAsset.js";
 
 import type { AuthenticatedUser } from "./userProfileService.js";
@@ -175,6 +176,8 @@ async function executeNewGeneration(
    * The provider may have charged us after this
    * update, even if the caller later times out.
    */
+  const referenceImage = await withGenerationLeaseHeartbeat(ownedContext, () =>
+    loadReferenceImage(claimed.asset.referenceImage, workspaceId, input.bucket ?? getPrivateImageBucket()));
   await beginImageProviderCall(ownedContext);
 
   let generated: Awaited<ReturnType<ImageProvider["generate"]>>;
@@ -184,6 +187,7 @@ async function executeNewGeneration(
       input.provider.generate({
         prompt: input.command.image.prompt,
         aspectRatio: input.command.image.aspectRatio,
+        ...(referenceImage ? { referenceImage } : {}),
       }),
     );
   } catch (error) {

@@ -58,11 +58,15 @@ async function main() {
   const stop = startImageGenerationWorker({
     intervalMs: 5000,
     batchSize: liveMode ? 1 : 5,
-
-    onError: () => {
+    dependencies: {
+      onFailure: (event) => console.error("[Storm Image Worker] Job interrupted.", event),
+    },
+    onError: (error) => {
       // No prompts, image bytes, access tokens,
       // or internal provider responses in logs.
-      console.error("Image worker batch failed.");
+      console.error("Image worker batch failed.", {
+        errorType: error instanceof Error ? error.name : "UnknownError",
+      });
     },
   });
 

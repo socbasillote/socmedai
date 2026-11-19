@@ -1,3 +1,5 @@
+import { ImageReferenceInput } from "@/features/image-studio/components/ImageReferenceInput";
+import { useImageReference } from "@/features/image-studio/hooks/useImageReference";
 import { ImageGenerationProgress } from "@/features/image-studio/components/ImageGenerationProgress";
 import { ApiError } from "@/lib/api";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -745,6 +747,7 @@ export function PublishingImageGenerator({
 
   const costPerImage = credits?.credits.costPerImage ?? null;
 
+  const referencePhoto = useImageReference(workspaceId, ownerUserId, disabled || submissionStatus !== "idle" || recoveryLoadStatus !== "empty");
   const insufficientCredits =
     credits !== null &&
     credits.credits.available < credits.credits.costPerImage;
@@ -778,6 +781,7 @@ export function PublishingImageGenerator({
     brandingValidationError === null &&
     !disabled &&
     !insufficientCredits &&
+    !referencePhoto.blocked &&
     !dailyLimitReached &&
     !activeLimitReached &&
     recoveryScope;
@@ -965,6 +969,7 @@ export function PublishingImageGenerator({
             prompt,
             aspectRatio,
             branding,
+            ...(referencePhoto.reference ? { reference: referencePhoto.reference } : {}),
           },
         });
       } catch (error) {
@@ -977,10 +982,7 @@ export function PublishingImageGenerator({
         return;
       }
 
-      // Existing submission function saves this exact
-      // immutable command before making the POST.
-      void submitGenerationCommand(command, "new");
-
+      // Reset presentation before submitting the one immutable command.
       setPendingRetry(null);
       setSubmittedAssetId(null);
       setSubmissionError("");
@@ -1064,6 +1066,7 @@ export function PublishingImageGenerator({
         </p>
       )}
 
+      <ImageReferenceInput key={referencePhoto.scope} {...referencePhoto.fieldProps} />
       <div className="space-y-2">
         <label
           htmlFor="publishing-image-prompt"
@@ -1389,8 +1392,7 @@ export function PublishingImageGenerator({
 
         {generationDetails?.state === "action_required" && (
           <p role="alert" className="mt-3 text-sm text-amber-900">
-            This generation requires recovery or review. Do not create another
-            generation to retry it.
+            {generationDetails.message ?? "This generation requires recovery or review. Do not create another generation to retry it."}
           </p>
         )}
 

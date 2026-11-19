@@ -138,3 +138,12 @@ describe("Image generation command snapshots", () => {
     expect(snapshot.image).not.toHaveProperty("branding");
   });
 });
+
+it("keeps the original reference photo and usage immutable across retries", () => {
+  const original = makeCommand();
+  original.image.reference = { id: "507f1f77bcf86cd799439011", usage: "edit" };
+  const snapshot = snapshotImageGenerationCommand(original);
+  original.image.reference.usage = "design";
+  expect(snapshot.image.reference?.usage).toBe("edit");
+  expect(Object.isFrozen(snapshot.image.reference)).toBe(true);
+});

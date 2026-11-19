@@ -14,6 +14,7 @@ import {
 
 import {
   generateWorkspaceImage,
+  uploadWorkspaceImageReference,
   getImageGenerationCredits,
 } from "@/lib/imageGeneration";
 
@@ -33,6 +34,7 @@ vi.mock("@/lib/imageGeneration", async (importOriginal) => {
     ...actual,
     getImageGenerationCredits: vi.fn(),
     generateWorkspaceImage: vi.fn(),
+    uploadWorkspaceImageReference: vi.fn(),
   };
 });
 
@@ -314,4 +316,24 @@ describe("Publishing image generation submission", () => {
 
     expect(screen.queryByText("Generation request accepted")).toBeNull();
   });
+});
+
+it("submits an uploaded photo and its chosen usage in the immutable composer command", async () => {
+  const referenceId = "507f1f77bcf86cd799439099";
+  URL.createObjectURL = vi.fn(() => "blob:reference");
+  URL.revokeObjectURL = vi.fn();
+  vi.mocked(uploadWorkspaceImageReference).mockResolvedValue({ referenceId, width: 80, height: 60 });
+  vi.mocked(generateWorkspaceImage).mockResolvedValue({ assetId: ASSET_ID, status: "pending", created: true, creditsChargedNow: 1 });
+  render(<PublishingImageGenerator ownerUserId={USER_A} workspaceId={WORKSPACE_A} />);
+  await prepareGeneration();
+  fireEvent.change(screen.getByLabelText("Upload reference photo"), {
+    target: { files: [new File(["photo"], "product.png", { type: "image/png" })] },
+  });
+  await waitFor(() => expect(screen.getByRole("radio", { name: /Design around this photo/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("radio", { name: /Design around this photo/ }));
+  fireEvent.click(screen.getByRole("button", { name: /generate image/i }));
+  await waitFor(() => expect(generateWorkspaceImage).toHaveBeenCalledOnce());
+  const command = vi.mocked(generateWorkspaceImage).mock.calls[0][1];
+  expect(command.image.reference).toEqual({ id: referenceId, usage: "design" });
+  expect(Object.isFrozen(command.image.reference)).toBe(true);
 });

@@ -1,5 +1,6 @@
 import {
   validateImagePrompt,
+  validateImageReference,
   validateImageBranding,
   type GenerateImageCommand,
 } from "@/lib/imageGeneration";
@@ -204,6 +205,9 @@ function validCommand(value: unknown): value is GenerateImageCommand {
 
   try {
     validateImagePrompt(value.image.prompt);
+    if (value.image.reference !== undefined) {
+      validateImageReference(value.image.reference as Parameters<typeof validateImageReference>[0]);
+    }
     return true;
   } catch {
     return false;

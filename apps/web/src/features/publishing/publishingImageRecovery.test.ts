@@ -491,3 +491,15 @@ describe("Publishing image recovery storage", () => {
     expect(result.record.command).toEqual(command);
   });
 });
+
+it("restores the original reference photo and mode for an uncertain request", () => {
+  const storage = createStorage();
+  const command = makeCommand();
+  command.image.reference = { id: "507f1f77bcf86cd799439099", usage: "design" };
+  expect(savePublishingRecovery(storage, scope, createUncertainRecovery(scope, command))).toBe(true);
+  const result = readPublishingRecovery(storage, scope);
+  expect(result.status).toBe("found");
+  if (result.status === "found" && result.record.state === "uncertain") {
+    expect(result.record.command.image.reference).toEqual(command.image.reference);
+  }
+});

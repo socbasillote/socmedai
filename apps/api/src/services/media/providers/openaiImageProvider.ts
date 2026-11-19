@@ -13,6 +13,7 @@ import {
   type ImageProviderResult,
 } from "./imageProvider.js";
 
+const EDIT_ENDPOINT = "https://api.openai.com/v1/images/edits";
 const IMAGE_ENDPOINT = "https://api.openai.com/v1/images/generations";
 
 const REQUEST_TIMEOUT_MS = 120_000;
@@ -170,7 +171,8 @@ export class OpenAIImageProvider implements ImageProvider {
   }
 
   async generate(request: ImageProviderRequest): Promise<ImageProviderResult> {
-    const parsed = generateImageSchema.safeParse(request);
+    const { referenceImage, ...parameters } = request;
+    const parsed = generateImageSchema.safeParse(parameters);
 
     if (!parsed.success) {
       throw providerError("Invalid image generation request.", "rejected");
@@ -178,24 +180,41 @@ export class OpenAIImageProvider implements ImageProvider {
 
     const expectedSize = IMAGE_SIZES[parsed.data.aspectRatio];
 
+    let body: BodyInit;
+    let endpoint = IMAGE_ENDPOINT;
+    const headers: Record<string, string> = { Authorization: `Bearer ${this.apiKey}`, Accept: "application/json" };
+    if (referenceImage) {
+      if (!(referenceImage.bytes instanceof Uint8Array) || !referenceImage.bytes.length || referenceImage.bytes.length > MAX_IMAGE_BYTES ||
+        !["inspiration", "edit", "design"].includes(referenceImage.usage)) {
+        throw providerError("Invalid reference photo.", "rejected");
+      }
+      const instructions = {
+        inspiration: "Use the uploaded image only as visual inspiration for mood, colors, style, and composition. Create a new image following the user's description; do not assume its exact subject must be preserved.",
+        edit: "Edit the uploaded photo itself. Preserve the main subject's identity, recognizable features, and product details unless the user explicitly asks to change them. Apply the requested edits.",
+        design: "Build a polished design around the actual subject in the uploaded photo. Preserve its recognizable identity and product details, and integrate it into the layout, background, and design requested by the user.",
+      };
+      const form = new FormData();
+      form.set("model", this.model);
+      form.set("prompt", `${instructions[referenceImage.usage]}\n\nUser instructions: ${parsed.data.prompt}`);
+      form.set("size", expectedSize);
+      form.set("quality", "low");
+      form.set("n", "1");
+      form.set("output_format", "png");
+      form.append("image[]", new Blob([Uint8Array.from(referenceImage.bytes).buffer], { type: "image/png" }), "reference.png");
+      body = form;
+      endpoint = EDIT_ENDPOINT;
+    } else {
+      headers["Content-Type"] = "application/json";
+      body = JSON.stringify({ model: this.model, prompt: parsed.data.prompt, size: expectedSize, quality: "low", n: 1, output_format: "png" });
+    }
+
     let response: Response;
 
     try {
-      response = await this.fetchImpl(IMAGE_ENDPOINT, {
+      response = await this.fetchImpl(endpoint, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          model: this.model,
-          prompt: parsed.data.prompt,
-          size: expectedSize,
-          quality: "low",
-          n: 1,
-          output_format: "png",
-        }),
+        headers,
+        body,
         redirect: "error",
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });

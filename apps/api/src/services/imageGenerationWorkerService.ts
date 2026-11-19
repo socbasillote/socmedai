@@ -1,3 +1,5 @@
+import { loadReferenceImage } from "./media/imageReferenceService.js";
+import type { ImageProviderRequest } from "./media/providers/imageProvider.js";
 import mongoose from "mongoose";
 
 import MediaAsset from "../models/MediaAsset.js";
@@ -67,6 +69,7 @@ export type ImageWorkerResult = {
 export type ImageWorkerDependencies = {
   provider?: ImageProvider;
   bucket?: ImageStorageBucket;
+  onFailure?: (event: { assetId: string; stage: string; errorType: string }) => void;
 };
 
 type EligibleJob = {
@@ -376,6 +379,7 @@ export async function executeReservedImageJob(
     claimToken,
   };
 
+  let referenceImage: ImageProviderRequest["referenceImage"];
   // Verify persisted branding BEFORE the paid
   // provider_started transition.
   //
@@ -398,7 +402,7 @@ export async function executeReservedImageJob(
       })
         .select(
           "generation.provider generation.model generation.aspectRatio " +
-            "logoOverlaySnapshot brandingSnapshot",
+            "logoOverlaySnapshot brandingSnapshot referenceImage",
         )
         .lean();
 
@@ -409,6 +413,8 @@ export async function executeReservedImageJob(
         );
       }
 
+      referenceImage = await loadReferenceImage(claimedAsset.referenceImage, workspaceId,
+        dependencies.bucket ?? getPrivateImageBucket());
       await verifyAdmittedImageBrandingPreflight(
         {
           workspaceId,
@@ -433,7 +439,8 @@ export async function executeReservedImageJob(
         dependencies.bucket ?? getPrivateImageBucket(),
       );
     });
-  } catch {
+  } catch (error) {
+    dependencies.onFailure?.({ assetId, stage: "preflight", errorType: error instanceof Error ? error.name : "UnknownError" });
     // No provider call was started.
     // Preserve the admitted job for controlled
     // retry/review; never silently remove branding.
@@ -488,6 +495,7 @@ export async function executeReservedImageJob(
       provider.generate({
         prompt: asset.generation.prompt,
         aspectRatio: asset.generation.aspectRatio,
+        ...(referenceImage ? { referenceImage } : {}),
       }),
     );
   } catch (error) {
@@ -502,6 +510,7 @@ export async function executeReservedImageJob(
       };
     }
 
+    dependencies.onFailure?.({ assetId, stage: "provider", errorType: error instanceof Error ? error.name : "UnknownError" });
     // Unknown/ambiguous outcomes are never
     // retried. Leave pending for reconciliation.
     return {
@@ -529,7 +538,8 @@ export async function executeReservedImageJob(
       },
       dependencies.bucket ?? getPrivateImageBucket(),
     );
-  } catch {
+  } catch (error) {
+    dependencies.onFailure?.({ assetId, stage: "storage", errorType: error instanceof Error ? error.name : "UnknownError" });
     // Storage may already contain an uploaded
     // object. Do not regenerate or delete it.
     return {

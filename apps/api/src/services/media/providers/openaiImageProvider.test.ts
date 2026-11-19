@@ -306,3 +306,21 @@ describe("OpenAIImageProvider", () => {
     }
   });
 });
+
+it.each(["inspiration", "edit", "design"] as const)("sends the actual photo to the edit endpoint for %s", async (usage) => {
+  const photo = await png(80, 60);
+  const fetchMock = vi.fn(async () => imageResponse());
+  const provider = makeProvider(fetchMock as typeof fetch);
+  await provider.generate({ ...request(), referenceImage: { bytes: photo, usage } });
+  const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+  expect(url).toBe("https://api.openai.com/v1/images/edits");
+  expect(init.headers).not.toHaveProperty("Content-Type");
+  const body = init.body as FormData;
+  expect(body.get("model")).toBe("gpt-image-2");
+  expect(body.get("prompt")).toContain(PROMPT);
+  expect(body.get("prompt")).toContain(usage === "inspiration" ? "only as visual inspiration" : usage === "edit" ? "Edit the uploaded photo itself" : "Build a polished design");
+  const file = body.get("image[]") as File;
+  expect(file.type).toBe("image/png");
+  expect(Buffer.from(await file.arrayBuffer())).toEqual(photo);
+  expect(fetchMock).toHaveBeenCalledOnce();
+});

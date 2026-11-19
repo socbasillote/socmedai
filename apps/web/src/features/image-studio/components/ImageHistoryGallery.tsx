@@ -465,7 +465,7 @@ export function ImageHistoryGallery({
 
                   {item.state === "action_required" && (
                     <p className="text-xs text-amber-700">
-                      This operation requires review. Do not submit it again.
+                      {item.message ?? "This operation requires review. Do not submit it again."}
                     </p>
                   )}
 

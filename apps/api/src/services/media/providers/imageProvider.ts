@@ -1,6 +1,7 @@
 import type { GenerateImageInput } from "../../../schemas/aiImageSchema.js";
 
 export type ImageProviderRequest = {
+  referenceImage?: { bytes: Uint8Array; usage: "inspiration" | "edit" | "design" };
   prompt: GenerateImageInput["prompt"];
   aspectRatio: GenerateImageInput["aspectRatio"];
 };

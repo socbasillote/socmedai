@@ -20,7 +20,7 @@ import type { AuthenticatedUser } from "./userProfileService.js";
 
 import { enqueueImageGeneration } from "./imageGenerationQueueService.js";
 
-import { getImageGenerationCredits } from "./imageGenerationApiQueryService.js";
+import { getImageGenerationCredits, getImageGenerationStatus } from "./imageGenerationApiQueryService.js";
 import { listWorkspaceImageHistory } from "./imageGenerationHistoryService.js";
 
 let mongo: MongoMemoryReplSet;
@@ -366,4 +366,29 @@ describe("Durable image queue admission", () => {
       statusCode: 404,
     });
   });
+});
+
+it("reports orphaned legacy requests consistently in status and history without charging", async () => {
+  const queued = await enqueueImageGeneration(input());
+  await ImageGenerationAdmission.deleteMany({ assetId: queued.assetId });
+  const status = await getImageGenerationStatus(authUser, workspaceId, queued.assetId);
+  expect(status.state).toBe("action_required");
+  expect(status.progress.label).toBe("Request is not queued");
+  const history = await listWorkspaceImageHistory({ authUser, workspaceId });
+  expect(history.images[0].state).toBe("action_required");
+  expect(history.images[0].message).toBe(status.message);
+  expect(await walletBalance()).toBe(2);
+  expect((await MediaAsset.findById(queued.assetId)).status).toBe("pending");
+});
+it("reports expired post-provider leases as interrupted rather than saving forever", async () => {
+  const queued = await enqueueImageGeneration(input());
+  await MediaAsset.updateOne({ _id: queued.assetId }, { $set: {
+    "generationExecution.phase": "storage_pending", "generationExecution.leaseExpiresAt": new Date(Date.now() - 1000),
+  } });
+  const status = await getImageGenerationStatus(authUser, workspaceId, queued.assetId);
+  expect(status.state).toBe("action_required");
+  expect(status.progress.label).toBe("Generation interrupted");
+  const history = await listWorkspaceImageHistory({ authUser, workspaceId });
+  expect(history.images[0].state).toBe("action_required");
+  expect(await walletBalance()).toBe(2);
 });

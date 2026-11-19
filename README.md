@@ -134,3 +134,23 @@ billing remain active while quotas are disabled. The usage API returns `null`
 for disabled limits, and the UI displays Unlimited.
 
 See [architecture status](docs/architecture-status.md) for generation progress, restart recovery, browser-close verification, and composer draft autosave behavior.
+
+Image Studio and the post composer accept an optional private JPG/PNG/WebP photo
+(up to 10 MB) for visual inspiration, editing the actual photo, or designing
+around its subject. References are normalized to PNG with metadata removed,
+scoped to the authenticated owner and workspace, and stored independently of the
+browser before a job is admitted. The queued request snapshots the reference ID,
+checksum, and selected usage; retries retain the same input. Workers verify the
+stored bytes before calling the image provider. Referenced jobs use the Images
+edit endpoint with the actual image bytes; text-only jobs use generation.
+Reference uploads do not debit image credits. Private source files are retained
+for queued jobs and recovery; removing a photo from the form removes it from the
+next request, rather than deleting the source of an existing job.
+
+Run `npm run start:image-worker --workspace @storm/api` to build and start the
+current worker. During local development use `npm run dev:image-worker --workspace
+@storm/api` to restart the worker when its source changes. Rebuilding files alone
+does not update an already-running Node worker. Expired post-provider leases are
+reported as interrupted, and old pending records without active admissions are
+reported as inactive rather than shown as indefinitely queued. Recovery verifies
+existing stored image checksums and never repeats an uncertain provider call.

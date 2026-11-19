@@ -16,6 +16,7 @@ import { ImageStudio } from "./ImageStudio";
 
 import {
   generateWorkspaceImage,
+  uploadWorkspaceImageReference,
   getImageGenerationCredits,
   getWorkspaceImageStatus,
   getWorkspaceImageUrl,
@@ -28,6 +29,7 @@ vi.mock("@/lib/imageGeneration", async (importOriginal) => {
     ...actual,
 
     generateWorkspaceImage: vi.fn(),
+    uploadWorkspaceImageReference: vi.fn(),
     getImageGenerationCredits: vi.fn(),
     getWorkspaceImageStatus: vi.fn(),
     getWorkspaceImageUrl: vi.fn(),
@@ -357,4 +359,22 @@ it("shows unlimited usage and enables generation beyond previous quotas", async 
   await screen.findByText("100 / Unlimited");
   expect(screen.getByText(/Active operations: 50 \/ Unlimited/)).toBeTruthy();
   await waitFor(() => expect(screen.getByRole("button", { name: /^Generate image/ })).not.toHaveProperty("disabled", true));
+});
+
+it("uses the selected reference photo in Image Studio generation", async () => {
+  const referenceId = "507f1f77bcf86cd799439099";
+  URL.createObjectURL = vi.fn(() => "blob:reference");
+  URL.revokeObjectURL = vi.fn();
+  vi.mocked(uploadWorkspaceImageReference).mockResolvedValue({ referenceId, width: 80, height: 60 });
+  vi.mocked(generateWorkspaceImage).mockResolvedValue({ assetId, status: "pending", created: true, creditsChargedNow: 1 });
+  render(<ImageStudio selectedWorkspaceId={workspaceId} />);
+  fireEvent.change(screen.getByLabelText("Image prompt"), { target: { value: originalPrompt } });
+  fireEvent.change(screen.getByLabelText("Upload reference photo"), {
+    target: { files: [new File(["photo"], "photo.png", { type: "image/png" })] },
+  });
+  await waitFor(() => expect(screen.getByRole("radio", { name: /Edit this photo/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("radio", { name: /Edit this photo/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^Generate image/ }));
+  await waitFor(() => expect(generateWorkspaceImage).toHaveBeenCalledOnce());
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[0][1].image.reference).toEqual({ id: referenceId, usage: "edit" });
 });

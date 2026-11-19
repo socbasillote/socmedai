@@ -35,12 +35,13 @@ export class MockImageProvider implements ImageProvider {
   readonly model = "storm-mock-image-v1";
 
   async generate(request: ImageProviderRequest): Promise<ImageProviderResult> {
-    const input = generateImageSchema.parse(request);
+    const { referenceImage, ...parameters } = request;
+    const input = generateImageSchema.parse(parameters);
 
     const { width, height } = DIMENSIONS[input.aspectRatio];
 
     const hash = createHash("sha256")
-      .update(JSON.stringify([input.prompt, input.aspectRatio]))
+      .update(JSON.stringify([input.prompt, input.aspectRatio, ...(referenceImage ? [referenceImage.usage, createHash("sha256").update(referenceImage.bytes).digest("hex")] : [])]))
       .digest("hex");
 
     const background = `#${hash.slice(0, 6)}`;

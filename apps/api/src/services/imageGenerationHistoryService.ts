@@ -1,4 +1,5 @@
-import { imageGenerationProgress } from "./imageGenerationProgress.js";
+import { ImageGenerationAdmission } from "../models/ImageGenerationAccounting.js";
+import { imageGenerationProgress, imageGenerationPresentation } from "./imageGenerationProgress.js";
 import mongoose from "mongoose";
 
 import MediaAsset from "../models/MediaAsset.js";
@@ -29,6 +30,7 @@ export type ImageHistoryItem = {
   assetId: string;
   status: ImageHistoryStatus;
   state: ImageHistoryState;
+  message?: string;
   progress: ReturnType<typeof imageGenerationProgress>;
   createdAt: string;
   updatedAt: string;
@@ -119,25 +121,6 @@ function decodeCursor(cursor: string): DecodedCursor {
   }
 }
 
-function historyState(
-  status: ImageHistoryStatus,
-  phase?: string,
-): ImageHistoryState {
-  if (status === "ready") {
-    return "ready";
-  }
-
-  if (status === "failed") {
-    return "failed";
-  }
-
-  if (phase === "recovery_required") {
-    return "action_required";
-  }
-
-  return "processing";
-}
-
 export async function listWorkspaceImageHistory(
   input: HistoryInput,
 ): Promise<ImageHistoryResponse> {
@@ -208,6 +191,7 @@ export async function listWorkspaceImageHistory(
         "updatedAt",
         "generation.aspectRatio",
         "generationExecution.phase",
+        "generationExecution.leaseExpiresAt",
         "width",
         "height",
         "mimeType",
@@ -223,6 +207,11 @@ export async function listWorkspaceImageHistory(
   const hasMore = assets.length > limit;
   const page = assets.slice(0, limit);
 
+  const activeAdmissions = await ImageGenerationAdmission.find({
+    assetId: { $in: page.filter((asset) => asset.status === "pending").map((asset) => asset._id) },
+    workspaceId: workspace._id, userId: profile._id, state: "active", creditsCharged: { $gt: 0 },
+  }).select("assetId").lean();
+  const activeIds = new Set(activeAdmissions.map((item) => String(item.assetId)));
   const images: ImageHistoryItem[] = page.map((asset) => {
     const status = asset.status as ImageHistoryStatus;
 
@@ -231,8 +220,7 @@ export async function listWorkspaceImageHistory(
     const item: ImageHistoryItem = {
       assetId: String(asset._id),
       status,
-      state: historyState(status, asset.generationExecution?.phase),
-      progress: imageGenerationProgress(status, asset.generationExecution?.phase),
+      ...imageGenerationPresentation(status, asset.generationExecution, status !== "pending" || activeIds.has(String(asset._id))),
       createdAt: asset.createdAt.toISOString(),
       updatedAt: asset.updatedAt.toISOString(),
       aspectRatio:

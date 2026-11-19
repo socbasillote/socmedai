@@ -1,4 +1,4 @@
-import { imageGenerationProgress } from "./imageGenerationProgress.js";
+import { imageGenerationPresentation } from "./imageGenerationProgress.js";
 import mongoose from "mongoose";
 
 import UserProfile from "../models/UserProfile.js";
@@ -8,6 +8,7 @@ import {
   UserCreditWallet,
   ImageDailyUsage,
   ImageWorkspaceCapacity,
+  ImageGenerationAdmission,
 } from "../models/ImageGenerationAccounting.js";
 
 import { getWorkspaceMediaAsset } from "./mediaAssetService.js";
@@ -133,20 +134,16 @@ export async function getImageGenerationStatus(
 
   const status = asset.status;
 
-  const state =
-    status === "ready"
-      ? "ready"
-      : status === "failed"
-        ? "failed"
-        : asset.generationExecution.phase === "recovery_required"
-          ? "action_required"
-          : "processing";
+  const admissionActive = status !== "pending" || Boolean(await ImageGenerationAdmission.exists({
+    assetId: asset._id, workspaceId: asset.workspaceId, userId: asset.createdByUserId,
+    state: "active", creditsCharged: { $gt: 0 },
+  }));
+  const presentation = imageGenerationPresentation(status, asset.generationExecution, admissionActive);
 
   return {
     assetId: String(asset._id),
     status,
-    state,
-    progress: imageGenerationProgress(status, asset.generationExecution.phase),
+    ...presentation,
     createdAt: asset.createdAt,
     updatedAt: asset.updatedAt,
 
