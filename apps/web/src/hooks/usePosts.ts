@@ -11,8 +11,10 @@ export function usePosts(
   statusFilter: PostStatusFilter,
   platformFilter: PostPlatformFilter,
   enabled = true,
+  sort: "newest" | "oldest" = "newest",
 ) {
   const [savedPosts, setSavedPosts] = useState<Post[]>([]);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [draftCount, setDraftCount] = useState(0);
   const [postsLoading, setPostsLoading] = useState(false);
   const [postsLoadError, setPostsLoadError] = useState("");
@@ -39,6 +41,7 @@ export function usePosts(
     async function loadPosts() {
       if (!selectedWorkspaceId) {
         setSavedPosts([]);
+        setStatusCounts({});
         setDraftCount(0);
         setNextPostsCursor(null);
         setHasMorePosts(false);
@@ -55,6 +58,7 @@ export function usePosts(
       try {
         const result = await getWorkspacePostsPage(selectedWorkspaceId, {
           limit: 20,
+          sort,
           search: debouncedSearch,
           signal: controller.signal,
           status: statusFilter,
@@ -64,6 +68,7 @@ export function usePosts(
         if (!active) return;
 
         setSavedPosts(result.posts);
+        setStatusCounts(result.statusCounts ?? {});
         setDraftCount(result.draftCount);
         setNextPostsCursor(result.nextCursor);
         setHasMorePosts(result.hasMore);
@@ -71,6 +76,7 @@ export function usePosts(
         if (!active) return;
 
         setSavedPosts([]);
+        setStatusCounts({});
         setDraftCount(0);
         setNextPostsCursor(null);
         setHasMorePosts(false);
@@ -92,10 +98,11 @@ export function usePosts(
       active = false;
       controller.abort();
     };
-  }, [selectedWorkspaceId, search, debouncedSearch, statusFilter, platformFilter, enabled, refreshVersion]);
+  }, [selectedWorkspaceId, search, debouncedSearch, statusFilter, platformFilter, enabled, refreshVersion, sort]);
 
   return {
     savedPosts,
+    statusCounts,
     setSavedPosts,
     draftCount,
     setDraftCount,

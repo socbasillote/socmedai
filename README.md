@@ -59,7 +59,7 @@ the image directly to the selected provider. Images from another workspace you
 own remain supported. Publishing copies are converted to JPEG with a maximum
 4096-pixel edge and a 10 MB size limit; original stored images are preserved.
 
-Scheduled posts remain text-only. Video and multiple-image publishing are not
+Scheduled Facebook and LinkedIn posts remain text-only; Instagram schedules require one image. Video and multiple-image publishing are not
 supported. Provider requests are not automatically retried when a public post's
 outcome is uncertain.
 
@@ -99,3 +99,38 @@ results are saved as append-only attempt evidence before lease-bound finalizatio
 Reconciliation can recover a confirmed result for the same scheduled claim
 without submitting a new social post. If no evidence exists, inspect the
 destination; automatic retries remain disabled.
+
+## Instagram publishing
+
+Instagram professional accounts linked to a connected Facebook Page support
+publishing now and scheduling one image with a caption (maximum 2,200 characters).
+Reels, Stories, carousels, and personal Instagram accounts are not supported.
+
+Configure the existing Facebook app, Graph API version, token encryption key,
+and Supabase private media storage. The Facebook Login flow now also requests
+`instagram_basic` and `instagram_content_publish`, alongside the existing Page
+permissions. Existing users must reconnect Facebook to grant these permissions.
+Meta app access/review requirements still apply to the accounts using the app.
+
+In the post editor, select Instagram, choose a connected Facebook Page under
+"Connect or refresh Instagram", then explicitly select the discovered Instagram
+account. Attach one saved image, enter the caption, and choose Now or Schedule.
+Scheduling uses the existing worker and requires `SCHEDULED_PUBLISHING_ENABLED=true`.
+Instagram publishing is configured by default and does not depend on the Facebook
+publishing feature flag.
+
+Images are converted to a 1080 x 1080 JPEG with white padding, without cropping.
+A private temporary copy is shared with Meta through a ten-minute signed URL,
+then removed when processing completes. Source assets remain private. Cleanup
+failures are logged with the temporary storage key; operators should remove old
+objects under `publishing/instagram/` after an interrupted worker or failed cleanup.
+Container processing is bounded; the final publish request is never automatically
+retried when its outcome is uncertain. The post then needs review on Instagram.
+
+Image generation quotas are currently disabled by default. Set
+`IMAGE_GENERATION_LIMITS_ENABLED=true` and restart the API and image worker to
+restore the configured daily and active-job limits. Usage counters and credit
+billing remain active while quotas are disabled. The usage API returns `null`
+for disabled limits, and the UI displays Unlimited.
+
+See [architecture status](docs/architecture-status.md) for generation progress, restart recovery, browser-close verification, and composer draft autosave behavior.

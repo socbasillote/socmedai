@@ -15,11 +15,11 @@ beforeAll(async () => {
 }, 70_000);
 beforeEach(async () => { await Post.deleteMany({}); });
 afterAll(async () => { await mongoose.disconnect(); await mongo?.stop(); });
-async function draft(platform: "facebook" | "linkedin", count = 1) {
+async function draft(platform: "facebook" | "linkedin" | "instagram", count = 1) {
   return Post.create({ workspaceId, createdByUserId: new mongoose.Types.ObjectId(), caption: "Caption with an image", platforms: [platform],
     platformConnections: { [platform]: new mongoose.Types.ObjectId() }, status: "draft", mediaIds: Array.from({ length: count }, () => new mongoose.Types.ObjectId()) });
 }
-it.each(["facebook", "linkedin"] as const)("atomically claims a %s image draft once", async (platform) => {
+it.each(["facebook", "linkedin", "instagram"] as const)("atomically claims a %s image draft once", async (platform) => {
   const post = await draft(platform);
   const input = { authUser, workspaceId: String(workspaceId), postId: String(post._id) };
   const outcomes = await Promise.allSettled([claimImmediatePost(input), claimImmediatePost(input)]);
@@ -35,4 +35,13 @@ it("rejects multiple images without claiming the draft", async () => {
 it("supports images in the internal Facebook claim path", async () => {
   const post = await draft("facebook");
   expect((await claimImmediateFacebookPost({ authUser, workspaceId: String(workspaceId), postId: String(post._id) })).mediaIds).toHaveLength(1);
+});
+
+it("rejects Instagram without an image or with an oversized caption without consuming a claim", async () => {
+ for (const [count, caption] of [[0, "Caption"], [1, "x".repeat(2201)]] as const) {
+   const post = await draft("instagram", count);
+   await Post.updateOne({ _id: post._id }, { $set: { caption } });
+   await expect(claimImmediatePost({ authUser, workspaceId: String(workspaceId), postId: String(post._id) })).rejects.toMatchObject({ statusCode: 409 });
+   expect((await Post.findById(post._id)).attemptCount).toBe(0);
+ }
 });

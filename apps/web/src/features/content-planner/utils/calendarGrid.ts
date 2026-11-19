@@ -60,7 +60,9 @@ export function getCalendarPostDate(post: Post): Date | null {
   const timestamp =
     post.status === "published"
       ? post.publishedAt
-      : post.status === "scheduled" ||
+      : post.status === "draft" ||
+          post.status === "unknown" ||
+          post.status === "scheduled" ||
           post.status === "publishing" ||
           post.status === "failed"
         ? post.scheduledAt
@@ -105,4 +107,17 @@ export function groupCalendarPostsByDay(
   }
 
   return grouped;
+}
+
+/** A local Sunday-to-Saturday week, including weeks crossing month boundaries. */
+export function getCalendarWeekDays(anchor: Date, today = new Date()): CalendarDay[] {
+  const start = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() - anchor.getDay());
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
+    return {
+      key: toLocalDateKey(date), date, dayNumber: date.getDate(),
+      inCurrentMonth: date.getMonth() === anchor.getMonth() && date.getFullYear() === anchor.getFullYear(),
+      isToday: toLocalDateKey(date) === toLocalDateKey(today),
+    };
+  });
 }

@@ -214,7 +214,7 @@ describe("Publishing readiness", () => {
     expect(linkedinResult?.ready).toBe(false);
   });
 
-  it("does not allow unsupported platform scheduling", () => {
+  it("does not allow Instagram scheduling without a verified account and image", () => {
     const draft = draftWith(instagram);
 
     draft.publishing.scheduledAt = "2030-01-02T12:00:00.000Z";
@@ -231,8 +231,8 @@ describe("Publishing readiness", () => {
     expect(result.destinations[0].items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "availability",
-          status: "invalid",
+          id: "account",
+          status: "missing",
         }),
       ]),
     );
@@ -244,4 +244,13 @@ it.each([[facebook, 5000], [linkedin, 3000]] as const)("blocks oversized caption
  expect(evaluatePublishingReadiness(draft, context, "now").ready).toBe(false);
  expect(evaluatePublishingReadiness(draft, context, "draft").ready).toBe(true);
  expect(evaluatePublishingReadiness(setSharedCaption(draft, "x".repeat(limit)), context, "now").ready).toBe(true);
+});
+
+it.each(["now", "schedule"] as const)("allows a verified Instagram image for %s", (action) => {
+ let draft = setSharedMedia(draftWith(instagram), [{ assetId: "image", type: "image" }]);
+ draft.publishing.scheduledAt = "2030-01-02T12:00:00.000Z";
+ const verified = { accounts: { ...context.accounts, [instagram.id]: { connectionId: instagram.connectionId, connected: true, canPublish: true } } };
+ expect(evaluatePublishingReadiness(draft, verified, action, new Date("2030-01-01")).ready).toBe(true);
+ draft = setSharedCaption(draft, "x".repeat(2201));
+ expect(evaluatePublishingReadiness(draft, verified, action, new Date("2030-01-01")).ready).toBe(false);
 });

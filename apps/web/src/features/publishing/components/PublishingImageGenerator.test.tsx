@@ -187,6 +187,20 @@ describe("PublishingImageGenerator", () => {
     expect(screen.getByText("Generation settings incomplete")).toBeTruthy();
   });
 
+  it("allows generation past usage counts when quotas are unlimited", async () => {
+    const credits = makeCredits(5, 100, 50);
+    credits.usage.dailyLimit = null;
+    credits.usage.maxActive = null;
+    vi.mocked(getImageGenerationCredits).mockResolvedValue(credits);
+    render(<PublishingImageGenerator ownerUserId={USER_A} workspaceId={WORKSPACE_A} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Image prompt" }), {
+      target: { value: VALID_PROMPT },
+    });
+    expect(await screen.findByText("Generation settings ready")).toBeTruthy();
+    expect(screen.getByText("100 / Unlimited")).toBeTruthy();
+    expect(screen.queryByText(/reached an image generation limit/i)).toBeNull();
+  });
+
   it("rejects an exhausted daily generation limit", async () => {
     vi.mocked(getImageGenerationCredits).mockResolvedValue(makeCredits(5, 10));
 

@@ -4,6 +4,7 @@ import type { Post } from "@/lib/posts";
 
 import {
   getCalendarMonthDays,
+  getCalendarWeekDays,
   getCalendarPostDate,
   groupCalendarPostsByDay,
   toLocalDateKey,
@@ -57,6 +58,18 @@ describe("calendarGrid", () => {
     expect(getCalendarPostDate(post)?.toISOString()).toBe(
       "2026-11-12T01:00:00.000Z",
     );
+  });
+
+  it("groups drafts on their planned dates", () => {
+    const draft = createPost({ status: "draft", scheduledAt: new Date(2026, 10, 14, 8).toISOString() });
+    expect(groupCalendarPostsByDay([draft]).get("2026-11-14")).toEqual([draft]);
+  });
+
+  it("builds full weeks across month and year boundaries", () => {
+    const days = getCalendarWeekDays(new Date(2027, 0, 1));
+    expect(days).toHaveLength(7);
+    expect(days[0].key).toBe("2026-12-27");
+    expect(days[6].key).toBe("2027-01-02");
   });
 
   it("excludes unscheduled drafts", () => {

@@ -1,3 +1,4 @@
+import { ImageGenerationProgress } from "./ImageGenerationProgress";
 import { ApiError } from "@/lib/api";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
@@ -341,10 +342,10 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
     availableCredits < costPerImage;
 
   const dailyLimitReached =
-    credits !== null && credits.usage.attempts >= credits.usage.dailyLimit;
+    credits !== null && credits.usage.dailyLimit != null && credits.usage.attempts >= credits.usage.dailyLimit;
 
   const activeLimitReached =
-    credits !== null && credits.usage.active >= credits.usage.maxActive;
+    credits !== null && credits.usage.maxActive != null && credits.usage.active >= credits.usage.maxActive;
 
   const cannotGenerate =
     !selectedWorkspaceId ||
@@ -403,13 +404,13 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
           <p className="text-sm text-slate-500">Today's usage (UTC)</p>
           <p className="mt-2 text-3xl font-bold">
             {credits
-              ? `${credits.usage.attempts}/${credits.usage.dailyLimit}`
+              ? `${credits.usage.attempts} / ${credits.usage.dailyLimit ?? "Unlimited"}`
               : "—"}
           </p>
           <p className="mt-1 text-xs text-slate-500">
             Active operations:{" "}
             {credits
-              ? `${credits.usage.active}/${credits.usage.maxActive}`
+              ? `${credits.usage.active} / ${credits.usage.maxActive ?? "Unlimited"}`
               : "—"}
           </p>
         </div>
@@ -784,12 +785,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                 className="max-h-[480px] w-full object-contain"
               />
             ) : details?.state === "processing" ? (
-              <p
-                role="status"
-                className="p-5 text-center text-sm text-slate-600"
-              >
-                Processing image generation...
-              </p>
+              <ImageGenerationProgress progress={details.progress} />
             ) : details?.state === "action_required" ? (
               <p
                 role="status"

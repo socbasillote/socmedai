@@ -1,3 +1,4 @@
+import { ImageGenerationProgress } from "@/features/image-studio/components/ImageGenerationProgress";
 import { ApiError } from "@/lib/api";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -749,10 +750,10 @@ export function PublishingImageGenerator({
     credits.credits.available < credits.credits.costPerImage;
 
   const dailyLimitReached =
-    credits !== null && credits.usage.attempts >= credits.usage.dailyLimit;
+    credits !== null && credits.usage.dailyLimit != null && credits.usage.attempts >= credits.usage.dailyLimit;
 
   const activeLimitReached =
-    credits !== null && credits.usage.active >= credits.usage.maxActive;
+    credits !== null && credits.usage.maxActive != null && credits.usage.active >= credits.usage.maxActive;
 
   let promptError: string | null = null;
 
@@ -1042,7 +1043,7 @@ export function PublishingImageGenerator({
 
           <p className="mt-1 text-xl font-bold text-slate-900">
             {credits
-              ? `${credits.usage.attempts}/${credits.usage.dailyLimit}`
+              ? `${credits.usage.attempts} / ${credits.usage.dailyLimit ?? "Unlimited"}`
               : "—"}
           </p>
         </div>
@@ -1366,10 +1367,7 @@ export function PublishingImageGenerator({
           )}
 
         {generationDetails?.state === "processing" && (
-          <p role="status" className="mt-3 text-sm text-violet-800">
-            Image generation is processing. Storm will check its status
-            automatically.
-          </p>
+          <ImageGenerationProgress progress={generationDetails.progress} />
         )}
 
         {generationDetails?.state === "ready" &&

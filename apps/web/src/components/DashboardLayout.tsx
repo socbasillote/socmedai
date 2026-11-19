@@ -13,8 +13,6 @@ type DashboardLayoutProps = {
   >["workspaceSelectorProps"];
   workspaceName?: string;
   workspacesLoading: boolean;
-  search: string;
-  onSearchChange: (value: string) => void;
   onOpenNavigation: () => void;
   onNotificationClick: () => void;
   linkedInProps: ComponentProps<typeof DashboardTopBar>["linkedInProps"];
@@ -32,8 +30,6 @@ export function DashboardLayout({
   workspaceSelectorProps,
   workspaceName,
   workspacesLoading,
-  search,
-  onSearchChange,
   onOpenNavigation,
   onNotificationClick,
   linkedInProps,
@@ -57,8 +53,6 @@ export function DashboardLayout({
           activePage={activePage}
           workspaceName={workspaceName}
           workspacesLoading={workspacesLoading}
-          search={search}
-          onSearchChange={onSearchChange}
           onOpenNavigation={onOpenNavigation}
           onNotificationClick={onNotificationClick}
           linkedInProps={linkedInProps}

@@ -1,3 +1,4 @@
+import { InstagramPublishingAdapter } from "./instagramPublishingAdapter.js";
 import type { AuthenticatedUser } from "../userProfileService.js";
 
 import type { PublishingAdapter } from "./publishingAdapter.js";
@@ -28,7 +29,7 @@ export type PublishingAdapterFactoryOptions = {
  * Default behavior:
  * - LinkedIn: enabled, using the existing live adapter.
  * - Facebook: disabled.
- * - Instagram: disabled.
+ * - Instagram: enabled for one image with a connected professional account.
  *
  * This factory does not publish anything itself.
  */
@@ -38,6 +39,7 @@ export function createPublishingAdapter(
 ): PublishingAdapter {
   const adapters: PlatformPublishingAdapters = {
     linkedin: new LinkedInPublishingAdapter(authUser),
+    instagram: new InstagramPublishingAdapter(authUser),
 
     // Facebook requires BOTH:
     // 1. Explicit activation.

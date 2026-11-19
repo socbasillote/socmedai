@@ -61,7 +61,7 @@ describe("findAuthorizedCalendarPosts", () => {
       $or: [
         {
           status: {
-            $in: ["scheduled", "publishing", "failed"],
+            $in: ["draft", "scheduled", "publishing", "failed", "unknown"],
           },
           scheduledAt: {
             $gte: new Date(range.start),
@@ -79,14 +79,19 @@ describe("findAuthorizedCalendarPosts", () => {
     });
   });
 
-  it("does not query drafts without scheduled dates", async () => {
+  it("includes drafts only through the planned-date range", async () => {
     const mock = mockPostFind([]);
 
     await findAuthorizedCalendarPosts(workspaceId, range);
 
     const filter = mock.find.mock.calls[0]?.[0];
 
-    expect(JSON.stringify(filter)).not.toContain('"draft"');
+    expect(filter).toMatchObject({ $or: expect.arrayContaining([
+      expect.objectContaining({
+        status: { $in: expect.arrayContaining(["draft"]) },
+        scheduledAt: { $gte: new Date(range.start), $lt: new Date(range.end) },
+      }),
+    ]) });
   });
 
   it("returns the requested range and matching posts", async () => {

@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import { requireAuth } from "../auth/requireAuth.js";
 import {
+  autosaveDraft,
   createPost,
   changePostSchedule,
   reconcilePublication,
@@ -17,6 +18,7 @@ const postRoutes = Router();
 postRoutes.use(requireAuth);
 
 postRoutes.post("/", createPost);
+postRoutes.put("/autosave", autosaveDraft);
 
 postRoutes.get("/workspaces/:workspaceId", listPostsByWorkspace);
 

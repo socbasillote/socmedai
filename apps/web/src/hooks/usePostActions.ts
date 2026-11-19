@@ -30,6 +30,7 @@ export function usePostActions({
 
       setSavedPosts((current) => current.filter((post) => post._id !== postId));
 
+      window.dispatchEvent(new Event("storm:posts-changed"));
       setNotice("Draft deleted successfully.");
     } catch (error) {
       setDeletePostError(

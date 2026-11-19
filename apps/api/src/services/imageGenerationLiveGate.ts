@@ -3,6 +3,7 @@ export const LIVE_IMAGE_MODEL = "gpt-image-2" as const;
 export type LiveRolloutMode = "off" | "internal" | "canary";
 
 export type LiveGateConfig = {
+  limitsEnabled?: boolean;
   provider: "mock" | "openai";
   liveEnabled: boolean;
   workerEnabled: boolean;
@@ -88,6 +89,7 @@ export function parseLiveImageGateConfig(
   }
 
   for (const key of [
+    "IMAGE_GENERATION_LIMITS_ENABLED",
     "IMAGE_GENERATION_LIVE_ENABLED",
     "IMAGE_GENERATION_LIVE_WORKER_ENABLED",
   ] as const) {
@@ -110,14 +112,17 @@ export function parseLiveImageGateConfig(
     1,
   );
 
-  // Guardrail caps for initial canary rollout.
+  const limitsEnabled = environmentBoolean(source.IMAGE_GENERATION_LIMITS_ENABLED);
+
+  // Guardrail caps for initial canary rollout when quotas are enabled.
   // Raising these requires a code review,
   // not merely changing an environment variable.
-  if (maxActive > 1 || dailyLimit > 5 || creditCost > 100) {
+  if ((limitsEnabled && (maxActive > 1 || dailyLimit > 5)) || creditCost > 100) {
     throw new Error("Live image rollout limits exceed approved caps.");
   }
 
   return {
+    limitsEnabled,
     provider: provider ?? "mock",
     liveEnabled: environmentBoolean(source.IMAGE_GENERATION_LIVE_ENABLED),
     workerEnabled: environmentBoolean(
@@ -161,9 +166,7 @@ export function evaluateLiveImageGate(
   if (
     !config.hasApiKey ||
     config.model !== LIVE_IMAGE_MODEL ||
-    config.maxActive !== 1 ||
-    config.dailyLimit < 1 ||
-    config.dailyLimit > 5 ||
+    (config.limitsEnabled && (config.maxActive !== 1 || config.dailyLimit < 1 || config.dailyLimit > 5)) ||
     config.creditCost < 1 ||
     !Number.isSafeInteger(config.creditCost)
   ) {

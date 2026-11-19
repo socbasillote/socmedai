@@ -14,6 +14,7 @@ import { requireAuth } from "./auth/requireAuth.js";
 import workspaceRoutes from "./routes/workspaceRoutes.js";
 import postRoutes from "./routes/postRoutes.js";
 import linkedInRoutes from "./routes/linkedinRoutes.js";
+import instagramRoutes from "./routes/instagramRoutes.js";
 import facebookRoutes from "./routes/facebookRoutes.js";
 import aiContentRoutes from "./routes/aiContentRoutes.js";
 import imageGenerationRoutes from "./routes/imageGenerationRoutes.js";
@@ -70,6 +71,7 @@ app.get("/api/health", (_req: Request, res: Response) => {
 
 app.use("/api/linkedin", linkedInRoutes);
 app.use("/api/facebook", facebookRoutes);
+app.use("/api/instagram", instagramRoutes);
 
 app.get("/api/me", requireAuth, (_req, res) => {
   res.status(200).json({

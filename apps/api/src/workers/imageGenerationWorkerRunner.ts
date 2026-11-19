@@ -1,3 +1,4 @@
+import { runImageGenerationRecoverySweep } from "../services/imageGenerationRecoverySweepService.js";
 import {
   runImageGenerationWorkerOnce,
   type ImageWorkerDependencies,
@@ -7,6 +8,7 @@ export type ImageWorkerRunnerOptions = {
   intervalMs?: number;
   batchSize?: number;
   dependencies?: ImageWorkerDependencies;
+  recover?: () => Promise<unknown>;
   onError?: (error: unknown) => void;
 };
 
@@ -50,6 +52,11 @@ export function startImageGenerationWorker(
     if (stopped || running) return;
 
     running = (async () => {
+      try {
+        await (options.recover ?? (() => runImageGenerationRecoverySweep(options.dependencies?.bucket)))();
+      } catch (error) {
+        options.onError?.(error);
+      }
       try {
         await runImageGenerationWorkerOnce(options.dependencies, batchSize);
       } catch (error) {

@@ -1,3 +1,5 @@
+import { autosaveDraftSchema } from "../schemas/postSchema.js";
+import { autosaveWorkspaceDraft } from "../services/postService.js";
 import { reconcileWorkspacePublication, changeWorkspaceSchedule } from "../services/postService.js";
 import type { RequestHandler } from "express";
 
@@ -82,7 +84,8 @@ export const listPostsByWorkspace: RequestHandler = async (req, res, next) => {
       req.query.cursor !== undefined ||
       req.query.search !== undefined ||
       req.query.status !== undefined ||
-      req.query.platform !== undefined;
+      req.query.platform !== undefined ||
+      req.query.sort !== undefined;
 
     if (!hasPaginationOrFilters) {
       const posts = await listWorkspacePosts(authUser, workspaceId);
@@ -348,6 +351,18 @@ export const reconcilePublication: RequestHandler = async (req, res, next) => {
   try {
     if (typeof req.params.postId !== "string") { res.status(400).json({ error: "Invalid post." }); return; }
     res.json({ post: await reconcileWorkspacePublication(getAuthenticatedUser(res), req.params.postId) });
+  } catch (error) {
+    if (error instanceof PostServiceError) { res.status(error.statusCode).json({ error: error.message }); return; }
+    next(error);
+  }
+};
+
+export const autosaveDraft: RequestHandler = async (req, res, next) => {
+  const parsed = autosaveDraftSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid draft autosave.", message: parsed.error.issues[0]?.message }); return; }
+  try {
+    const post = await autosaveWorkspaceDraft(getAuthenticatedUser(res), parsed.data);
+    res.json({ post });
   } catch (error) {
     if (error instanceof PostServiceError) { res.status(error.statusCode).json({ error: error.message }); return; }
     next(error);

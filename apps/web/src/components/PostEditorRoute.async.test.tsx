@@ -61,6 +61,10 @@ vi.mock("@/auth/useAuth", () => ({
   }),
 }));
 
+vi.mock("@/hooks/useInstagramConnections", () => ({
+  useInstagramConnections: () => ({ connections: [{ id: "instagram-connection", username: "studio", instagramUserId: "123", status: "connected", canPublish: true }], loading: false, error: "", connect: vi.fn() }),
+}));
+
 vi.mock("@/hooks/useLinkedInConnection", () => ({
   useLinkedInConnection: () => ({
     status: "connected",
@@ -124,12 +128,14 @@ vi.mock("@/components/PostEditorForm", () => ({
     onCaptionChange,
     onPlatformsChange,
     onMediaSelect,
+    onInstagramConnectionChange,
   }: {
     caption: string;
     error: string;
     onSave: () => void | Promise<void>;
     onCaptionChange: (value: string) => void;
     onMediaSelect: (assetId: string) => void;
+    onInstagramConnectionChange: (id: string | null) => void;
     onPlatformsChange: (
       platforms: Array<"facebook" | "instagram" | "linkedin">,
     ) => void;
@@ -147,6 +153,7 @@ vi.mock("@/components/PostEditorForm", () => ({
         Use LinkedIn
       </button>
 
+      <button type="button" onClick={() => { onPlatformsChange(["instagram"]); onInstagramConnectionChange("instagram-connection"); }}>Use Instagram</button>
       <button type="button" onClick={() => onMediaSelect("507f1f77bcf86cd799439099")}>Attach image</button>
       <button type="button" onClick={() => void onSave()}>
         Save draft
@@ -406,4 +413,22 @@ describe("PostEditorRoute async safety", () => {
     expect(createPost).toHaveBeenCalledWith(expect.objectContaining({ caption: "New caption", mediaIds: ["507f1f77bcf86cd799439099"] }));
   });
 
+});
+
+it("publishes an Instagram image to the explicitly selected account after confirmation", async () => {
+ vi.mocked(createPost).mockResolvedValue(makePost(POST_A, WORKSPACE_A));
+ vi.mocked(publishPostNow).mockResolvedValue({ message: "Published", post: { ...makePost(POST_A, WORKSPACE_A), status: "published" }, result: { postId: POST_A, results: [{ postId: POST_A, platform: "instagram", outcome: "published" }] } });
+ render(<PostEditorRoute mode="create" />);
+ fireEvent.click(screen.getByRole("button", { name: "Set caption" }));
+ fireEvent.click(screen.getByRole("button", { name: "Use Instagram" }));
+ fireEvent.click(screen.getByRole("button", { name: "Attach image" }));
+ fireEvent.click(screen.getByRole("button", { name: "Choose Publish Now" }));
+ fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+ await screen.findByRole("dialog");
+ expect(screen.getByRole("heading", { name: "Publish to Instagram?" })).toBeTruthy();
+ expect(screen.getByText("@studio")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button", { name: "Confirm Publish" }));
+ await waitFor(() => expect(publishPostNow).toHaveBeenCalledWith(POST_A));
+ expect(createPost).toHaveBeenCalledWith(expect.objectContaining({ platforms: ["instagram"], platformConnections: { instagram: "instagram-connection" }, mediaIds: ["507f1f77bcf86cd799439099"] }));
+ cleanup();
 });

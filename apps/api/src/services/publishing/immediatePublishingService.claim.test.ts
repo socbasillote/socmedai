@@ -149,7 +149,7 @@ describe("immediatePublishingService claim protection", () => {
     });
   });
 
-  it("uses an atomic LinkedIn-only eligibility filter", async () => {
+  it("uses an atomic single-platform eligibility filter", async () => {
     const post = await claimImmediatePost(input);
 
     expect(post).toEqual(createClaimedPost());
@@ -158,7 +158,7 @@ describe("immediatePublishingService claim protection", () => {
 
     const [filter, update, options] = mocks.postFindOneAndUpdate.mock.calls[0];
     expect(filter).toMatchObject({ _id: postId, workspaceId, status: "draft", "mediaIds.1": { $exists: false } });
-    expect(filter.$or.map((branch: { platforms: string[] }) => branch.platforms)).toEqual([["linkedin"], ["facebook"]]);
+    expect(filter.$or.map((branch: { platforms: string[] }) => branch.platforms)).toEqual([["instagram"], ["linkedin"], ["facebook"]]);
     for (const branch of filter.$or) {
       const platform = branch.platforms[0];
       expect(branch[`platformConnections.${platform}`]).toEqual({ $exists: true, $ne: null });

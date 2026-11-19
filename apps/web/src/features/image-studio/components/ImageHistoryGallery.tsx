@@ -1,3 +1,4 @@
+import { ImageGenerationProgress } from "./ImageGenerationProgress";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -470,9 +471,9 @@ export function ImageHistoryGallery({
 
                   {item.state === "processing" && (
                     <div className="space-y-1">
-                      <p role="status" className="text-xs text-slate-600">
-                        Generation in progress.
-                      </p>
+                      {item.progress ? <ImageGenerationProgress progress={item.progress} compact /> : (
+                        <p role="status" className="text-xs text-slate-600">Generation in progress.</p>
+                      )}
 
                       <p className="text-xs text-slate-500">
                         Status updates automatically. You can leave this page

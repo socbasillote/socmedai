@@ -1,3 +1,10 @@
+import { vi } from "vitest";
+import { InstagramPublishingAdapter } from "./publishing/instagramPublishingAdapter.js";
+import { dispatchScheduledPost } from "./publishing/scheduledPublishingDispatcher.js";
+import { ScheduledLeaseSignal } from "./publishing/scheduledPublishingHeartbeat.js";
+import InstagramConnection from "../models/InstagramConnection.js";
+import FacebookConnection from "../models/FacebookConnection.js";
+import MediaAsset from "../models/MediaAsset.js";
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { beforeAll, afterAll, beforeEach, expect, it } from "vitest";
@@ -15,7 +22,7 @@ const workspace = new mongoose.Types.ObjectId(), profile = new mongoose.Types.Ob
 beforeAll(async () => { mongo = await MongoMemoryServer.create({ instance: { launchTimeout: 60000 } }); await mongoose.connect(mongo.getUri()); }, 70000);
 afterAll(async () => { await mongoose.disconnect(); await mongo?.stop(); });
 beforeEach(async () => {
- await Promise.all([Post.deleteMany({}), UserProfile.deleteMany({}), Workspace.deleteMany({}), LinkedInConnection.deleteMany({}), Evidence.deleteMany({})]);
+ await Promise.all([Post.deleteMany({}), UserProfile.deleteMany({}), Workspace.deleteMany({}), LinkedInConnection.deleteMany({}), Evidence.deleteMany({}), InstagramConnection.deleteMany({}), FacebookConnection.deleteMany({}), MediaAsset.deleteMany({})]);
  await UserProfile.collection.insertOne({ _id: profile, supabaseUserId: owner.id });
  await Workspace.collection.insertOne({ _id: workspace, ownerUserId: profile });
  await LinkedInConnection.collection.insertOne({ _id: connection, workspaceId: workspace, status: "connected", scopes: ["w_member_social"], tokenExpiresAt: new Date(Date.now()+3600000) });
@@ -68,7 +75,7 @@ it("does not infer immediate success from an uncertain platform result", async (
 });
 it("rejects oversized captions before claiming and leaves the draft editable", async () => {
  const { claimImmediatePost } = await import("./publishing/immediatePublishingService.js");
- for (const [platform, caption] of [["facebook", "x".repeat(5001)], ["linkedin", "x".repeat(3001)], ["linkedin", "??".repeat(1501)]] as const) {
+ for (const [platform, caption] of [["facebook", "x".repeat(5001)], ["linkedin", "x".repeat(3001)], ["linkedin", "\u{1f600}".repeat(1501)]] as const) {
    const post = await Post.create({ workspaceId: workspace, createdByUserId: profile, caption, platforms: [platform], platformConnections: { [platform]: connection }, status: "draft" });
    await expect(claimImmediatePost({ authUser: owner, workspaceId: String(workspace), postId: String(post._id) })).rejects.toMatchObject({ statusCode: 409 });
    const unchanged = await Post.findById(post._id);
@@ -78,7 +85,7 @@ it("rejects oversized captions before claiming and leaves the draft editable", a
 });
 it("claims captions exactly at the platform limits", async () => {
  const { claimImmediatePost } = await import("./publishing/immediatePublishingService.js");
- for (const [platform, caption] of [["facebook", "x".repeat(5000)], ["linkedin", "??".repeat(1500)]] as const) {
+ for (const [platform, caption] of [["facebook", "x".repeat(5000)], ["linkedin", "\u{1f600}".repeat(1500)]] as const) {
    const post = await Post.create({ workspaceId: workspace, createdByUserId: profile, caption, platforms: [platform], platformConnections: { [platform]: connection }, status: "draft" });
    expect((await claimImmediatePost({ authUser: owner, workspaceId: String(workspace), postId: String(post._id) })).status).toBe("publishing");
  }
@@ -91,4 +98,40 @@ it("includes platform results and top-level errors in post reads", async () => {
  expect(detail.platformResults[0].lastError).toBe("Credentials unavailable");
  const listed = await listWorkspacePosts(owner, String(workspace));
  expect(Array.isArray(listed) && listed[0].lastError).toBe("Preparation failed");
+});
+
+it("saves, reschedules, and atomically claims a scheduled Instagram image", async () => {
+ const page = new mongoose.Types.ObjectId(), instagram = new mongoose.Types.ObjectId(), image = new mongoose.Types.ObjectId();
+ await FacebookConnection.collection.insertOne({ _id: page, workspaceId: workspace, status: "connected", tasks: ["CREATE_CONTENT"] });
+ await InstagramConnection.create({ _id: instagram, workspaceId: workspace, facebookConnectionId: page, instagramUserId: "123", username: "studio" });
+ await MediaAsset.collection.insertOne({ _id: image, workspaceId: workspace, createdByUserId: profile, type: "image", source: "ai-generated", status: "ready", storageProvider: "supabase", storageKey: `workspaces/${workspace}/images/${image}.png`, mimeType: "image/png", width: 1080, height: 1080, fileSize: 100, idempotencyKey: "verified-image", generationExecution: {}, contentSha256: "a".repeat(64) });
+ const input = createPostSchema.parse({ workspaceId: String(workspace), platforms: ["instagram"], platformConnections: { instagram: String(instagram) }, caption: "Instagram caption", mediaIds: [String(image)], scheduledAt: new Date(Date.now()+60000).toISOString() });
+ const post = await createWorkspacePost(owner, input);
+ expect(String(post.platformConnections.instagram)).toBe(String(instagram));
+ expect(post.status).toBe("scheduled");
+ const deadline = new Date(Date.now()+120000);
+ expect((await changeWorkspaceSchedule(owner, String(post._id), deadline)).scheduledAt).toEqual(deadline);
+ const outcomes = await Promise.all([claimNextDuePost(new Date(deadline.getTime()+1000)), claimNextDuePost(new Date(deadline.getTime()+1000))]);
+ expect(outcomes.filter(Boolean)).toHaveLength(1);
+ expect(outcomes.find(Boolean).mediaIds.map(String)).toEqual([String(image)]);
+});
+it("rejects Instagram scheduling without the image or with an unauthorized connection", async () => {
+ const input = { workspaceId: String(workspace), platforms: ["instagram"], platformConnections: { instagram: String(connection) }, caption: "Caption", mediaIds: [], scheduledAt: new Date(Date.now()+60000).toISOString() };
+ expect(createPostSchema.safeParse(input).success).toBe(false);
+ await expect(createWorkspacePost(owner, { ...input, platforms: ["instagram"], mediaIds: [String(new mongoose.Types.ObjectId())] })).rejects.toMatchObject({ statusCode: 409 });
+});
+
+it("dispatches an owned scheduled Instagram image and records confirmed evidence", async () => {
+ const instagram = new mongoose.Types.ObjectId(), image = new mongoose.Types.ObjectId();
+ const post = await Post.create({ workspaceId: workspace, createdByUserId: profile, caption: "Instagram caption", platforms: ["instagram"], platformConnections: { instagram }, mediaIds: [image], status: "scheduled", scheduledAt: new Date(Date.now()-1000) });
+ const claim = await claimNextDuePost();
+ const publish = vi.spyOn(InstagramPublishingAdapter.prototype, "publish").mockResolvedValue({ outcome: "published", platform: "instagram", postId: String(post._id), externalPostId: "789", publishedAt: new Date() });
+ try {
+   const lease = new ScheduledLeaseSignal(); lease.setExpiration(claim.scheduledLeaseExpiresAt);
+   await dispatchScheduledPost(String(post._id), lease);
+   expect(publish).toHaveBeenCalledOnce();
+   expect(publish).toHaveBeenCalledWith(expect.objectContaining({ platform: "instagram", connectionId: String(instagram), mediaIds: [String(image)], lease }));
+   expect((await Post.findById(post._id)).status).toBe("published");
+   expect(await Evidence.exists({ postId: post._id, claimId: claim.scheduledClaimId, outcome: "published", externalPostId: "789" })).toBeTruthy();
+ } finally { publish.mockRestore(); }
 });

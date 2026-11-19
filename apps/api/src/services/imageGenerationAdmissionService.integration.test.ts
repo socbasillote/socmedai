@@ -81,7 +81,7 @@ async function getSavedSnapshot(assetId: string) {
 
 function request(
   key = "credit-request-0001",
-  policy = { dailyLimit: 3, maxActive: 2 },
+  policy: { dailyLimit: number | null; maxActive: number | null } = { dailyLimit: 3, maxActive: 2 },
 ) {
   return {
     authUser,

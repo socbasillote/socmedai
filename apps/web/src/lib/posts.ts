@@ -34,6 +34,7 @@ export type Post = {
   platformResults?: PostPlatformResult[];
 
   platformConnections?: {
+    instagram?: string;
     facebook?: string;
     linkedin?: string;
   };
@@ -43,6 +44,7 @@ export type Post = {
 };
 
 export type CreatePostInput = {
+  clientDraftId?: string;
   workspaceId: string;
   title?: string;
   caption: string;
@@ -50,6 +52,7 @@ export type CreatePostInput = {
   platforms: PostPlatform[];
   scheduledAt?: string;
   platformConnections?: {
+    instagram?: string;
     facebook?: string;
     linkedin?: string;
   };
@@ -61,6 +64,7 @@ export type UpdateDraftPostInput = {
   mediaIds?: string[];
   platforms?: PostPlatform[];
   platformConnections?: {
+    instagram?: string;
     facebook?: string;
     linkedin?: string;
   };
@@ -79,6 +83,7 @@ export type PaginatedPostsResponse = {
   nextCursor: string | null;
   hasMore: boolean;
   draftCount: number;
+  statusCounts?: Record<"all" | "published" | "scheduled" | "draft" | "failed", number>;
 };
 
 export type PublishingOutcome =
@@ -133,6 +138,7 @@ export async function getWorkspacePosts(workspaceId: string): Promise<Post[]> {
 export async function getWorkspacePostsPage(
   workspaceId: string,
   options?: {
+    sort?: "newest" | "oldest";
     cursor?: string;
     signal?: AbortSignal;
     limit?: number;
@@ -148,6 +154,7 @@ export async function getWorkspacePostsPage(
   },
 ): Promise<PaginatedPostsResponse & { draftCount: number }> {
   const params = new URLSearchParams();
+  if (options?.sort) params.set("sort", options.sort);
 
   if (options?.limit !== undefined) {
     params.set("limit", String(options.limit));

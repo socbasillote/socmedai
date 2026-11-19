@@ -1,12 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
-import { CalendarDays, Clock3, List, Plus } from "lucide-react";
+import { CalendarDays, Columns3, List, Plus } from "lucide-react";
 
 import { useContentPlanner } from "@/features/content-planner/hooks/useContentPlanner";
 
 import { CalendarMonthView } from "@/features/content-planner/components/CalendarMonthView";
-import { PlannerPostListView } from "@/features/content-planner/components/PlannerPostListView";
 
 import type { Post } from "@/lib/posts";
 
@@ -17,7 +16,7 @@ import {
   parsePlannerMonth,
 } from "@/features/content-planner/utils/plannerNavigation";
 
-type PlannerView = "calendar" | "scheduled" | "all";
+type PlannerView = "month" | "week" | "list";
 
 type ContentPlannerPageProps = {
   workspaceId: string;
@@ -29,24 +28,28 @@ const plannerViews: {
   icon: typeof CalendarDays;
 }[] = [
   {
-    id: "calendar",
-    label: "Calendar",
+    id: "month",
+    label: "Month",
     icon: CalendarDays,
   },
   {
-    id: "scheduled",
-    label: "Scheduled",
-    icon: Clock3,
+    id: "week",
+    label: "Week",
+    icon: Columns3,
   },
   {
-    id: "all",
-    label: "All Posts",
+    id: "list",
+    label: "List",
     icon: List,
   },
 ];
 
 export function ContentPlannerPage({ workspaceId }: ContentPlannerPageProps) {
-  const [view, setView] = useState<PlannerView>("calendar");
+  return <ContentPlannerWorkspace key={workspaceId} workspaceId={workspaceId} />;
+}
+
+function ContentPlannerWorkspace({ workspaceId }: ContentPlannerPageProps) {
+  const [view, setView] = useState<PlannerView>("month");
 
   const location = useLocation();
 
@@ -54,14 +57,10 @@ export function ContentPlannerPage({ workspaceId }: ContentPlannerPageProps) {
     new URLSearchParams(location.search).get("month"),
   );
 
-  const planner = useContentPlanner(workspaceId, initialMonth);
+  const planner = useContentPlanner(workspaceId, initialMonth, view);
   const navigate = useNavigate();
 
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
-
-  useEffect(() => {
-    setSelectedPost(null);
-  }, [workspaceId]);
 
   const visibleSelectedPost =
     selectedPost?.workspaceId === workspaceId ? selectedPost : null;
@@ -89,7 +88,7 @@ export function ContentPlannerPage({ workspaceId }: ContentPlannerPageProps) {
                 Content Planner
               </h1>
 
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-slate-600">
                 Plan, organize, and manage your social content.
               </p>
             </div>
@@ -98,14 +97,14 @@ export function ContentPlannerPage({ workspaceId }: ContentPlannerPageProps) {
           <div className="flex flex-wrap items-center gap-2">
             <Link
               to="/posts"
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
               Manage Posts
             </Link>
 
             <Link
               to={buildPlannerCreatePostUrl(plannerMonth)}
-              className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
             >
               <Plus size={17} />
               Create Post
@@ -139,10 +138,22 @@ export function ContentPlannerPage({ workspaceId }: ContentPlannerPageProps) {
                   role="tab"
                   id={`planner-tab-${item.id}`}
                   aria-selected={active}
+                  tabIndex={active ? 0 : -1}
+                  onKeyDown={(event) => {
+                    const index = plannerViews.findIndex((item) => item.id === view);
+                    const nextIndex = event.key === "ArrowRight" ? (index + 1) % plannerViews.length
+                      : event.key === "ArrowLeft" ? (index + plannerViews.length - 1) % plannerViews.length
+                      : event.key === "Home" ? 0 : event.key === "End" ? plannerViews.length - 1 : null;
+                    if (nextIndex === null) return;
+                    event.preventDefault();
+                    const next = plannerViews[nextIndex].id;
+                    setView(next);
+                    document.getElementById(`planner-tab-${next}`)?.focus();
+                  }}
                   aria-controls={`planner-panel-${item.id}`}
                   onClick={() => setView(item.id)}
                   className={[
-                    "inline-flex items-center gap-2 rounded-xl",
+                    "inline-flex min-h-11 items-center gap-2 rounded-xl",
                     "px-4 py-2.5 text-sm font-medium transition",
                     active
                       ? "bg-violet-100 text-violet-700"
@@ -160,41 +171,24 @@ export function ContentPlannerPage({ workspaceId }: ContentPlannerPageProps) {
             role="tabpanel"
             id={`planner-panel-${view}`}
             aria-labelledby={`planner-tab-${view}`}
-            className="min-h-[360px] py-8"
+            className="min-h-[360px] pt-5"
           >
-            {view === "calendar" && (
-              <CalendarMonthView
-                year={planner.year}
-                monthIndex={planner.monthIndex}
-                posts={planner.posts}
-                loading={planner.loading}
-                error={planner.error}
-                onPreviousMonth={planner.goToPreviousMonth}
-                onNextMonth={planner.goToNextMonth}
-                onToday={planner.goToCurrentMonth}
-                onRetry={planner.refreshCalendar}
-                onViewPost={setSelectedPost}
-                onCreateForDate={handleCreateForDate}
-              />
-            )}
-
-            {view === "scheduled" && (
-              <PlannerPostListView
-                key={`${workspaceId}:scheduled`}
-                workspaceId={workspaceId}
-                mode="scheduled"
-                onViewPost={setSelectedPost}
-              />
-            )}
-
-            {view === "all" && (
-              <PlannerPostListView
-                key={`${workspaceId}:all`}
-                workspaceId={workspaceId}
-                mode="all"
-                onViewPost={setSelectedPost}
-              />
-            )}
+            <CalendarMonthView
+              key={`${workspaceId}:${view}:${planner.range.start}`}
+              view={view}
+              weekAnchor={planner.weekAnchor}
+              year={planner.year}
+              monthIndex={planner.monthIndex}
+              posts={planner.posts}
+              loading={planner.loading}
+              error={planner.error}
+              onPreviousMonth={planner.goToPreviousMonth}
+              onNextMonth={planner.goToNextMonth}
+              onToday={planner.goToCurrentMonth}
+              onRetry={planner.refreshCalendar}
+              onViewPost={setSelectedPost}
+              onCreateForDate={handleCreateForDate}
+            />
           </div>
         </section>
         {visibleSelectedPost && (
@@ -207,34 +201,3 @@ export function ContentPlannerPage({ workspaceId }: ContentPlannerPageProps) {
     </main>
   );
 }
-
-/* type PlannerEmptyStateProps = {
-  icon: typeof CalendarDays;
-  title: string;
-  description: string;
-};
-
-function PlannerEmptyState({
-  icon: Icon,
-  title,
-  description,
-}: PlannerEmptyStateProps) {
-  return (
-    <div className="flex min-h-[280px] flex-col items-center justify-center px-4 text-center">
-      <div className="rounded-2xl bg-slate-100 p-4 text-slate-500">
-        <Icon size={28} />
-      </div>
-
-      <h2 className="mt-4 text-lg font-semibold">{title}</h2>
-
-      <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
-        {description}
-      </p>
-
-      <p className="mt-4 text-xs text-slate-400">
-        Workspace post integration is coming next.
-      </p>
-    </div>
-  );
-}
- */

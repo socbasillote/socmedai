@@ -1,3 +1,5 @@
+import { useComposerAutosave } from "@/features/posts/hooks/useComposerAutosave";
+import { useInstagramConnections } from "@/hooks/useInstagramConnections";
 import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -125,6 +127,15 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   const [caption, setCaption] = useState("");
 
   const [mediaState, setMediaState] = useState(() => createPostMediaState());
+  const contentScope = `${recoveryOwnerUserId}:${selectedWorkspaceId}`;
+  const [contentWorkspaceId, setContentWorkspaceId] = useState(contentScope);
+  if (mode === "create" && contentWorkspaceId !== contentScope) {
+    setContentWorkspaceId(contentScope);
+    setTitle("");
+    setCaption("");
+    setMediaState(createPostMediaState());
+  }
+
 
   // The current UI supports one selected image.
   // The underlying API supports multiple media IDs.
@@ -134,6 +145,11 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   const [selectedPlatforms, setSelectedPlatforms] = useState<PostPlatform[]>([
     "facebook",
   ]);
+
+  const instagram = useInstagramConnections(selectedWorkspaceId ?? "", selectedPlatforms.includes("instagram"));
+  const [selectedInstagram, setSelectedInstagram] = useState<{ workspaceId: string; id: string | null }>({ workspaceId: "", id: null });
+  const selectedInstagramConnectionId = selectedInstagram.workspaceId === selectedWorkspaceId ? selectedInstagram.id : null;
+  const validInstagramConnection = !instagram.loading && !instagram.error && instagram.connections.some((item) => item.id === selectedInstagramConnectionId && item.status === "connected" && item.canPublish);
 
   // Publishing options
   const [postMode, setPostMode] = useState<PostMode>(() =>
@@ -194,6 +210,17 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     string | null
   >(null);
 
+  const autosaveDate = parseLocalScheduleDate(scheduledAt);
+  const composerAutosave = useComposerAutosave({
+    ownerId: recoveryOwnerUserId,
+    enabled: mode === "create" && !saving && !publishing && !savedPublishingPostId,
+    content: {
+      workspaceId: selectedWorkspaceId ?? "", title, caption,
+      platforms: selectedPlatforms, mediaIds: [...mediaState.selectedMediaIds],
+      ...(autosaveDate ? { scheduledAt: autosaveDate.toISOString() } : {}),
+    },
+  });
+
   const minScheduledAt = getLocalDateTime();
 
   useEffect(() => {
@@ -235,6 +262,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           post.platformConnections?.facebook ?? null,
         );
 
+        setSelectedInstagram({ workspaceId: post.workspaceId, id: post.platformConnections?.instagram ?? null });
         // Restore the original media snapshot.
         setMediaState(createPostMediaState(post.mediaIds ?? []));
 
@@ -424,6 +452,9 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       }
     }
 
+    if (postMode === "scheduled" && selectedPlatforms.includes("instagram") && (!validInstagramConnection || mediaState.selectedMediaIds.length !== 1 || caption.trim().length > 2200)) {
+      setError("Instagram scheduling requires a connected account, one image, and a caption of at most 2,200 characters."); return;
+    }
     if (mode === "create") {
       if (workspacesLoading) {
         setError("Please wait while your workspace loads.");
@@ -442,7 +473,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
       // Scheduled media publishing is not supported yet.
       // Image attachments can be saved with drafts only.
-      if (postMode === "scheduled" && mediaState.selectedMediaIds.length > 0) {
+      if (postMode === "scheduled" && !selectedPlatforms.includes("instagram") && mediaState.selectedMediaIds.length > 0) {
         setError(
           "Scheduled image publishing is not supported yet. " +
             "Save this post as a draft or remove the image.",
@@ -496,13 +527,15 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
       try {
         await createPost({
+          clientDraftId: composerAutosave.clientDraftId,
           workspaceId: selectedWorkspace._id,
-          title: trimmedTitle,
+          title: trimmedTitle || "Untitled",
           caption: trimmedCaption,
           mediaIds: [...mediaState.selectedMediaIds],
           platforms: selectedPlatforms,
           scheduledAt: scheduledAtIso,
           platformConnections: {
+            ...(selectedPlatforms.includes("instagram") && validInstagramConnection && selectedInstagramConnectionId ? { instagram: selectedInstagramConnectionId } : {}),
             ...(selectedPlatforms.includes("linkedin") && linkedInConnectionId
               ? { linkedin: linkedInConnectionId }
               : {}),
@@ -514,6 +547,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           },
         });
 
+        composerAutosave.complete();
         // The server may have saved this draft successfully,
         // even if the user changed workspaces meanwhile.
         //
@@ -568,8 +602,9 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         ...getPostMediaUpdate(mediaState),
         platforms: selectedPlatforms,
 
-        ...(selectedPlatforms.includes("facebook") &&
-        selectedFacebookConnectionId
+        ...(selectedPlatforms.includes("instagram") && validInstagramConnection && selectedInstagramConnectionId
+          ? { platformConnections: { instagram: selectedInstagramConnectionId, ...(selectedPlatforms.includes("facebook") && selectedFacebookConnectionId ? { facebook: selectedFacebookConnectionId } : {}) } }
+          : selectedPlatforms.includes("facebook") && selectedFacebookConnectionId
           ? {
               platformConnections: {
                 facebook: selectedFacebookConnectionId,
@@ -641,7 +676,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         ? selectedFacebookConnectionId
         : platform === "linkedin"
           ? linkedInConnectionId
-          : null;
+          : platform === "instagram" ? selectedInstagramConnectionId : null;
 
     const validConnection =
       platform === "facebook"
@@ -650,13 +685,14 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           validFacebookConnection
         : platform === "linkedin"
           ? linkedInStatus === "connected" && Boolean(linkedInConnectionId)
-          : false;
+          : platform === "instagram" && validInstagramConnection;
 
     if (
       (mode === "edit" && !postId) ||
       mediaState.selectedMediaIds.length > 1 ||
       !selectedWorkspace ||
       !caption.trim() ||
+      (platform === "instagram" && (mediaState.selectedMediaIds.length !== 1 || caption.trim().length > 2200)) ||
       selectedPlatforms.length !== 1 ||
       !validConnection ||
       !connectionId
@@ -669,9 +705,9 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       return;
     }
 
-    const publishingPlatform = platform as "facebook" | "linkedin";
+    const publishingPlatform = platform as "facebook" | "linkedin" | "instagram";
     const platformLabel =
-      publishingPlatform === "facebook" ? "Facebook" : "LinkedIn";
+      publishingPlatform === "instagram" ? "Instagram" : publishingPlatform === "facebook" ? "Facebook" : "LinkedIn";
 
     const platformConnections = {
       [publishingPlatform]: connectionId,
@@ -695,7 +731,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
       if (mode === "edit") {
         await updateDraftPost(postId!, {
-          title: title.trim(),
+          title: title.trim() || "Untitled",
           caption: caption.trim(),
           ...getPostMediaUpdate(mediaState),
           platforms: [publishingPlatform],
@@ -706,14 +742,16 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         savedPostId = targetPostId;
       } else {
         const draft = await createPost({
+          clientDraftId: composerAutosave.clientDraftId,
           workspaceId: selectedWorkspace._id,
-          title: title.trim(),
+          title: title.trim() || "Untitled",
           caption: caption.trim(),
           platforms: [publishingPlatform],
           mediaIds: [...mediaState.selectedMediaIds],
           platformConnections,
         });
 
+        composerAutosave.complete();
         targetPostId = draft._id;
         savedPostId = targetPostId;
       }
@@ -902,6 +940,10 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         );
         return;
       }
+    } else if (platform === "instagram") {
+      if (!validInstagramConnection || mediaState.selectedMediaIds.length !== 1 || caption.trim().length > 2200) {
+        setError("Select a connected Instagram account, one image, and a caption of at most 2,200 characters."); return;
+      }
     } else {
       setError("Publish Now does not support this platform yet.");
       return;
@@ -919,7 +961,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   }
 
   const publishingPlatformLabel =
-    selectedPlatforms[0] === "facebook" ? "Facebook" : "LinkedIn";
+    selectedPlatforms[0] === "instagram" ? "Instagram" : selectedPlatforms[0] === "facebook" ? "Facebook" : "LinkedIn";
 
   // Phase 13.3.1:
   // Derive checklist data from the existing editor state.
@@ -979,7 +1021,11 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     }
 
     if (platform === "instagram") {
-      accountName = "Instagram connection unavailable";
+      const connection = instagram.connections.find((item) => item.id === selectedInstagramConnectionId);
+      connectionId = connection?.id ?? "";
+      accountName = connection ? `@${connection.username}` : "Select an Instagram account";
+      connected = validInstagramConnection;
+      canPublish = validInstagramConnection;
       format = "image";
     }
 
@@ -993,9 +1039,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
     checklistDraft = addDestination(checklistDraft, destination);
 
-    // Instagram is intentionally not given a verified
-    // publishing account until its integration exists.
-    if (platform !== "instagram" && connectionId) {
+    if (connectionId) {
       accountCapabilities.accounts[destination.id] = {
         connectionId,
         connected,
@@ -1030,7 +1074,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     );
   }
 
-  if (mode === "edit" && postMode !== "draft") {
+  if (mode === "edit" && postMode === "scheduled") {
     checklistBlockers.push(
       "Scheduling an existing draft is not supported by " +
         "the current editor.",
@@ -1109,6 +1153,12 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         setScheduledAt(value);
         setError("");
       }}
+      instagramConnections={instagram.connections}
+      selectedInstagramConnectionId={selectedInstagramConnectionId}
+      instagramLoading={instagram.loading}
+      instagramError={instagram.error}
+      onInstagramConnectionChange={(id) => setSelectedInstagram({ workspaceId: selectedWorkspaceId ?? "", id })}
+      onConnectInstagram={(id) => { void instagram.connect(id); }}
       facebookConnections={facebookConnections}
       selectedFacebookConnectionId={
         facebookConnections.some(
@@ -1184,7 +1234,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
                 selectedMediaAssetId={selectedMediaAssetId}
                 accountName={selectedPlatforms[0] === "facebook"
                   ? facebookConnections.find((connection) => connection.id === selectedFacebookConnectionId)?.pageName || "Your Facebook Page"
-                  : selectedPlatforms[0] === "linkedin" ? linkedInDisplayName || "Your LinkedIn account" : "Your social account"}
+                  : selectedPlatforms[0] === "linkedin" ? linkedInDisplayName || "Your LinkedIn account" : `@${instagram.connections.find((item) => item.id === selectedInstagramConnectionId)?.username ?? "Instagram account"}`}
                 caption={caption}
                 platforms={selectedPlatforms}
               />
@@ -1298,6 +1348,13 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
               </p>
             </div>
           )}
+          {mode === "create" && <p role="status" className="mb-4 text-xs text-slate-600">
+            {composerAutosave.status === "saving" ? "Saving draft..."
+              : composerAutosave.status === "saved" ? "Draft saved automatically"
+              : composerAutosave.status === "pending" ? "Draft saved on this device; waiting to sync"
+              : composerAutosave.status === "unavailable" ? "Autosave unavailable. Save your draft before leaving."
+              : "Your work saves automatically as a draft"}
+          </p>}
           {editorContent}
         </PostEditorPage>
       </div>
@@ -1337,7 +1394,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
               <p className="mt-2 text-sm font-semibold text-slate-900">
                 {selectedPlatforms[0] === "facebook"
                   ? facebookConnections.find((connection) => connection.id === selectedFacebookConnectionId)?.pageName || "Selected Facebook Page"
-                  : linkedInDisplayName || "Connected LinkedIn account"}
+                  : selectedPlatforms[0] === "instagram" ? `@${instagram.connections.find((item) => item.id === selectedInstagramConnectionId)?.username ?? "Instagram account"}` : linkedInDisplayName || "Connected LinkedIn account"}
               </p>
 
               <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">

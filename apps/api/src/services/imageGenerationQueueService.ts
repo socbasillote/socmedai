@@ -70,7 +70,7 @@ export async function enqueueImageGeneration(
   // Trust only backend configuration; never accept provider/model
   // selection from the HTTP command.
   let generation: { provider: string; model: string };
-  let policy: { dailyLimit: number; maxActive: number };
+  let policy: { dailyLimit: number | null; maxActive: number | null };
 
   if (input.config.IMAGE_GENERATION_PROVIDER === "mock") {
     const provider = new MockImageProvider();
@@ -106,6 +106,11 @@ export async function enqueueImageGeneration(
         input.config.IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE,
       ),
     };
+  }
+
+  // Null quotas explicitly mean unlimited; counters and credit accounting remain active.
+  if (!input.config.IMAGE_GENERATION_LIMITS_ENABLED) {
+    policy = { dailyLimit: null, maxActive: null };
   }
 
   const admitted = await admitImageGeneration({

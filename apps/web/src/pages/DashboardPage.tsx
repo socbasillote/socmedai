@@ -83,7 +83,7 @@ export default function DashboardPage() {
   const posts = useDashboardPosts(selectedWorkspaceId, setNotice,
     activePage === "Overview" || activePage === "Posts");
 
-  const { search, setSearch, selectedPost, handleStudioPostSaved } = posts;
+  const { selectedPost, handleStudioPostSaved } = posts;
 
   const {
     facebookCallbackPending,
@@ -150,8 +150,6 @@ export default function DashboardPage() {
         }}
         workspaceName={selectedWorkspace?.name}
         workspacesLoading={workspacesLoading}
-        search={search}
-        onSearchChange={setSearch}
         onOpenNavigation={openNavigation}
         onNotificationClick={() =>
           setNotice("You are all caught up on notifications.")
@@ -230,6 +228,7 @@ export default function DashboardPage() {
           />
         ) : activePage === "Posts" ? (
           <DashboardPostsView
+            onCreatePost={handleOpenPostEditor}
             posts={posts}
             onEditDraft={(postId) => {
               navigate(`/posts/${encodeURIComponent(postId)}/edit`);

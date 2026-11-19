@@ -4,6 +4,7 @@ import { POST_PLATFORMS } from "../models/Post.js";
 
 const platformConnectionsSchema = z
   .object({
+    instagram: z.string().regex(/^[a-f0-9]{24}$/i).optional(),
     facebook: z
       .string()
       .regex(/^[a-fA-F0-9]{24}$/, {
@@ -36,6 +37,7 @@ export const postMediaIdsSchema = z
 
 export const createPostSchema = z
   .object({
+    clientDraftId: z.uuid().optional(),
     workspaceId: z.string().regex(/^[a-f\d]{24}$/i, {
       message: "A valid workspace ID is required.",
     }),
@@ -82,6 +84,9 @@ export const createPostSchema = z
           "A Facebook Page can only be selected when Facebook is a publishing platform.",
       });
     }
+    if (data.platformConnections?.instagram && !data.platforms.includes("instagram")) {
+      context.addIssue({ code: "custom", path: ["platformConnections", "instagram"], message: "Select Instagram before choosing an Instagram account." });
+    }
     if (data.scheduledAt) {
       const scheduledTime = new Date(data.scheduledAt).getTime();
 
@@ -94,23 +99,26 @@ export const createPostSchema = z
       }
     }
     if (data.scheduledAt !== undefined) {
-      const limit = data.platforms.includes("linkedin") ? 3000 : 5000;
+      const limit = data.platforms.includes("instagram") ? 2200 : data.platforms.includes("linkedin") ? 3000 : 5000;
       if (data.caption.length > limit) context.addIssue({ code: "custom", path: ["caption"], message: `Caption must not exceed ${limit} characters for scheduled publishing.` });
       // Scheduled publishing currently supports one destination.
       if (
         data.platforms.length !== 1 ||
-        !["facebook", "linkedin"].includes(data.platforms[0])
+        !["facebook", "linkedin", "instagram"].includes(data.platforms[0])
       ) {
         context.addIssue({
           code: "custom",
           path: ["platforms"],
           message:
-            "Scheduled publishing requires exactly one Facebook or LinkedIn platform.",
+            "Scheduled publishing requires exactly one Facebook, LinkedIn, or Instagram platform.",
         });
       }
 
       const selectedPlatform = data.platforms[0];
 
+      if (selectedPlatform === "instagram" && (!data.platformConnections?.instagram || data.mediaIds.length !== 1)) {
+        context.addIssue({ code: "custom", path: ["mediaIds"], message: "Scheduled Instagram posts require a connected Instagram account and exactly one image." });
+      }
       if (selectedPlatform === "facebook") {
         if (!data.platformConnections?.facebook) {
           context.addIssue({
@@ -131,7 +139,7 @@ export const createPostSchema = z
         }
       }
 
-      if (data.mediaIds.length > 0) {
+      if (selectedPlatform !== "instagram" && data.mediaIds.length > 0) {
         context.addIssue({
           code: "custom",
           path: ["mediaIds"],
@@ -179,6 +187,7 @@ export const updateDraftPostSchema = z
 
 export const listWorkspacePostsQuerySchema = z
   .object({
+    sort: z.enum(["newest", "oldest"]).optional(),
     limit: z.coerce
       .number()
       .int("Limit must be a whole number.")
@@ -210,3 +219,16 @@ export type ListWorkspacePostsQuery = z.infer<
 export type UpdateDraftPostInput = z.infer<typeof updateDraftPostSchema>;
 
 export type CreatePostInput = z.infer<typeof createPostSchema>;
+
+// Incomplete content is allowed only for draft autosave, never for publishing.
+export const autosaveDraftSchema = z.object({
+  workspaceId: z.string().regex(/^[a-f0-9]{24}$/i),
+  clientDraftId: z.uuid(),
+  revision: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+  title: z.string().trim().max(150),
+  caption: z.string().max(10000),
+  platforms: z.array(z.enum(POST_PLATFORMS)).max(3).refine((items) => new Set(items).size === items.length),
+  mediaIds: postMediaIdsSchema,
+  scheduledAt: z.iso.datetime().optional(),
+}).strict();
+export type AutosaveDraftInput = z.infer<typeof autosaveDraftSchema>;

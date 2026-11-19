@@ -16,6 +16,7 @@ type UsePostPaginationOptions = {
   setDraftCount: (count: number) => void;
   setPostsLoadError: (error: string) => void;
   enabled?: boolean;
+  sort?: "newest" | "oldest";
 };
 
 export function usePostPagination({
@@ -30,8 +31,9 @@ export function usePostPagination({
   setDraftCount,
   setPostsLoadError,
   enabled = true,
+  sort = "newest",
 }: UsePostPaginationOptions) {
-  const requestKey = JSON.stringify([selectedWorkspaceId, search, statusFilter, platformFilter, enabled]);
+  const requestKey = JSON.stringify([selectedWorkspaceId, search, statusFilter, platformFilter, enabled, sort]);
   const [loadingKey, setLoadingKey] = useState<string | null>(null);
   const loadingMorePosts = loadingKey === requestKey;
   const pending = useRef<AbortController | null>(null);
@@ -52,6 +54,7 @@ export function usePostPagination({
         cursor: nextPostsCursor,
         signal: controller.signal,
         limit: 20,
+        sort,
         search,
         status: statusFilter,
         platform: platformFilter,

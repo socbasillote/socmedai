@@ -39,6 +39,9 @@ const postSchema = new Schema(
       ref: "UserProfile",
       required: true,
     },
+    clientDraftId: { type: String },
+    autosaveRevision: { type: Number, default: 0 },
+    autosaveClosed: { type: Boolean, default: false },
     title: {
       type: String,
       trim: true,
@@ -46,7 +49,9 @@ const postSchema = new Schema(
     },
     caption: {
       type: String,
-      required: true,
+      required: function (this: { status?: string; get?: (path: string) => unknown }) {
+        return (this.get?.("status") ?? this.status) !== "draft";
+      },
       trim: true,
       maxlength: 10000,
     },
@@ -63,11 +68,14 @@ const postSchema = new Schema(
       ],
       required: true,
       validate: {
-        validator: (platforms: string[]) => platforms.length > 0,
+        validator: function (this: { status?: string; get?: (path: string) => unknown }, platforms: string[]) {
+          return (this.get?.("status") ?? this.status) === "draft" || platforms.length > 0;
+        },
         message: "Select at least one publishing platform.",
       },
     },
     platformConnections: {
+      instagram: { type: Schema.Types.ObjectId, ref: "InstagramConnection", default: undefined },
       linkedin: {
         type: Schema.Types.ObjectId,
         ref: "LinkedInConnection",
@@ -173,6 +181,10 @@ postSchema.index({ status: 1, scheduledAt: 1, _id: 1 });
 postSchema.index({ status: 1, scheduledLeaseExpiresAt: 1 });
 postSchema.index({ workspaceId: 1, updatedAt: -1 });
 postSchema.index({ workspaceId: 1, status: 1, scheduledAt: 1 });
+
+postSchema.index({ workspaceId: 1, createdByUserId: 1, clientDraftId: 1 }, {
+  unique: true, partialFilterExpression: { clientDraftId: { $type: "string" } },
+});
 
 const Post = mongoose.models.Post ?? mongoose.model("Post", postSchema);
 

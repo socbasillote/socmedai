@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import UserProfile from "../models/UserProfile.js";
 import Workspace from "../models/Workspace.js";
@@ -20,6 +20,7 @@ import type { AuthenticatedUser } from "./userProfileService.js";
 
 import { enqueueImageGeneration } from "./imageGenerationQueueService.js";
 
+import { getImageGenerationCredits } from "./imageGenerationApiQueryService.js";
 import { listWorkspaceImageHistory } from "./imageGenerationHistoryService.js";
 
 let mongo: MongoMemoryReplSet;
@@ -115,6 +116,8 @@ beforeEach(async () => {
   });
 });
 
+afterEach(() => vi.unstubAllEnvs());
+
 afterAll(async () => {
   await mongoose.disconnect();
   await mongo?.stop();
@@ -151,6 +154,38 @@ describe("Durable image queue admission", () => {
 
     expect(admission?.state).toBe("active");
     expect(admission?.creditsCharged).toBe(1);
+  });
+
+  it.each(["mock", "openai"] as const)("admits %s jobs past quotas when disabled, retaining counters and billing", async (provider) => {
+    if (provider === "openai") {
+      const liveEnvironment = {
+        IMAGE_GENERATION_PROVIDER: "openai", IMAGE_GENERATION_LIVE_ENABLED: "true",
+        IMAGE_GENERATION_LIVE_WORKER_ENABLED: "true", IMAGE_GENERATION_LIVE_ROLLOUT: "internal",
+        IMAGE_GENERATION_MODEL: "gpt-image-2", IMAGE_GENERATION_LIMITS_ENABLED: "false",
+        IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST: workspaceId,
+        IMAGE_GENERATION_LIVE_MAX_ACTIVE: "1", IMAGE_GENERATION_LIVE_DAILY_LIMIT: "1",
+        IMAGE_GENERATION_LIVE_CREDIT_COST: "1", OPENAI_API_KEY: "fake-key-no-provider-calls",
+      };
+      for (const [key, value] of Object.entries(liveEnvironment)) vi.stubEnv(key, value);
+    }
+    await UserCreditWallet.updateOne({ userId }, { $set: { balance: 5 } });
+    const unlimited = parseImageGenerationConfig({
+      IMAGE_GENERATION_PROVIDER: provider,
+      IMAGE_GENERATION_LIVE_ENABLED: provider === "openai" ? "true" : "false",
+      IMAGE_GENERATION_DAILY_WORKSPACE_LIMIT: "1",
+      IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE: "1",
+    });
+    for (let index = 0; index < 3; index++) {
+      await enqueueImageGeneration({ ...input(`unlimited-request-${index}`), config: unlimited });
+    }
+    const usage = await getImageGenerationCredits(authUser, workspaceId, unlimited);
+    expect(usage.usage).toMatchObject({ attempts: 3, active: 3, dailyLimit: null, maxActive: null });
+    expect(await walletBalance()).toBe(2);
+    await expect(enqueueImageGeneration({
+      ...input("unlimited-request-denied"),
+      config: { ...unlimited, IMAGE_GENERATION_LIMITS_ENABLED: true },
+    })).rejects.toMatchObject({ statusCode: 429 });
+    expect(await walletBalance()).toBe(2);
   });
 
   it("does not charge twice for an identical retry", async () => {

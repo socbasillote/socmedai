@@ -1,3 +1,4 @@
+import { ComposerDraftSync } from "@/features/posts/components/ComposerDraftSync";
 import { lazy, Suspense } from "react";
 import { useLocation, Navigate } from "react-router";
 import { useAuth } from "@/auth/useAuth";
@@ -46,14 +47,14 @@ export default function App() {
 
   if (isNewPostRoute || editPostMatch) {
     return (
-      <Suspense fallback={<RouteLoading />}><PostEditorRoute
+      <><ComposerDraftSync ownerId={user?.id ?? null} /><Suspense fallback={<RouteLoading />}><PostEditorRoute
         mode={isNewPostRoute ? "create" : "edit"}
         postId={editPostMatch?.[1]}
-      /></Suspense>
+      /></Suspense></>
     );
   }
 
-  return <Suspense fallback={<RouteLoading />}><DashboardPage /></Suspense>;
+  return <><ComposerDraftSync ownerId={user?.id ?? null} /><Suspense fallback={<RouteLoading />}><DashboardPage /></Suspense></>;
 }
 
 function RouteLoading() {

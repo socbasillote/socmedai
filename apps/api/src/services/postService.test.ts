@@ -346,6 +346,7 @@ describe("postService", () => {
         nextCursor: "post-1",
         hasMore: true,
         draftCount: 0,
+        statusCounts: { all: 0, published: 0, scheduled: 0, draft: 0, failed: 0 },
       });
     });
 
@@ -409,6 +410,7 @@ describe("postService", () => {
         nextCursor: null,
         hasMore: false,
         draftCount: 0,
+        statusCounts: { all: 0, published: 0, scheduled: 0, draft: 0, failed: 0 },
       });
     });
 
@@ -436,6 +438,35 @@ describe("postService", () => {
       expect(result).toMatchObject({
         draftCount: 3,
       });
+    });
+
+    it("counts matching statuses and uses ascending cursors for oldest-first sorting", async () => {
+      mockAuthorizedWorkspace();
+      const cursorId = "507f1f77bcf86cd799439011";
+      const cursorDate = new Date("2026-10-01T12:00:00Z");
+      mocks.postFindOne.mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        lean: vi.fn().mockResolvedValue({ _id: cursorId, updatedAt: cursorDate }),
+      });
+      const sort = vi.fn().mockReturnThis();
+      mocks.postFind.mockReturnValue({
+        select: vi.fn().mockReturnThis(), sort,
+        limit: vi.fn().mockReturnThis(), lean: vi.fn().mockResolvedValue([]),
+      });
+      mocks.postCountDocuments.mockImplementation(async (filter) => filter.status === "published" ? 3 : 7);
+      const result = await listWorkspacePosts(authUser, workspaceId, {
+        limit: 1, cursor: cursorId, status: "draft", platform: "linkedin", search: "launch", sort: "oldest",
+      });
+      expect(sort).toHaveBeenCalledWith({ updatedAt: 1, _id: 1 });
+      expect(mocks.postFind).toHaveBeenCalledWith(expect.objectContaining({
+        status: "draft", $and: expect.arrayContaining([{
+          $or: [{ updatedAt: { $gt: cursorDate } }, { updatedAt: cursorDate, _id: { $gt: cursorId } }],
+        }]),
+      }));
+      expect(result).toMatchObject({ statusCounts: { all: 7, published: 3 } });
+      const countFilters = mocks.postCountDocuments.mock.calls.map(([filter]) => filter);
+      expect(countFilters).toContainEqual(expect.objectContaining({ platforms: "linkedin", status: "published", $and: expect.any(Array) }));
+      expect(countFilters.some((filter) => !filter.status && filter.platforms === "linkedin" && filter.$and.length === 1)).toBe(true);
     });
 
     it("filters paginated posts by platform", async () => {

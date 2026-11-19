@@ -1,3 +1,4 @@
+import { imageGenerationProgress } from "./imageGenerationProgress.js";
 import mongoose from "mongoose";
 
 import MediaAsset from "../models/MediaAsset.js";
@@ -28,6 +29,7 @@ export type ImageHistoryItem = {
   assetId: string;
   status: ImageHistoryStatus;
   state: ImageHistoryState;
+  progress: ReturnType<typeof imageGenerationProgress>;
   createdAt: string;
   updatedAt: string;
   aspectRatio: "square" | "portrait" | "landscape";
@@ -230,6 +232,7 @@ export async function listWorkspaceImageHistory(
       assetId: String(asset._id),
       status,
       state: historyState(status, asset.generationExecution?.phase),
+      progress: imageGenerationProgress(status, asset.generationExecution?.phase),
       createdAt: asset.createdAt.toISOString(),
       updatedAt: asset.updatedAt.toISOString(),
       aspectRatio:

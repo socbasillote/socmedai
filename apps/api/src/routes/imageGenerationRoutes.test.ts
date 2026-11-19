@@ -226,6 +226,7 @@ describe("Image generation HTTP routes", () => {
       assetId,
       status: "ready",
       state: "ready",
+      progress: { stage: "completed", label: "Image ready" },
       createdAt: new Date("2026-11-07T00:00:00Z"),
       updatedAt: new Date("2026-11-07T00:01:00Z"),
       image: {

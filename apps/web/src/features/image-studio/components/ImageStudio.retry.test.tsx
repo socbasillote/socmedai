@@ -346,3 +346,15 @@ describe("Image Studio immutable retry", () => {
     });
   });
 });
+
+it("shows unlimited usage and enables generation beyond previous quotas", async () => {
+  vi.mocked(getImageGenerationCredits).mockResolvedValue({
+    credits: { available: 5, costPerImage: 1 },
+    usage: { dayUtc: "2026-11-13", attempts: 100, dailyLimit: null, active: 50, maxActive: null },
+  });
+  render(<ImageStudio selectedWorkspaceId={workspaceId} />);
+  fireEvent.change(screen.getByLabelText("Image prompt"), { target: { value: originalPrompt } });
+  await screen.findByText("100 / Unlimited");
+  expect(screen.getByText(/Active operations: 50 \/ Unlimited/)).toBeTruthy();
+  await waitFor(() => expect(screen.getByRole("button", { name: /^Generate image/ })).not.toHaveProperty("disabled", true));
+});

@@ -1,3 +1,4 @@
+import { imageGenerationProgress } from "./imageGenerationProgress.js";
 import mongoose from "mongoose";
 
 import UserProfile from "../models/UserProfile.js";
@@ -18,6 +19,7 @@ import {
 
 import type { AuthenticatedUser } from "./userProfileService.js";
 
+import { parseLiveImageGateConfig } from "./imageGenerationLiveGate.js";
 import type { ImageGenerationConfig } from "../config/imageGenerationConfig.js";
 
 export class ImageGenerationApiQueryError extends Error {
@@ -89,6 +91,13 @@ export async function getImageGenerationCredits(
       .lean(),
   ]);
 
+  const liveConfig = config.IMAGE_GENERATION_LIMITS_ENABLED && config.IMAGE_GENERATION_PROVIDER === "openai"
+    ? parseLiveImageGateConfig(process.env) : null;
+  const dailyLimit = !config.IMAGE_GENERATION_LIMITS_ENABLED ? null
+    : Math.min(config.IMAGE_GENERATION_DAILY_WORKSPACE_LIMIT, liveConfig?.dailyLimit ?? Infinity);
+  const maxActive = !config.IMAGE_GENERATION_LIMITS_ENABLED ? null
+    : Math.min(config.IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE, liveConfig?.maxActive ?? Infinity);
+
   return {
     credits: {
       available: wallet?.balance ?? 0,
@@ -97,10 +106,10 @@ export async function getImageGenerationCredits(
     usage: {
       dayUtc,
       attempts: daily?.attempts ?? 0,
-      dailyLimit: config.IMAGE_GENERATION_DAILY_WORKSPACE_LIMIT,
+      dailyLimit,
 
       active: capacity?.active ?? 0,
-      maxActive: config.IMAGE_GENERATION_MAX_ACTIVE_WORKSPACE,
+      maxActive,
     },
   };
 }
@@ -137,6 +146,7 @@ export async function getImageGenerationStatus(
     assetId: String(asset._id),
     status,
     state,
+    progress: imageGenerationProgress(status, asset.generationExecution.phase),
     createdAt: asset.createdAt,
     updatedAt: asset.updatedAt,
 

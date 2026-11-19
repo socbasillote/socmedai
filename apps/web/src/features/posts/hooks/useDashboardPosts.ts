@@ -35,6 +35,7 @@ export function useDashboardPosts(
   setNotice: NoticeHandler,
   enabled = true,
 ) {
+  const [sort, setSort] = useState<"newest" | "oldest">("newest");
   // 1. Filter state
   const {
     search,
@@ -48,6 +49,7 @@ export function useDashboardPosts(
   // 2. Workspace-scoped post data
   const {
     savedPosts,
+    statusCounts,
     setSavedPosts,
     draftCount,
     setDraftCount,
@@ -58,11 +60,12 @@ export function useDashboardPosts(
     setNextPostsCursor,
     hasMorePosts,
     setHasMorePosts,
-  } = usePosts(selectedWorkspaceId, search, statusFilter, platformFilter, enabled);
+  } = usePosts(selectedWorkspaceId, search, statusFilter, platformFilter, enabled, sort);
 
   // 3. Pagination
   const { loadingMorePosts, handleLoadMorePosts } = usePostPagination({
     enabled,
+    sort,
     selectedWorkspaceId,
     nextPostsCursor,
     search,
@@ -134,6 +137,7 @@ export function useDashboardPosts(
    */
   const handleStudioPostSaved = useCallback(
     (post: Post) => {
+      window.dispatchEvent(new Event("storm:posts-changed"));
       setSavedPosts((current) => [
         post,
         ...current.filter((item) => item._id !== post._id),
@@ -154,6 +158,9 @@ export function useDashboardPosts(
 
   return {
     // Filters
+    sort,
+    setSort,
+    statusCounts,
     search,
     setSearch,
     statusFilter,

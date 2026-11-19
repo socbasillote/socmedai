@@ -34,7 +34,7 @@ export async function findAuthorizedCalendarPosts(
     $or: [
       {
         status: {
-          $in: ["scheduled", "publishing", "failed", "unknown"],
+          $in: ["draft", "scheduled", "publishing", "failed", "unknown"],
         },
         scheduledAt: {
           $gte: start,

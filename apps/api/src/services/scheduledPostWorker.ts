@@ -26,8 +26,10 @@ export async function claimNextDuePost(now: Date = new Date()) {
         },
         {
           $or: [
+            { platforms: ["instagram"], mediaIds: { $size: 1 }, "platformConnections.instagram": { $exists: true, $ne: null } },
             {
               platforms: ["facebook"],
+              mediaIds: { $size: 0 },
               "platformConnections.facebook": {
                 $exists: true,
                 $ne: null,
@@ -35,6 +37,7 @@ export async function claimNextDuePost(now: Date = new Date()) {
             },
             {
               platforms: ["linkedin"],
+              mediaIds: { $size: 0 },
               "platformConnections.linkedin": {
                 $exists: true,
                 $ne: null,
@@ -44,8 +47,7 @@ export async function claimNextDuePost(now: Date = new Date()) {
         },
       ],
 
-      // Scheduled publishing currently supports text only.
-      mediaIds: { $size: 0 },
+      // Platform-specific attachment limits are included in the claim above.
     },
     {
       $set: {

@@ -136,19 +136,19 @@ export async function dispatchScheduledPost(
     // 2. Validate publishing platform.
     if (
       post.platforms.length !== 1 ||
-      !["facebook", "linkedin"].includes(post.platforms[0])
+      !["facebook", "linkedin", "instagram"].includes(post.platforms[0])
     ) {
       throw new ScheduledPublishingError(
-        "Scheduled publishing supports one Facebook or LinkedIn destination.",
+        "Scheduled publishing supports one Facebook, LinkedIn, or Instagram destination.",
       );
     }
 
     const platform = post.platforms[0];
 
-    // 3. Keep media publishing disabled.
-    if (post.mediaIds.length > 0) {
+    // 3. Instagram requires one image; other scheduled platforms remain text-only.
+    if (platform === "instagram" ? post.mediaIds.length !== 1 : post.mediaIds.length > 0) {
       throw new ScheduledPublishingError(
-        "Scheduled media publishing is not supported yet.",
+        "Schedule one Instagram image or a text-only Facebook or LinkedIn post.",
       );
     }
 
@@ -158,7 +158,9 @@ export async function dispatchScheduledPost(
 
     // 4. Require an explicitly saved connection.
     const connectionId =
-      platform === "facebook"
+      platform === "instagram"
+        ? post.platformConnections?.instagram
+        : platform === "facebook"
         ? post.platformConnections?.facebook
         : post.platformConnections?.linkedin;
 

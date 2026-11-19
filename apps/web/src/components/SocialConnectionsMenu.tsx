@@ -1,3 +1,5 @@
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { InstagramConnectionsPanel } from "@/components/InstagramConnectionsPanel";
 import { useEffect, useId, useRef, useState } from "react";
 import type { ComponentProps } from "react";
 
@@ -50,7 +52,7 @@ export function SocialConnectionsMenu({
   useEffect(() => {
     if (!open) return;
 
-    function handlePointerDown(event: PointerEvent) {
+    function handlePointerDown(event: Event) {
       if (
         event.target instanceof Node &&
         !containerRef.current?.contains(event.target)
@@ -67,10 +69,12 @@ export function SocialConnectionsMenu({
     }
 
     document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("focusin", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
 
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("focusin", handlePointerDown);
 
       document.removeEventListener("keydown", handleKeyDown);
     };
@@ -91,9 +95,7 @@ export function SocialConnectionsMenu({
 
         <span className="sm:hidden">Accounts</span>
 
-        <span aria-hidden="true" className="text-slate-400">
-          {open ? "▴" : "▾"}
-        </span>
+        {open ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
       </Button>
 
       {open && (
@@ -101,8 +103,8 @@ export function SocialConnectionsMenu({
           id={panelId}
           aria-label="Social account connections"
           className="
-            absolute right-0 top-full z-50 mt-2
-            w-[min(22rem,calc(100vw-2rem))]
+            fixed inset-x-4 top-20 z-50 max-h-[calc(100dvh-6rem)] overflow-y-auto
+            sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-88
             rounded-xl border border-slate-200
             bg-white p-4 shadow-xl
           "
@@ -280,6 +282,15 @@ export function SocialConnectionsMenu({
                 </p>
               )}
             </div>
+            <InstagramConnectionsPanel key={facebookProps.workspaceId}
+              workspaceId={facebookProps.workspaceId}
+              workspacesLoading={facebookProps.workspacesLoading}
+              pages={facebookConnections}
+              pagesLoading={facebookConnectionsLoading}
+              pagesError={facebookConnectionsError}
+              facebookConnecting={facebookProps.connecting}
+              onReconnectFacebook={facebookProps.onConnect}
+            />
           </div>
         </section>
       )}

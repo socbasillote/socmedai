@@ -44,9 +44,9 @@ export type ImageGenerationCredits = {
   usage: {
     dayUtc: string;
     attempts: number;
-    dailyLimit: number;
+    dailyLimit: number | null;
     active: number;
-    maxActive: number;
+    maxActive: number | null;
   };
 };
 
@@ -57,10 +57,16 @@ export type ImageGenerationSubmission = {
   creditsChargedNow: number;
 };
 
+export type ImageGenerationProgress = {
+  stage: "queued" | "preparing" | "generating" | "saving" | "completed" | "failed" | "needs_review";
+  label: string;
+};
+
 export type ImageGenerationDetails = {
   assetId: string;
   status: ImageGenerationStatus;
   state: ImageGenerationState;
+  progress?: ImageGenerationProgress;
   createdAt: string;
   updatedAt: string;
   image?: {
@@ -89,6 +95,7 @@ export type ImageHistoryItem = {
   assetId: string;
   status: "pending" | "ready" | "failed";
   state: "processing" | "ready" | "failed" | "action_required";
+  progress?: ImageGenerationProgress;
   createdAt: string;
   updatedAt: string;
   aspectRatio: "square" | "portrait" | "landscape";

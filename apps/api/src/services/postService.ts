@@ -1,3 +1,4 @@
+import { validateInstagramSelection, InstagramConnectionError } from "./instagram/instagramConnectionService.js";
 import PublishingAttemptEvidence from "../models/PublishingAttemptEvidence.js";
 import LinkedInConnection from "../models/LinkedInConnection.js";
 import mongoose from "mongoose";
@@ -8,6 +9,7 @@ import UserProfile from "../models/UserProfile.js";
 import Workspace from "../models/Workspace.js";
 import type { AuthenticatedUser } from "./userProfileService.js";
 import type {
+  AutosaveDraftInput,
   CreatePostInput,
   UpdateDraftPostInput,
 } from "../schemas/postSchema.js";
@@ -175,6 +177,13 @@ async function validatePostFacebookSelection(
   return String(connection._id);
 }
 
+async function validatePostInstagramSelection(workspaceId: string, platforms: readonly string[], connectionId?: string) {
+  if (!connectionId) return undefined;
+  if (!platforms.includes("instagram")) throw new PostServiceError("An Instagram account can only be selected for Instagram posts.", 400);
+  try { return await validateInstagramSelection(workspaceId, connectionId); }
+  catch (error) { if (error instanceof InstagramConnectionError) throw new PostServiceError(error.message, error.statusCode); throw error; }
+}
+
 export async function createWorkspacePost(
   authUser: AuthenticatedUser,
   input: CreatePostInput,
@@ -194,7 +203,7 @@ export async function createWorkspacePost(
   const scheduledAt = isScheduled ? new Date(input.scheduledAt!) : undefined;
 
   if (isScheduled) {
-    const captionLimit = input.platforms.includes("linkedin") ? 3000 : 5000;
+    const captionLimit = input.platforms.includes("instagram") ? 2200 : input.platforms.includes("linkedin") ? 3000 : 5000;
     if (input.caption.length > captionLimit) throw new PostServiceError(`Caption must not exceed ${captionLimit} characters.`, 400);
     // 1. Require a valid future date.
     if (
@@ -211,10 +220,10 @@ export async function createWorkspacePost(
     // 2. Allow exactly one supported destination.
     if (
       input.platforms.length !== 1 ||
-      !["facebook", "linkedin"].includes(input.platforms[0])
+      !["facebook", "linkedin", "instagram"].includes(input.platforms[0])
     ) {
       throw new PostServiceError(
-        "Scheduled publishing requires exactly one Facebook or LinkedIn platform.",
+        "Scheduled publishing requires exactly one Facebook, LinkedIn, or Instagram platform.",
         400,
       );
     }
@@ -231,26 +240,32 @@ export async function createWorkspacePost(
     const platform = input.platforms[0];
 
     const selectedConnection =
-      platform === "facebook"
+      platform === "instagram"
+        ? input.platformConnections?.instagram
+        : platform === "facebook"
         ? input.platformConnections?.facebook
         : input.platformConnections?.linkedin;
 
     if (typeof selectedConnection !== "string" || !selectedConnection.trim()) {
       throw new PostServiceError(
-        `Select a ${platform === "facebook" ? "Facebook Page" : "LinkedIn account"} before scheduling.`,
+        `Select a ${platform === "instagram" ? "Instagram account" : platform === "facebook" ? "Facebook Page" : "LinkedIn account"} before scheduling.`,
         400,
       );
     }
   }
 
-  // Media may be attached to drafts only.
-  // Scheduled publishing remains text-only.
-  if (isScheduled && input.mediaIds.length > 0) {
+  // Scheduled Instagram posts require one image; other scheduled platforms remain text-only.
+  if (isScheduled && input.platforms[0] !== "instagram" && input.mediaIds.length > 0) {
     throw new PostServiceError(
       "Scheduled media publishing is not supported yet.",
       400,
     );
   }
+
+  if (isScheduled && input.platforms[0] === "instagram" && input.mediaIds.length !== 1) {
+    throw new PostServiceError("Scheduled Instagram publishing requires exactly one image.", 400);
+  }
+  const instagramConnectionId = await validatePostInstagramSelection(String(authorization.workspace._id), input.platforms, input.platformConnections?.instagram);
 
   const validatedMediaIds = await validatePostDraftMedia(
     authUser,
@@ -274,7 +289,7 @@ export async function createWorkspacePost(
     const platform = input.platforms[0];
 
     const validatedConnectionId =
-      platform === "facebook" ? facebookConnectionId : linkedinConnectionId;
+      platform === "instagram" ? instagramConnectionId : platform === "facebook" ? facebookConnectionId : linkedinConnectionId;
 
     if (!validatedConnectionId) {
       throw new PostServiceError(
@@ -291,7 +306,7 @@ export async function createWorkspacePost(
     }
   }
 
-  const post = await Post.create({
+  const postData = {
     workspaceId: authorization.workspace._id,
     createdByUserId: authorization.profile._id,
 
@@ -301,9 +316,10 @@ export async function createWorkspacePost(
     mediaIds: validatedMediaIds,
     platforms: input.platforms,
 
-    ...(linkedinConnectionId || facebookConnectionId
+    ...(instagramConnectionId || linkedinConnectionId || facebookConnectionId
       ? {
           platformConnections: {
+            ...(instagramConnectionId ? { instagram: instagramConnectionId } : {}),
             ...(linkedinConnectionId ? { linkedin: linkedinConnectionId } : {}),
 
             ...(facebookConnectionId ? { facebook: facebookConnectionId } : {}),
@@ -316,7 +332,10 @@ export async function createWorkspacePost(
     attemptCount: 0,
 
     ...(scheduledAt ? { scheduledAt } : {}),
-  });
+  };
+  const post = input.clientDraftId
+    ? await writeComposerDraft(authorization.workspace._id, authorization.profile._id, input.clientDraftId, postData, true)
+    : await Post.create(postData);
 
   return post.toObject();
 }
@@ -326,6 +345,7 @@ export async function listWorkspacePosts(
   workspaceId: string,
   pagination?: {
     limit: number;
+    sort?: "newest" | "oldest";
     cursor?: string;
     search?: string;
     status?:
@@ -389,6 +409,15 @@ export async function listWorkspacePosts(
     ];
   }
 
+  const countsFilter = { ...filter };
+  delete countsFilter.status;
+  const statusCountsPromise = Promise.all(
+    ["all", "published", "scheduled", "draft", "failed"].map(async (status) => [
+      status, await Post.countDocuments(status === "all" ? countsFilter : { ...countsFilter, status }),
+    ]),
+  ).then(Object.fromEntries);
+  const direction = pagination.sort === "oldest" ? 1 : -1;
+
   const draftCountPromise = Post.countDocuments({
     ...workspaceFilter,
     status: "draft",
@@ -410,23 +439,24 @@ export async function listWorkspacePosts(
       ...(Array.isArray(filter.$and) ? filter.$and : []),
       {
         $or: [
-          { updatedAt: { $lt: cursorPost.updatedAt } },
+          { updatedAt: { [direction === 1 ? "$gt" : "$lt"]: cursorPost.updatedAt } },
           {
             updatedAt: cursorPost.updatedAt,
-            _id: { $lt: cursorPost._id },
+            _id: { [direction === 1 ? "$gt" : "$lt"]: cursorPost._id },
           },
         ],
       },
     ];
   }
 
-  const [results, draftCount] = await Promise.all([
+  const [results, draftCount, statusCounts] = await Promise.all([
     Post.find(filter)
       .select(fields)
-      .sort({ updatedAt: -1, _id: -1 })
+      .sort({ updatedAt: direction, _id: direction })
       .limit(pagination.limit + 1)
       .lean(),
     draftCountPromise,
+    statusCountsPromise,
   ]);
 
   const hasMore = results.length > pagination.limit;
@@ -438,6 +468,7 @@ export async function listWorkspacePosts(
     nextCursor: hasMore && lastPost ? String(lastPost._id) : null,
     hasMore,
     draftCount,
+    statusCounts,
   };
 }
 
@@ -586,6 +617,7 @@ export async function updateWorkspaceDraft(
   }
 
   const finalPlatforms = input.platforms ?? post.platforms;
+  const validatedInstagramConnection = await validatePostInstagramSelection(String(workspace._id), finalPlatforms, input.platformConnections?.instagram);
 
   // Undefined means preserve existing attachments.
   // An empty array means explicitly remove them.
@@ -634,6 +666,7 @@ export async function updateWorkspaceDraft(
     caption?: string;
     mediaIds?: string[];
     platforms?: UpdateDraftPostInput["platforms"];
+    "platformConnections.instagram"?: string;
     "platformConnections.linkedin"?: string;
     "platformConnections.facebook"?: string;
   } = {};
@@ -655,6 +688,9 @@ export async function updateWorkspaceDraft(
   if (input.platforms !== undefined) {
     update.platforms = input.platforms;
   }
+
+  if (!finalPlatforms.includes("instagram")) unset["platformConnections.instagram"] = "";
+  else if (validatedInstagramConnection) update["platformConnections.instagram"] = validatedInstagramConnection;
 
   if (!linkedinIsSelected) {
     unset["platformConnections.linkedin"] = "";
@@ -741,8 +777,15 @@ export async function changeWorkspaceSchedule(authUser: AuthenticatedUser, postI
   if (!existing) throw new PostServiceError("Post not found.", 404);
   const workspaceId = String(existing.workspaceId);
   if (scheduledAt) {
-    if (existing.platforms.length !== 1 || !["facebook", "linkedin"].includes(existing.platforms[0]) || existing.mediaIds.length) throw new PostServiceError("Scheduled publishing requires one text-only Facebook or LinkedIn destination.", 400);
-    const limit = existing.platforms[0] === "linkedin" ? 3000 : 5000;
+    if (existing.platforms.length !== 1 || !["facebook", "linkedin", "instagram"].includes(existing.platforms[0]) ||
+        (existing.platforms[0] === "instagram" ? existing.mediaIds.length !== 1 : existing.mediaIds.length !== 0)) {
+      throw new PostServiceError("Schedule one Instagram image or one text-only Facebook or LinkedIn destination.", 400);
+    }
+    if (existing.platforms[0] === "instagram") {
+      if (!existing.platformConnections?.instagram) throw new PostServiceError("Select an Instagram account before scheduling.", 409);
+      await validatePostInstagramSelection(workspaceId, existing.platforms, String(existing.platformConnections.instagram));
+    }
+    const limit = existing.platforms[0] === "instagram" ? 2200 : existing.platforms[0] === "linkedin" ? 3000 : 5000;
     if (!existing.caption.trim() || existing.caption.length > limit) throw new PostServiceError(`Caption must contain 1-${limit} characters.`, 400);
     if (existing.platforms[0] === "facebook" && !await validatePostFacebookSelection(workspaceId, existing.platforms, existing.platformConnections?.facebook ? String(existing.platformConnections.facebook) : undefined)) throw new PostServiceError("Select an active Facebook Page before rescheduling.", 409);
     if (!Number.isFinite(scheduledAt.getTime()) || scheduledAt.getTime() <= Date.now()) throw new PostServiceError("Choose a valid future publishing time.", 400);
@@ -818,4 +861,36 @@ export async function reconcileWorkspacePublication(authUser: AuthenticatedUser,
   }, { returnDocument: "after", runValidators: true });
   if (!updated) throw new PostServiceError("The publishing outcome changed. Refresh and review it again.", 409);
   return updated.toObject();
+}
+
+/** Reject late revisions and prevent background saves from changing finalized drafts. */
+async function writeComposerDraft(workspaceId: unknown, userId: unknown, clientDraftId: string,
+  data: Record<string, unknown>, finalize = false, revision = 0) {
+  const identity = { workspaceId, createdByUserId: userId, clientDraftId };
+  const filter = { ...identity, status: "draft", autosaveClosed: { $ne: true },
+    ...(!finalize ? { autosaveRevision: { $lte: revision } } : {}),
+  };
+  try {
+    return await Post.findOneAndUpdate(filter, {
+      $set: { ...data, ...(finalize ? { autosaveClosed: true } : { autosaveRevision: revision }) },
+      ...(!data.scheduledAt ? { $unset: { scheduledAt: "" } } : {}),
+    }, { upsert: true, returnDocument: "after", runValidators: true });
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === 11000)) throw error;
+    const existing = await Post.findOne(identity);
+    if (!existing) throw error;
+    if (!finalize && (existing.autosaveClosed || existing.status !== "draft" || existing.autosaveRevision >= revision)) return existing;
+    throw new PostServiceError("This composer draft was already saved. Open it from Posts.", 409);
+  }
+}
+
+export async function autosaveWorkspaceDraft(authUser: AuthenticatedUser, input: AutosaveDraftInput) {
+  const authorization = await getAuthorizedWorkspace(authUser, input.workspaceId);
+  if (!authorization) throw new PostServiceError("Workspace not found.", 404);
+  const mediaIds = await validatePostDraftMedia(authUser, input.workspaceId, input.mediaIds);
+  const post = await writeComposerDraft(authorization.workspace._id, authorization.profile._id, input.clientDraftId, {
+    title: input.title.trim() || "Untitled", caption: input.caption, mediaIds,
+    platforms: input.platforms, status: "draft", ...(input.scheduledAt ? { scheduledAt: new Date(input.scheduledAt) } : {}),
+  }, false, input.revision);
+  return post.toObject();
 }

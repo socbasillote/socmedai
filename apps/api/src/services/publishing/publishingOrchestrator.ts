@@ -26,6 +26,7 @@ export type OrchestratorPost = {
   platforms: PostPlatform[];
 
   platformConnections?: {
+    instagram?: string | { toString(): string };
     linkedin?: string | { toString(): string };
     facebook?: string | { toString(): string };
   };
@@ -94,7 +95,9 @@ export class PublishingOrchestrator {
       const selectedConnection =
         platform === "linkedin"
           ? post.platformConnections?.linkedin
-          : platform === "facebook"
+          : platform === "instagram"
+            ? post.platformConnections?.instagram
+            : platform === "facebook"
             ? post.platformConnections?.facebook
             : undefined;
 
@@ -105,7 +108,7 @@ export class PublishingOrchestrator {
       let result: PublishingResult;
 
       if (
-        (platform === "linkedin" || platform === "facebook") &&
+        (platform === "linkedin" || platform === "facebook" || platform === "instagram") &&
         !connectionId
       ) {
         result = {
@@ -113,7 +116,9 @@ export class PublishingOrchestrator {
           postId,
           platform,
           message:
-            platform === "facebook"
+            platform === "instagram"
+              ? "No Instagram account was selected for this post."
+              : platform === "facebook"
               ? "No Facebook Page was selected for this post."
               : "No LinkedIn account was selected for this post.",
         };
@@ -134,7 +139,7 @@ export class PublishingOrchestrator {
                   workspaceId: String(post.workspaceId),
                   platform,
 
-                  ...(platform === "facebook" && connectionId
+                  ...((platform === "facebook" || platform === "instagram") && connectionId
                     ? { connectionId }
                     : {}),
 

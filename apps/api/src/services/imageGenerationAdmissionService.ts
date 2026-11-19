@@ -52,8 +52,8 @@ type AdmissionInput = {
     model: string;
   };
   policy: {
-    dailyLimit: number;
-    maxActive: number;
+    dailyLimit: number | null;
+    maxActive: number | null;
   };
   faultInjection?: ImageAdmissionFaultInjection;
 };
@@ -158,10 +158,8 @@ export async function admitImageGeneration(input: AdmissionInput) {
   const { dailyLimit, maxActive } = input.policy;
 
   if (
-    !Number.isSafeInteger(dailyLimit) ||
-    dailyLimit < 1 ||
-    !Number.isSafeInteger(maxActive) ||
-    maxActive < 1
+    (dailyLimit !== null && (!Number.isSafeInteger(dailyLimit) || dailyLimit < 1)) ||
+    (maxActive !== null && (!Number.isSafeInteger(maxActive) || maxActive < 1))
   ) {
     throw new ImageAdmissionError(
       "Invalid generation quota configuration.",
@@ -487,7 +485,7 @@ export async function admitImageGeneration(input: AdmissionInput) {
           {
             workspaceId: workspace._id,
             dayUtc,
-            attempts: { $lt: dailyLimit },
+            ...(dailyLimit !== null ? { attempts: { $lt: dailyLimit } } : {}),
           },
           { $inc: { attempts: 1 } },
           { session },
@@ -503,7 +501,7 @@ export async function admitImageGeneration(input: AdmissionInput) {
         const capacity = await ImageWorkspaceCapacity.updateOne(
           {
             workspaceId: workspace._id,
-            active: { $lt: maxActive },
+            ...(maxActive !== null ? { active: { $lt: maxActive } } : {}),
           },
           { $inc: { active: 1 } },
           { session },

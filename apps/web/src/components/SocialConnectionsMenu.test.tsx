@@ -14,6 +14,9 @@ vi.mock("@/components/LinkedInConnectionPanel", () => ({
   LinkedInConnectionPanel: () => null,
 }));
 
+// Instagram behavior is covered by InstagramConnectionsPanel tests.
+vi.mock("@/components/InstagramConnectionsPanel", () => ({ InstagramConnectionsPanel: () => <h3>Instagram</h3> }));
+
 const WORKSPACE_ID = "507f1f77bcf86cd799439011";
 
 const CONNECTION_A = {
@@ -191,4 +194,20 @@ describe("SocialConnectionsMenu — Facebook", () => {
 
     expect(onConnect).toHaveBeenCalledTimes(1);
   });
+});
+
+it("includes Instagram alongside Facebook and LinkedIn", () => {
+ renderMenu(); openSocialAccounts();
+ expect(screen.getByRole("heading", { name: "Instagram" })).toBeInTheDocument();
+});
+it("closes with Escape and returns focus to the trigger", () => {
+ renderMenu(); openSocialAccounts();
+ fireEvent.keyDown(document, { key: "Escape" });
+ expect(screen.queryByRole("region", { name: "Social account connections" })).not.toBeInTheDocument();
+ expect(screen.getByRole("button", { name: /social accounts/i })).toHaveFocus();
+});
+it("closes when keyboard focus moves outside the panel", () => {
+ renderMenu(); openSocialAccounts();
+ fireEvent.focusIn(document.body);
+ expect(screen.queryByRole("region", { name: "Social account connections" })).not.toBeInTheDocument();
 });

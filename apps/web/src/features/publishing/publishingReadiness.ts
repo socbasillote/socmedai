@@ -68,9 +68,9 @@ const EXECUTION_CAPABILITIES: Record<string, PlatformCapability> = {
     schedule: true,
   },
   instagram: {
-    formats: [],
-    publishNow: false,
-    schedule: false,
+    formats: ["image"],
+    publishNow: true,
+    schedule: true,
   },
 };
 
@@ -239,7 +239,7 @@ export function evaluatePublishingReadiness(
         );
 
         if (action !== "draft") {
-          const limit = destination.platform === "linkedin" ? 3000 : 5000;
+          const limit = destination.platform === "instagram" ? 2200 : destination.platform === "linkedin" ? 3000 : 5000;
           if (content.caption.length > limit) {
             items.push(checklist("caption-length", "Caption length", "invalid", `Caption must not exceed ${limit} characters.`));
           }
@@ -293,7 +293,7 @@ export function evaluatePublishingReadiness(
 
         const formatSupported =
           (capability?.formats.includes(destination.format) ?? false) &&
-          (action !== "schedule" || destination.format === "text");
+          (action !== "schedule" || destination.format === "text" || destination.platform === "instagram");
 
         items.push(
           checklist(
@@ -330,8 +330,8 @@ export function evaluatePublishingReadiness(
       }
 
       if (action !== "draft" && content && content.media.length > 0) {
-        const supported = action === "now" &&
-          (destination.platform === "facebook" || destination.platform === "linkedin") &&
+        const supported = (destination.platform === "instagram" || (action === "now" &&
+          (destination.platform === "facebook" || destination.platform === "linkedin"))) &&
           content.media.length === 1 && content.media[0].type === "image";
         items.push(checklist(
           "media-publishing", "Media publishing support",

@@ -26,7 +26,7 @@ type ClaimImmediatePostInput = {
   postId: string;
 };
 
-type ImmediatePlatform = "facebook" | "linkedin";
+type ImmediatePlatform = "facebook" | "linkedin" | "instagram";
 
 export async function claimImmediatePost({
   authUser,
@@ -65,12 +65,18 @@ export async function claimImmediatePost({
             { $strLenCP: "$caption" },
             // JavaScript length counts astral characters as two UTF-16 units.
             { $size: { $regexFindAll: { input: "$caption", regex: "[\\x{10000}-\\x{10FFFF}]" } } },
-          ] }, { $cond: [{ $in: ["linkedin", "$platforms"] }, 3000, 5000] }] },
+          ] }, { $cond: [{ $in: ["instagram", "$platforms"] }, 2200, { $cond: [{ $in: ["linkedin", "$platforms"] }, 3000, 5000] }] }] },
         ],
       },
 
       // Exactly one supported platform must be selected.
       $or: [
+        {
+          platforms: ["instagram"],
+          "platformConnections.instagram": { $exists: true, $ne: null },
+          mediaIds: { $size: 1 },
+          $or: [{ platformResults: { $size: 0 } }, { platformResults: { $elemMatch: { platform: "instagram", status: "pending" } } }],
+        },
         {
           platforms: ["linkedin"],
           "platformConnections.linkedin": {
@@ -134,8 +140,8 @@ export async function claimImmediatePost({
   if (!post) {
     throw new ImmediatePublishingError(
       "This post is not eligible for immediate publishing. " +
-        "It must be a Facebook-only or LinkedIn-only draft " +
-        "with a selected publishing connection and no previous publishing attempt. Captions must contain 1?3,000 characters for LinkedIn or 1?5,000 for Facebook.",
+        "It must be a single-platform Facebook, LinkedIn, or Instagram draft " +
+        "with a selected publishing connection and no previous publishing attempt. Caption limits: Instagram 2,200, LinkedIn 3,000, Facebook 5,000 characters. Instagram requires one image.",
       409,
     );
   }
@@ -148,7 +154,7 @@ export async function publishImmediatePost(input: ClaimImmediatePostInput) {
 
   const platform = post.platforms[0] as ImmediatePlatform;
 
-  const platformLabel = platform === "facebook" ? "Facebook" : "LinkedIn";
+  const platformLabel = platform === "instagram" ? "Instagram" : platform === "facebook" ? "Facebook" : "LinkedIn";
 
   try {
     const orchestrator = new PublishingOrchestrator(

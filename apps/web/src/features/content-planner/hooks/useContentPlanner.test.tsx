@@ -206,3 +206,20 @@ describe("useContentPlanner race protection", () => {
     expect(mocks.getCalendarPosts).toHaveBeenCalledTimes(2);
   });
 });
+
+it("loads full weeks and advances seven days across month boundaries", async () => {
+  mocks.getCalendarPosts.mockResolvedValue(response([]));
+  const { result } = renderHook(() => useContentPlanner("workspace-a", { year: 2026, monthIndex: 11 }, "week"));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.range).toEqual({
+    start: new Date(2026, 10, 29).toISOString(), end: new Date(2026, 11, 6).toISOString(),
+  });
+  act(() => result.current.goToNextMonth());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.range).toEqual({
+    start: new Date(2026, 11, 6).toISOString(), end: new Date(2026, 11, 13).toISOString(),
+  });
+  act(() => result.current.goToPreviousMonth());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.range.start).toBe(new Date(2026, 10, 29).toISOString());
+});

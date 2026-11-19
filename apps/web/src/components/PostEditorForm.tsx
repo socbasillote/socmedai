@@ -1,3 +1,4 @@
+import type { InstagramConnectionInfo } from "@/hooks/useInstagramConnections";
 import { Check, ImagePlus, Send, PenLine } from "lucide-react";
 import { PublishingCaptionGenerator } from "@/features/publishing/components/PublishingCaptionGenerator";
 import { lazy, Suspense, useState, type FormEvent } from "react";
@@ -40,6 +41,13 @@ type PostEditorFormProps = {
   facebookConnectionsLoading: boolean;
   facebookConnectionsError: string | null;
   onFacebookConnectionChange: (connectionId: string | null) => void;
+
+  instagramConnections?: InstagramConnectionInfo[];
+  selectedInstagramConnectionId?: string | null;
+  instagramLoading?: boolean;
+  instagramError?: string;
+  onInstagramConnectionChange?: (id: string | null) => void;
+  onConnectInstagram?: (facebookConnectionId: string) => void;
 
   onTitleChange: (value: string) => void;
   onCaptionChange: (value: string) => void;
@@ -85,6 +93,9 @@ export function PostEditorForm({
   facebookConnectionsLoading,
   facebookConnectionsError,
   onFacebookConnectionChange,
+  instagramConnections = [], selectedInstagramConnectionId = null,
+  instagramLoading = false, instagramError = "",
+  onInstagramConnectionChange, onConnectInstagram,
   onTitleChange,
   onCaptionChange,
   onPlatformsChange,
@@ -147,7 +158,7 @@ export function PostEditorForm({
                 className="h-4 w-4 accent-violet-600"
               />
 
-              <span className="flex-1 font-semibold">{platform.label}<span className="mt-0.5 block text-[11px] font-normal text-slate-500">{platform.id === "instagram" ? "Drafts only" : "Caption + image"}</span></span>
+              <span className="flex-1 font-semibold">{platform.label}<span className="mt-0.5 block text-[11px] font-normal text-slate-500">{platform.id === "instagram" ? "One image + caption" : "Caption + image"}</span></span>
               {selectedPlatforms.includes(platform.id) && <Check size={15} aria-hidden="true" />}
             </label>
           ))}
@@ -172,6 +183,26 @@ export function PostEditorForm({
           </p>
         </section>
       )}
+
+      {selectedPlatforms.includes("instagram") && <section className="space-y-3 rounded-xl border border-slate-200 p-4">
+        <label className="block text-sm font-semibold">Instagram account
+          <select aria-label="Instagram account" value={selectedInstagramConnectionId ?? ""} disabled={saving || locked || instagramLoading}
+            onChange={(event) => onInstagramConnectionChange?.(event.target.value || null)} className="mt-2 w-full rounded-lg border p-2">
+            <option value="">Select an Instagram account</option>
+            {instagramConnections.filter((item) => item.status === "connected").map((item) => <option key={item.id} value={item.id}>@{item.username}</option>)}
+          </select>
+        </label>
+        <label className="block text-sm">Connect or refresh Instagram through a Facebook Page
+          <select aria-label="Connect Instagram through a Facebook Page" value="" disabled={saving || locked || instagramLoading || facebookConnectionsLoading}
+            onChange={(event) => { if (event.target.value) onConnectInstagram?.(event.target.value); }} className="mt-2 w-full rounded-lg border p-2">
+            <option value="">Choose a connected Page</option>
+            {facebookConnections.filter((item) => item.status === "connected" && item.canPublish).map((item) => <option key={item.id} value={item.id}>{item.pageName}</option>)}
+          </select>
+        </label>
+        <p className="text-xs text-slate-500">Use a professional Instagram account linked to a Facebook Page. Connect or reconnect Facebook in your social accounts to grant Instagram permissions. One image and a caption are required.</p>
+        {instagramLoading && <p role="status">Loading Instagram accounts...</p>}
+        {instagramError && <p role="alert" className="text-sm text-rose-700">{instagramError}</p>}
+      </section>}
 
       {/* LinkedIn connection */}
       {selectedPlatforms.includes("linkedin") && (

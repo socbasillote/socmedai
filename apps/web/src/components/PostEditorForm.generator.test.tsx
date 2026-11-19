@@ -230,3 +230,13 @@ it("uses an AI suggestion through the existing editor caption callback", async (
   expect(onCaptionChange).toHaveBeenCalledWith("A generated post caption");
   expect(onSave).not.toHaveBeenCalled();
 });
+
+it("offers Instagram account discovery and explicit account selection", () => {
+ const connect = vi.fn(), select = vi.fn();
+ renderForm({ selectedPlatforms: ["instagram"], facebookConnections: [{ id: "page", facebookPageId: "123", pageName: "Studio", status: "connected", canPublish: true }],
+   instagramConnections: [{ id: "ig", instagramUserId: "456", username: "studio", status: "connected", canPublish: true }], onConnectInstagram: connect, onInstagramConnectionChange: select });
+ fireEvent.change(screen.getByRole("combobox", { name: "Connect Instagram through a Facebook Page" }), { target: { value: "page" } });
+ expect(connect).toHaveBeenCalledWith("page");
+ fireEvent.change(screen.getByRole("combobox", { name: "Instagram account" }), { target: { value: "ig" } });
+ expect(select).toHaveBeenCalledWith("ig");
+});

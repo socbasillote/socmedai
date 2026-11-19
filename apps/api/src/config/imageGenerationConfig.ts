@@ -5,6 +5,11 @@ const integerSetting = (fallback: number, max: number) =>
 
 const imageGenerationEnvSchema = z
   .object({
+    IMAGE_GENERATION_LIMITS_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
+
     IMAGE_GENERATION_PROVIDER: z.enum(["mock", "openai"]).default("mock"),
 
     IMAGE_GENERATION_LIVE_ENABLED: z
@@ -41,6 +46,7 @@ export function parseImageGenerationConfig(
  */
 export function getImageGenerationConfig(): ImageGenerationConfig {
   return parseImageGenerationConfig({
+    IMAGE_GENERATION_LIMITS_ENABLED: process.env.IMAGE_GENERATION_LIMITS_ENABLED,
     IMAGE_GENERATION_PROVIDER: process.env.IMAGE_GENERATION_PROVIDER,
 
     IMAGE_GENERATION_LIVE_ENABLED: process.env.IMAGE_GENERATION_LIVE_ENABLED,

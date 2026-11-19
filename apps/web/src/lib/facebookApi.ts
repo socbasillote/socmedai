@@ -43,6 +43,7 @@ export type ConnectFacebookPagesResponse = {
  * not a temporary OAuth discovery result.
  */
 export type FacebookConnectionInfo = {
+  canPublish?: boolean;
   id: string;
   facebookPageId: string;
   pageName: string;

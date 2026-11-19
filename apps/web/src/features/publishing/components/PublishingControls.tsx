@@ -120,7 +120,7 @@ export function PublishingControls({
         </div>
       </fieldset>
 
-      <p className="text-xs leading-5 text-slate-500">{postMode === "draft" ? "Save privately and come back when you are ready." : postMode === "immediate" ? "Review your caption, image, and destination before confirming." : "Choose a future date for your text post."}</p>
+      <p className="text-xs leading-5 text-slate-500">{postMode === "draft" ? "Save privately and come back when you are ready." : postMode === "immediate" ? "Review your caption, image, and destination before confirming." : "Choose a future date for your post. Instagram requires one image."}</p>
       {editorMode === "edit" && <p className="text-xs text-slate-400">Existing drafts can be saved or published now. Scheduling is available for new posts.</p>}
       {postMode === "scheduled" && (
         <div className="space-y-2">

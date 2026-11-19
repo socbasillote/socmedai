@@ -19,10 +19,13 @@ import {
 export function toRecentPostItem(post: Post): RecentPostItem {
   const isScheduled = post.status === "scheduled";
 
-  const displayDate = isScheduled ? post.scheduledAt : post.createdAt;
+  const displayDate = isScheduled ? post.scheduledAt : post.publishedAt || post.createdAt;
 
   return {
     id: post._id,
+    mediaId: post.mediaIds?.[0],
+    workspaceId: post.workspaceId,
+    timestamp: displayDate,
     title: post.title || post.caption,
     platform: post.platforms.join(", "),
     date: displayDate

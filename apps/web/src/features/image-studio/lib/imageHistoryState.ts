@@ -21,6 +21,8 @@ export function applyImageHistoryStatus(
   const unchanged =
     item.status === details.status &&
     item.state === details.state &&
+    item.progress?.stage === details.progress?.stage &&
+    item.progress?.label === details.progress?.label &&
     item.updatedAt === details.updatedAt &&
     item.image?.width === details.image?.width &&
     item.image?.height === details.image?.height &&
@@ -34,6 +36,7 @@ export function applyImageHistoryStatus(
     ...item,
     status: details.status,
     state: details.state,
+    progress: details.progress,
     updatedAt: details.updatedAt,
 
     ...(details.image

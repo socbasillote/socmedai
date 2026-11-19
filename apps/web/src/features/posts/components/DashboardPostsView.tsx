@@ -7,6 +7,7 @@ type DashboardPostsState = ReturnType<typeof useDashboardPosts>;
 
 type DashboardPostsViewProps = {
   posts: DashboardPostsState;
+  onCreatePost: () => void;
   onEditDraft: (postId: string) => void;
   onMoreOptions: (postTitle: string) => void;
 };
@@ -27,11 +28,16 @@ type DashboardPostsViewProps = {
  */
 export function DashboardPostsView({
   posts,
+  onCreatePost,
   onEditDraft,
   onMoreOptions,
 }: DashboardPostsViewProps) {
   return (
     <PostsPage
+      onCreatePost={onCreatePost}
+      sort={posts.sort}
+      onSortChange={posts.setSort}
+      statusCounts={posts.statusCounts}
       search={posts.search}
       statusFilter={posts.statusFilter}
       platformFilter={posts.platformFilter}

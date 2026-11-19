@@ -143,7 +143,7 @@ describe("createPublishingAdapter", () => {
       outcome: "failed",
       postId,
       platform: "instagram",
-      message: "Publishing is not configured for instagram.",
+      message: "Instagram publishing requires a selected account and one image.",
     });
 
     expect(mocks.linkedInPublish).not.toHaveBeenCalled();
@@ -289,7 +289,7 @@ describe("createPublishingAdapter", () => {
       outcome: "failed",
       postId,
       platform: "instagram",
-      message: "Publishing is not configured for instagram.",
+      message: "Instagram publishing requires a selected account and one image.",
     });
   });
 });

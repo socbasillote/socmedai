@@ -13,6 +13,12 @@ describe("image generation configuration", () => {
     expect(config.IMAGE_GENERATION_LIVE_ENABLED).toBe(false);
   });
 
+  it("disables quota enforcement by default and accepts explicit enablement", () => {
+    expect(parseImageGenerationConfig({}).IMAGE_GENERATION_LIMITS_ENABLED).toBe(false);
+    expect(parseImageGenerationConfig({ IMAGE_GENERATION_LIMITS_ENABLED: "true" }).IMAGE_GENERATION_LIMITS_ENABLED).toBe(true);
+    expect(() => parseImageGenerationConfig({ IMAGE_GENERATION_LIMITS_ENABLED: "yes" })).toThrow();
+  });
+
   it("sets conservative quota defaults", () => {
     const config = parseImageGenerationConfig({});
 

@@ -166,6 +166,14 @@ describe("calendar query MongoDB integration", () => {
     expect(result.posts).toHaveLength(1);
   });
 
+  it("includes dated drafts on the 14th and 16th, excluding dates outside the range", async () => {
+    const first = await insertPost({ status: "draft", scheduledAt: "2026-11-14T08:00:00Z" });
+    const second = await insertPost({ status: "draft", scheduledAt: "2026-11-16T08:00:00Z" });
+    await insertPost({ status: "draft", scheduledAt: range.end });
+    const result = await findAuthorizedCalendarPosts(String(workspaceA), range);
+    expect(result.posts.map((post) => String(post._id)).sort()).toEqual([String(first._id), String(second._id)].sort());
+  });
+
   it("excludes unscheduled drafts", async () => {
     await insertPost({
       status: "draft",

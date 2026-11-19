@@ -71,9 +71,9 @@ export async function authorizePublishing({
   // 6. Allow Facebook and LinkedIn only.
   const platform = post.platforms[0];
 
-  if (platform !== "facebook" && platform !== "linkedin") {
+  if (platform !== "facebook" && platform !== "linkedin" && platform !== "instagram") {
     throw new PublishingAuthorizationError(
-      "Immediate publishing supports Facebook and LinkedIn only.",
+      "Immediate publishing supports Facebook, LinkedIn, and Instagram only.",
       409,
     );
   }

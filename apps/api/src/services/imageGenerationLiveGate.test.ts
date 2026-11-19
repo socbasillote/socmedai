@@ -12,6 +12,7 @@ const WORKSPACE_B = "507f1f77bcf86cd799439012";
 
 function configured(overrides: Record<string, string> = {}) {
   return parseLiveImageGateConfig({
+    IMAGE_GENERATION_LIMITS_ENABLED: "true",
     IMAGE_GENERATION_PROVIDER: "openai",
     IMAGE_GENERATION_LIVE_ENABLED: "true",
     IMAGE_GENERATION_LIVE_WORKER_ENABLED: "true",
@@ -122,6 +123,12 @@ describe("Live image generation release gate", () => {
         WORKSPACE_A,
       ).allowed,
     ).toBe(false);
+  });
+
+  it("disables rollout quota caps without bypassing workspace authorization", () => {
+    const config = configured({ IMAGE_GENERATION_LIMITS_ENABLED: "false", IMAGE_GENERATION_LIVE_DAILY_LIMIT: "100", IMAGE_GENERATION_LIVE_MAX_ACTIVE: "4" });
+    expect(evaluateLiveImageGate(config, WORKSPACE_A).allowed).toBe(true);
+    expect(evaluateLiveImageGate(config, WORKSPACE_B).allowed).toBe(false);
   });
 
   it("rejects excessive concurrency", () => {

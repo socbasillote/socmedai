@@ -10,6 +10,7 @@ import {
   shiftCalendarMonth,
 } from "../utils/calendarDates";
 
+import { getCalendarWeekDays } from "../utils/calendarGrid";
 import type { PlannerMonth } from "../utils/plannerNavigation";
 
 type CalendarMonth = {
@@ -36,11 +37,17 @@ function getCurrentMonth(): CalendarMonth {
 export function useContentPlanner(
   workspaceId: string,
   initialMonth?: PlannerMonth | null,
+  view: "month" | "week" | "list" = "month",
 ) {
   const [month, setMonth] = useState<CalendarMonth>(
     () => initialMonth ?? getCurrentMonth(),
   );
 
+  const [weekAnchor, setWeekAnchor] = useState(() => {
+    const now = new Date();
+    return initialMonth && (initialMonth.year !== now.getFullYear() || initialMonth.monthIndex !== now.getMonth())
+      ? new Date(initialMonth.year, initialMonth.monthIndex, 1) : now;
+  });
   const [refreshVersion, setRefreshVersion] = useState(0);
 
   const [loadState, setLoadState] = useState<CalendarLoadState>({
@@ -50,7 +57,12 @@ export function useContentPlanner(
     error: "",
   });
 
-  const range = getLocalMonthRange(month.year, month.monthIndex);
+  const weekDays = getCalendarWeekDays(weekAnchor);
+  const weekStart = weekDays[0].date;
+  const weekEnd = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 7);
+  const range = view === "week"
+    ? { start: weekStart.toISOString(), end: weekEnd.toISOString() }
+    : getLocalMonthRange(month.year, month.monthIndex);
 
   const requestKey = getCalendarRequestKey(workspaceId, range);
 
@@ -77,7 +89,7 @@ export function useContentPlanner(
       });
 
       try {
-        const result = await getWorkspaceCalendarPosts(workspaceId, range);
+        const result = await getWorkspaceCalendarPosts(workspaceId, { start: range.start, end: range.end });
 
         if (cancelled) return;
 
@@ -120,13 +132,25 @@ export function useContentPlanner(
 
   const error = stateIsCurrent ? loadState.error : "";
 
+  function shiftWeek(offset: number) {
+    const next = new Date(weekAnchor.getFullYear(), weekAnchor.getMonth(), weekAnchor.getDate() + offset * 7);
+    setWeekAnchor(next);
+    setMonth({ year: next.getFullYear(), monthIndex: next.getMonth() });
+  }
+
   function goToPreviousMonth() {
+    if (view === "week") { shiftWeek(-1); return; }
+    const previous = shiftCalendarMonth(month.year, month.monthIndex, -1);
+    setWeekAnchor(new Date(previous.year, previous.monthIndex, 1));
     setMonth((current) =>
       shiftCalendarMonth(current.year, current.monthIndex, -1),
     );
   }
 
   function goToNextMonth() {
+    if (view === "week") { shiftWeek(1); return; }
+    const next = shiftCalendarMonth(month.year, month.monthIndex, 1);
+    setWeekAnchor(new Date(next.year, next.monthIndex, 1));
     setMonth((current) =>
       shiftCalendarMonth(current.year, current.monthIndex, 1),
     );
@@ -134,6 +158,7 @@ export function useContentPlanner(
 
   function goToCurrentMonth() {
     setMonth(getCurrentMonth());
+    setWeekAnchor(new Date());
   }
 
   function refreshCalendar() {
@@ -141,6 +166,7 @@ export function useContentPlanner(
   }
 
   return {
+    weekAnchor,
     year: month.year,
     monthIndex: month.monthIndex,
     range,

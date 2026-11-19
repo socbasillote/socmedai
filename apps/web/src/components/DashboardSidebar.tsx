@@ -55,10 +55,10 @@ export function DashboardSidebar({
           mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="flex h-20 items-center justify-between border-b border-white/10 px-6">
+        <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-6">
           <Link
             to="/"
-            className="flex items-center gap-3"
+            className="flex min-h-11 items-center gap-3"
             onClick={() => onSelectPage("Overview")}
           >
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500 text-white shadow-lg shadow-violet-500/25">
@@ -71,7 +71,7 @@ export function DashboardSidebar({
 
           <button
             aria-label="Close menu"
-            className="rounded-lg p-2 hover:bg-white/10 lg:hidden"
+            className="min-h-11 min-w-11 rounded-lg p-2 hover:bg-white/10 lg:hidden"
             onClick={onCloseMobileMenu}
           >
             <X size={20} />
@@ -80,11 +80,7 @@ export function DashboardSidebar({
 
         <WorkspaceSelector {...workspaceSelectorProps} />
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-6">
-          <p className="px-3 pb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">
-            Workspace
-          </p>
-
+        <nav className="flex-1 space-y-1 min-h-0 overflow-y-auto px-3 py-4">
           {navigation.map(({ label, icon: Icon }) => {
             const active = activePage === label;
 
@@ -92,10 +88,10 @@ export function DashboardSidebar({
               <button
                 key={label}
                 onClick={() => onSelectPage(label)}
-                className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition ${
+                className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-xs transition ${
                   active
                     ? "bg-violet-500/15 text-violet-300"
-                    : "text-slate-400 hover:bg-white/5 hover:text-white"
+                    : "text-slate-300 hover:bg-white/5 hover:text-white"
                 }`}
               >
                 <Icon size={19} />
@@ -109,17 +105,17 @@ export function DashboardSidebar({
             );
           })}
 
-          <div className="!mt-8 border-t border-white/10 pt-6">
-            <p className="px-3 pb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">
+          <div className="!mt-4 border-t border-white/10 pt-4">
+            <p className="px-3 pb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">
               Manage
             </p>
 
             <button
               onClick={() => onSelectPage("Analytics")}
-              className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium ${
+              className={`flex w-full items-center gap-3 rounded-xl px-2 py-2 text-xs font-medium ${
                 activePage === "Analytics"
                   ? "bg-violet-500/15 text-violet-300"
-                  : "text-slate-400 hover:bg-white/5 hover:text-white"
+                  : "text-slate-300 hover:bg-white/5 hover:text-white"
               }`}
             >
               <TrendingUp size={19} />
@@ -128,10 +124,10 @@ export function DashboardSidebar({
 
             <button
               onClick={() => onSelectPage("Settings")}
-              className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium ${
+              className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-sm font-medium ${
                 activePage === "Settings"
                   ? "bg-violet-500/15 text-violet-300"
-                  : "text-slate-400 hover:bg-white/5 hover:text-white"
+                  : "text-slate-300 hover:bg-white/5 hover:text-white"
               }`}
             >
               <Settings size={19} />
@@ -140,24 +136,17 @@ export function DashboardSidebar({
           </div>
         </nav>
 
-        <div className="p-4">
-          <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-violet-500/20 to-indigo-500/10 p-4">
-            <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-violet-400/20 text-violet-300">
-              <Sparkles size={19} />
-            </div>
-            <p className="text-sm font-semibold text-white">Create with AI</p>
-            <p className="mt-1 text-xs leading-5 text-slate-400">
-              Your ideas, ready for the next post.
-            </p>
-            <button
-              onClick={() => onSelectPage("Content studio")}
-              className="mt-3 flex items-center gap-2 text-xs font-semibold text-violet-300 hover:text-white"
-            >
-              Explore studio <ArrowRight size={14} />
-            </button>
-          </div>
+        <div className="shrink-0 p-3">
+          <button
+            onClick={() => onSelectPage("Content studio")}
+            className="flex min-h-11 w-full items-center gap-3 rounded-xl border border-white/10 bg-violet-500/15 px-3 text-sm font-semibold text-violet-200 hover:bg-violet-500/25"
+          >
+            <Sparkles size={18} aria-hidden="true" />
+            <span className="flex-1 text-left">Create with AI</span>
+            <ArrowRight size={16} aria-hidden="true" />
+          </button>
 
-          <button className="mt-4 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-white/5 hover:text-white">
+          <button className="mt-2 min-h-11 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-300 hover:bg-white/5 hover:text-white">
             <CircleHelp size={18} />
             Help and support
           </button>

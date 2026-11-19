@@ -108,7 +108,7 @@ describe("PublishingOrchestrator", () => {
       workspaceId: "workspace-123",
       caption: "Test caption",
       mediaIds: [],
-      platforms: ["facebook"], platformConnections: { facebook: "page" },
+      platforms: ["facebook"], platformConnections: { facebook: "page", instagram: "instagram" },
     });
 
     expect(events).toEqual([
@@ -153,7 +153,7 @@ describe("PublishingOrchestrator", () => {
       workspaceId: "workspace-123",
       caption: "Confirmed publication test",
       mediaIds: [],
-      platforms: ["facebook"], platformConnections: { facebook: "page" },
+      platforms: ["facebook"], platformConnections: { facebook: "page", instagram: "instagram" },
     });
 
     expect(updateMock).toHaveBeenCalledOnce();
@@ -192,7 +192,7 @@ describe("PublishingOrchestrator", () => {
       workspaceId: "workspace-123",
       caption: "Failure test",
       mediaIds: [],
-      platforms: ["facebook"], platformConnections: { facebook: "page" },
+      platforms: ["facebook"], platformConnections: { facebook: "page", instagram: "instagram" },
     });
 
     expect(updateMock).toHaveBeenCalledOnce();
@@ -226,7 +226,7 @@ describe("PublishingOrchestrator", () => {
       workspaceId: "workspace-123",
       caption: "Uncertain outcome test",
       mediaIds: [],
-      platforms: ["facebook"], platformConnections: { facebook: "page" },
+      platforms: ["facebook"], platformConnections: { facebook: "page", instagram: "instagram" },
     });
 
     expect(updateMock).toHaveBeenCalledOnce();
@@ -322,7 +322,7 @@ describe("PublishingOrchestrator", () => {
         workspaceId: "workspace-123",
         caption: "Do not republish",
         mediaIds: [],
-        platforms: ["facebook"], platformConnections: { facebook: "page" },
+        platforms: ["facebook"], platformConnections: { facebook: "page", instagram: "instagram" },
       });
 
       expect(adapter.publish).not.toHaveBeenCalled();
@@ -357,7 +357,7 @@ describe("PublishingOrchestrator", () => {
         workspaceId: "workspace-123",
         caption: "Do not duplicate this post",
         mediaIds: [],
-        platforms: ["facebook"], platformConnections: { facebook: "page" },
+        platforms: ["facebook"], platformConnections: { facebook: "page", instagram: "instagram" },
       }),
     ).rejects.toThrow("Database write failed.");
 
@@ -398,7 +398,7 @@ describe("PublishingOrchestrator", () => {
         workspaceId: "workspace-123",
         caption: "Test multi-platform publishing",
         mediaIds: [],
-        platforms: ["facebook", "instagram", "linkedin"], platformConnections: { facebook: "page" },
+        platforms: ["facebook", "instagram", "linkedin"], platformConnections: { facebook: "page", instagram: "instagram" },
       }),
     ).rejects.toThrow("Instagram result save failed.");
 
@@ -436,7 +436,7 @@ describe("PublishingOrchestrator", () => {
       workspaceId: "workspace-123",
       caption: "Validate publication confirmation",
       mediaIds: [],
-      platforms: ["facebook"], platformConnections: { facebook: "page" },
+      platforms: ["facebook"], platformConnections: { facebook: "page", instagram: "instagram" },
     });
 
     expect(adapter.publish).toHaveBeenCalledOnce();
@@ -478,7 +478,7 @@ describe("PublishingOrchestrator", () => {
       workspaceId: "workspace-123",
       caption: "Reconciliation test",
       mediaIds: [],
-      platforms: ["facebook"], platformConnections: { facebook: "page" },
+      platforms: ["facebook"], platformConnections: { facebook: "page", instagram: "instagram" },
     });
 
     expect(reconcileMock).toHaveBeenCalledOnce();
@@ -672,6 +672,7 @@ describe("platform-specific connection routing", () => {
       platformConnections: {
         facebook: facebookConnectionId,
         linkedin: linkedinConnectionId,
+        instagram: "instagram-connection",
       },
     });
 
@@ -700,6 +701,7 @@ describe("platform-specific connection routing", () => {
         postId: "post-multiple-platforms",
         workspaceId,
         platform: "instagram",
+        connectionId: "instagram-connection",
         caption: "Multi-platform announcement",
         mediaIds: [],
       },

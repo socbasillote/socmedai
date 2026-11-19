@@ -76,7 +76,7 @@ export function WorkspaceSelector({
                   storeWorkspaceId(workspace._id);
                   setWorkspaceMenuOpen(false);
                 }}
-                className={`w-full rounded-lg px-3 py-2 text-left text-sm transition ${
+                className={`min-h-11 w-full rounded-lg px-3 py-2 text-left text-sm transition ${
                   workspace._id === selectedWorkspaceId
                     ? "bg-violet-500/20 text-violet-200"
                     : "text-slate-300 hover:bg-white/5 hover:text-white"
@@ -98,7 +98,7 @@ export function WorkspaceSelector({
         <button
           type="button"
           onClick={onCreateWorkspace}
-          className="mt-2 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-violet-300 transition hover:bg-white/5 hover:text-white"
+          className="mt-2 flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-violet-300 transition hover:bg-white/5 hover:text-white"
         >
           <Plus size={16} />
           Create workspace

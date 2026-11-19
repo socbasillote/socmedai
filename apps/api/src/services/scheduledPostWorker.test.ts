@@ -38,8 +38,13 @@ describe("scheduledPostWorker", () => {
     const result = await claimNextDuePost(now);
 
     const [filter, update, options] = mocks.postFindOneAndUpdate.mock.calls[0];
-    expect(filter).toMatchObject({ status: "scheduled", scheduledAt: { $lte: now }, mediaIds: { $size: 0 } });
+    expect(filter).toMatchObject({ status: "scheduled", scheduledAt: { $lte: now } });
     expect(filter.$and).toHaveLength(2);
+    expect(filter.$and[1].$or).toEqual(expect.arrayContaining([
+      expect.objectContaining({ platforms: ["instagram"], mediaIds: { $size: 1 } }),
+      expect.objectContaining({ platforms: ["facebook"], mediaIds: { $size: 0 } }),
+      expect.objectContaining({ platforms: ["linkedin"], mediaIds: { $size: 0 } }),
+    ]));
     expect(update.$set).toMatchObject({ status: "publishing", claimedAt: now, scheduledClaimId: expect.any(String), scheduledLeaseExpiresAt: new Date(now.getTime() + 900000) });
     expect(options.sort).toEqual({ scheduledAt: 1, _id: 1 });
     expect(result).toEqual(claimedPost);
