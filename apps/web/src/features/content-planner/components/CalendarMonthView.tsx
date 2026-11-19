@@ -53,7 +53,7 @@ const statusStyles: Record<string, string> = {
   unknown: "rounded-md border-2 border-rose-600 bg-rose-50 text-rose-900",
 };
 const navigationButton =
-  "inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-slate-300 px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-violet-600";
+  "inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-slate-300 px-2 text-sm font-normal text-slate-700 transition hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-violet-600";
 
 function getPostTitle(post: Post): string {
   return post.title?.trim() || post.caption.trim() || "Untitled post";
@@ -95,7 +95,7 @@ function PostChip({
         </time>
         <span className="sr-only">{status}</span>
       </span>
-      <span className="mt-1 block truncate font-semibold">
+      <span className="mt-1 block truncate font-normal text-sm">
         {getPostTitle(post)}
       </span>
     </button>
@@ -277,7 +277,7 @@ export function CalendarMonthView({
               {WEEKDAYS.map((day) => (
                 <div
                   key={day}
-                  className="px-3 py-3 text-center text-xs font-semibold uppercase text-slate-600"
+                  className="px-2 py-2 text-center text-xs font-semibold uppercase text-slate-600"
                 >
                   {day}
                 </div>
@@ -297,7 +297,7 @@ export function CalendarMonthView({
                     key={day.key}
                     data-date={day.key}
                     aria-current={day.isToday ? "date" : undefined}
-                    className={`relative min-h-[220px] min-w-0 border-b border-r border-slate-200 p-2 ${
+                    className={`relative min-h-[180px] min-w-0 border-b border-r border-slate-200 p-2 ${
                       day.isToday
                         ? "bg-violet-50 ring-2 ring-inset ring-violet-500"
                         : !day.inCurrentMonth
@@ -316,7 +316,7 @@ export function CalendarMonthView({
                         className="absolute inset-0 flex min-h-11 min-w-11 items-start rounded-sm p-2 text-left transition enabled:hover:bg-violet-100/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-violet-600 disabled:cursor-default"
                       >
                         <span
-                          className={`flex h-11 w-11 items-center justify-center rounded-full text-sm font-medium ${day.isToday ? "bg-violet-600 text-white" : day.inCurrentMonth ? "text-slate-800" : "text-slate-500"}`}
+                          className={`flex h-11 w-11 items-center justify-center rounded-full text-sm font-normal ${day.isToday ? "bg-violet-600 text-white" : day.inCurrentMonth ? "text-slate-800" : "text-slate-500"}`}
                         >
                           {day.dayNumber}
                         </span>
@@ -331,7 +331,7 @@ export function CalendarMonthView({
                           }}
                           aria-label={`Select ${day.date.toDateString()}`}
                           aria-pressed={active}
-                          className={`flex min-h-11 min-w-11 items-center justify-center rounded-full text-sm font-medium focus-visible:outline-2 focus-visible:outline-violet-600 ${day.isToday ? "bg-violet-600 text-white" : "text-slate-800 hover:bg-violet-100"}`}
+                          className={`flex min-h-11 min-w-11 items-center justify-center rounded-full text-sm font-normal focus-visible:outline-2 focus-visible:outline-violet-600 ${day.isToday ? "bg-violet-600 text-white" : "text-slate-800 hover:bg-violet-100"}`}
                         >
                           {day.dayNumber}
                         </button>

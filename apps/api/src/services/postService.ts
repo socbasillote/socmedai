@@ -705,13 +705,14 @@ export async function updateWorkspaceDraft(
   }
 
   const mongoUpdate: {
-    $set: typeof update;
+    $set: typeof update & { autosaveClosed: boolean };
     $unset?: Record<string, "">;
     $inc: {
       __v: number;
     };
   } = {
-    $set: update,
+    // Manual editing takes ownership from the original composer outbox.
+    $set: { ...update, autosaveClosed: true },
     $inc: {
       __v: 1,
     },
@@ -873,6 +874,8 @@ async function writeComposerDraft(workspaceId: unknown, userId: unknown, clientD
   try {
     return await Post.findOneAndUpdate(filter, {
       $set: { ...data, ...(finalize ? { autosaveClosed: true } : { autosaveRevision: revision }) },
+      // Concurrent manual edits must detect an intervening autosave.
+      $inc: { __v: 1 },
       ...(!data.scheduledAt ? { $unset: { scheduledAt: "" } } : {}),
     }, { upsert: true, returnDocument: "after", runValidators: true });
   } catch (error) {

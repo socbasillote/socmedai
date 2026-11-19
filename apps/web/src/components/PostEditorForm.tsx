@@ -11,7 +11,11 @@ import {
 
 import { MediaLibraryPicker } from "@/features/publishing/components/MediaLibraryPicker";
 import { SelectedMediaPreview } from "@/features/publishing/components/SelectedMediaPreview";
-const PublishingImageGenerator = lazy(() => import("@/features/publishing/components/PublishingImageGenerator").then((module) => ({ default: module.PublishingImageGenerator })));
+const PublishingImageGenerator = lazy(() =>
+  import("@/features/publishing/components/PublishingImageGenerator").then(
+    (module) => ({ default: module.PublishingImageGenerator }),
+  ),
+);
 
 type PostMode = "draft" | "scheduled" | "immediate";
 
@@ -93,9 +97,12 @@ export function PostEditorForm({
   facebookConnectionsLoading,
   facebookConnectionsError,
   onFacebookConnectionChange,
-  instagramConnections = [], selectedInstagramConnectionId = null,
-  instagramLoading = false, instagramError = "",
-  onInstagramConnectionChange, onConnectInstagram,
+  instagramConnections = [],
+  selectedInstagramConnectionId = null,
+  instagramLoading = false,
+  instagramError = "",
+  onInstagramConnectionChange,
+  onConnectInstagram,
   onTitleChange,
   onCaptionChange,
   onPlatformsChange,
@@ -133,164 +140,268 @@ export function PostEditorForm({
       noValidate
       className="space-y-6"
     >
-      <section aria-labelledby="editor-destinations-heading" className="space-y-4 border-b border-slate-100 pb-6">
+      <section
+        aria-labelledby="editor-destinations-heading"
+        className="space-y-4 border-b border-slate-100 pb-6"
+      >
         <div className="flex items-center gap-3">
-          <span className="flex size-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600"><Send size={17} aria-hidden="true" /></span>
-          <div><p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">Step 1</p><h2 id="editor-destinations-heading" className="text-base font-bold text-slate-900">Choose your destination</h2></div>
-        </div>
-      {/* Platforms */}
-      <fieldset disabled={saving || locked}>
-        <legend className="mb-3 text-sm font-semibold text-slate-700">
-          Publishing Platforms
-        </legend>
-
-        <div className="grid gap-2 sm:grid-cols-3">
-          {platforms.map((platform) => (
-            <label
-              key={platform.id}
-              className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm transition focus-within:ring-2 focus-within:ring-violet-300 ${selectedPlatforms.includes(platform.id) ? "border-violet-300 bg-violet-50 text-violet-800" : "border-slate-200 bg-white text-slate-600 hover:border-violet-200"}`}
+          <span className="flex size-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+            <Send size={17} aria-hidden="true" />
+          </span>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">
+              Step 1
+            </p>
+            <h2
+              id="editor-destinations-heading"
+              className="text-base font-bold text-slate-900"
             >
-              <input
-                type="checkbox"
-                aria-label={platform.label}
-                checked={selectedPlatforms.includes(platform.id)}
-                onChange={() => togglePlatform(platform.id)}
-                className="h-4 w-4 accent-violet-600"
-              />
-
-              <span className="flex-1 font-semibold">{platform.label}<span className="mt-0.5 block text-[11px] font-normal text-slate-500">{platform.id === "instagram" ? "One image + caption" : "Caption + image"}</span></span>
-              {selectedPlatforms.includes(platform.id) && <Check size={15} aria-hidden="true" />}
-            </label>
-          ))}
+              Choose your destination
+            </h2>
+          </div>
         </div>
-      </fieldset>
+        {/* Platforms */}
+        <fieldset disabled={saving || locked}>
+          <legend className="mb-3 text-sm font-semibold text-slate-700">
+            Publishing Platforms
+          </legend>
 
-      <p className="text-xs leading-5 text-slate-500">Choose one destination to publish now or schedule. You can save multiple platforms in a draft.</p>
-      {/* Facebook Page selection */}
-      {selectedPlatforms.includes("facebook") && (
-        <section className="rounded-xl border border-slate-200 p-4">
-          <FacebookPageConnectionSelect
-            connections={facebookConnections}
-            selectedConnectionId={selectedFacebookConnectionId}
-            loading={facebookConnectionsLoading}
+          <div className="grid gap-2 sm:grid-cols-3">
+            {platforms.map((platform) => (
+              <label
+                key={platform.id}
+                className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm transition focus-within:ring-2 focus-within:ring-violet-300 ${selectedPlatforms.includes(platform.id) ? "border-violet-300 bg-violet-50 text-violet-800" : "border-slate-200 bg-white text-slate-600 hover:border-violet-200"}`}
+              >
+                <input
+                  type="checkbox"
+                  aria-label={platform.label}
+                  checked={selectedPlatforms.includes(platform.id)}
+                  onChange={() => togglePlatform(platform.id)}
+                  className="h-4 w-4 accent-violet-600"
+                />
+
+                <span className="flex-1 font-semibold">
+                  {platform.label}
+                  <span className="mt-0.5 block text-[11px] font-normal text-slate-500">
+                    {platform.id === "instagram"
+                      ? "One image + caption"
+                      : "Caption + image"}
+                  </span>
+                </span>
+                {selectedPlatforms.includes(platform.id) && (
+                  <Check size={15} aria-hidden="true" />
+                )}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <p className="text-xs leading-5 text-slate-500">
+          Choose one destination to publish now or schedule. You can save
+          multiple platforms in a draft.
+        </p>
+        {/* Facebook Page selection */}
+        {selectedPlatforms.includes("facebook") && (
+          <section className="rounded-xl border border-slate-200 p-4">
+            <FacebookPageConnectionSelect
+              connections={facebookConnections}
+              selectedConnectionId={selectedFacebookConnectionId}
+              loading={facebookConnectionsLoading}
+              disabled={saving || locked}
+              error={facebookConnectionsError}
+              onChange={onFacebookConnectionChange}
+            />
+
+            <p className="mt-3 text-xs text-slate-500">
+              Choose the Facebook Page where you want to publish this post.
+            </p>
+          </section>
+        )}
+
+        {selectedPlatforms.includes("instagram") && (
+          <section className="space-y-3 rounded-xl border border-slate-200 p-4">
+            <label className="block text-sm font-semibold">
+              Instagram account
+              <select
+                aria-label="Instagram account"
+                value={selectedInstagramConnectionId ?? ""}
+                disabled={saving || locked || instagramLoading}
+                onChange={(event) =>
+                  onInstagramConnectionChange?.(event.target.value || null)
+                }
+                className="mt-2 w-full rounded-lg border p-2"
+              >
+                <option value="">Select an Instagram account</option>
+                {instagramConnections
+                  .filter((item) => item.status === "connected")
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      @{item.username}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="block text-sm">
+              Connect or refresh Instagram through a Facebook Page
+              <select
+                aria-label="Connect Instagram through a Facebook Page"
+                value=""
+                disabled={
+                  saving ||
+                  locked ||
+                  instagramLoading ||
+                  facebookConnectionsLoading
+                }
+                onChange={(event) => {
+                  if (event.target.value)
+                    onConnectInstagram?.(event.target.value);
+                }}
+                className="mt-2 w-full rounded-lg border p-2"
+              >
+                <option value="">Choose a connected Page</option>
+                {facebookConnections
+                  .filter(
+                    (item) => item.status === "connected" && item.canPublish,
+                  )
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.pageName}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <p className="text-xs text-slate-500">
+              Use a professional Instagram account linked to a Facebook Page.
+              Connect or reconnect Facebook in your social accounts to grant
+              Instagram permissions. One image and a caption are required.
+            </p>
+            {instagramLoading && (
+              <p role="status">Loading Instagram accounts...</p>
+            )}
+            {instagramError && (
+              <p role="alert" className="text-sm text-rose-700">
+                {instagramError}
+              </p>
+            )}
+          </section>
+        )}
+
+        {/* LinkedIn connection */}
+        {selectedPlatforms.includes("linkedin") && (
+          <section className="rounded-xl border border-slate-200 p-4">
+            <h3 className="text-sm font-semibold text-slate-700">
+              LinkedIn Account
+            </h3>
+
+            {linkedInStatus === "connected" && linkedInConnectionId ? (
+              <p className="mt-2 text-sm text-emerald-700">
+                Connected: {linkedInDisplayName || "LinkedIn account"}
+              </p>
+            ) : (
+              <p className="mt-2 text-sm text-amber-700">
+                Connect a LinkedIn account before publishing. You can still save
+                a draft.
+              </p>
+            )}
+          </section>
+        )}
+      </section>
+      <section
+        aria-labelledby="editor-content-heading"
+        className="space-y-4 border-b border-slate-100 pb-6"
+      >
+        <div className="flex items-center gap-3">
+          <span className="flex size-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+            <PenLine size={17} aria-hidden="true" />
+          </span>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">
+              Step 2
+            </p>
+            <h2
+              id="editor-content-heading"
+              className="text-base font-bold text-slate-900"
+            >
+              Write your post
+            </h2>
+          </div>
+        </div>
+        {/* Title */}
+        <div>
+          <label
+            htmlFor="editor-title"
+            className="mb-2 block text-sm font-semibold text-slate-700"
+          >
+            Post Title{" "}
+            <span className="ml-1 font-normal text-slate-400">optional</span>
+          </label>
+
+          <input
+            id="editor-title"
+            type="text"
+            value={title}
+            onChange={(event) => onTitleChange(event.target.value)}
+            placeholder="Give this post a name for your planner"
+            aria-describedby="editor-title-help"
             disabled={saving || locked}
-            error={facebookConnectionsError}
-            onChange={onFacebookConnectionChange}
+            className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
+          />
+        </div>
+
+        <p id="editor-title-help" className="-mt-2 text-xs text-slate-500">
+          This title stays in your planner and will not appear on social
+          platforms.
+        </p>
+        {/* Caption */}
+        <div>
+          <label
+            htmlFor="editor-caption"
+            className="mb-2 block text-sm font-semibold text-slate-700"
+          >
+            Caption
+          </label>
+
+          <textarea
+            id="editor-caption"
+            rows={8}
+            value={caption}
+            onChange={(event) => onCaptionChange(event.target.value)}
+            placeholder="What would you like to share?"
+            disabled={saving || locked}
+            required
+            className="w-full resize-y rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
           />
 
-          <p className="mt-3 text-xs text-slate-500">
-            Choose the Facebook Page where you want to publish this post.
+          <p className="mt-2 text-right text-xs text-slate-400">
+            {caption.length} characters
           </p>
-        </section>
-      )}
-
-      {selectedPlatforms.includes("instagram") && <section className="space-y-3 rounded-xl border border-slate-200 p-4">
-        <label className="block text-sm font-semibold">Instagram account
-          <select aria-label="Instagram account" value={selectedInstagramConnectionId ?? ""} disabled={saving || locked || instagramLoading}
-            onChange={(event) => onInstagramConnectionChange?.(event.target.value || null)} className="mt-2 w-full rounded-lg border p-2">
-            <option value="">Select an Instagram account</option>
-            {instagramConnections.filter((item) => item.status === "connected").map((item) => <option key={item.id} value={item.id}>@{item.username}</option>)}
-          </select>
-        </label>
-        <label className="block text-sm">Connect or refresh Instagram through a Facebook Page
-          <select aria-label="Connect Instagram through a Facebook Page" value="" disabled={saving || locked || instagramLoading || facebookConnectionsLoading}
-            onChange={(event) => { if (event.target.value) onConnectInstagram?.(event.target.value); }} className="mt-2 w-full rounded-lg border p-2">
-            <option value="">Choose a connected Page</option>
-            {facebookConnections.filter((item) => item.status === "connected" && item.canPublish).map((item) => <option key={item.id} value={item.id}>{item.pageName}</option>)}
-          </select>
-        </label>
-        <p className="text-xs text-slate-500">Use a professional Instagram account linked to a Facebook Page. Connect or reconnect Facebook in your social accounts to grant Instagram permissions. One image and a caption are required.</p>
-        {instagramLoading && <p role="status">Loading Instagram accounts...</p>}
-        {instagramError && <p role="alert" className="text-sm text-rose-700">{instagramError}</p>}
-      </section>}
-
-      {/* LinkedIn connection */}
-      {selectedPlatforms.includes("linkedin") && (
-        <section className="rounded-xl border border-slate-200 p-4">
-          <h3 className="text-sm font-semibold text-slate-700">
-            LinkedIn Account
-          </h3>
-
-          {linkedInStatus === "connected" && linkedInConnectionId ? (
-            <p className="mt-2 text-sm text-emerald-700">
-              Connected: {linkedInDisplayName || "LinkedIn account"}
-            </p>
-          ) : (
-            <p className="mt-2 text-sm text-amber-700">
-              Connect a LinkedIn account before publishing. You can still save a draft.
-            </p>
-          )}
-        </section>
-      )}
-
-
-      </section>
-      <section aria-labelledby="editor-content-heading" className="space-y-4 border-b border-slate-100 pb-6">
-        <div className="flex items-center gap-3">
-          <span className="flex size-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600"><PenLine size={17} aria-hidden="true" /></span>
-          <div><p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">Step 2</p><h2 id="editor-content-heading" className="text-base font-bold text-slate-900">Write your post</h2></div>
+          <PublishingCaptionGenerator
+            key={`${recoveryOwnerUserId}:${workspaceId}:${captionSessionKey}:${saving || locked}`}
+            disabled={!workspaceId || !recoveryOwnerUserId || saving || locked}
+            initialBrief={title}
+            defaultPlatform={selectedPlatforms[0] ?? "facebook"}
+            hasCaption={Boolean(caption.trim())}
+            onApply={onCaptionChange}
+          />
         </div>
-      {/* Title */}
-      <div>
-        <label
-          htmlFor="editor-title"
-          className="mb-2 block text-sm font-semibold text-slate-700"
-        >
-          Post Title <span className="ml-1 font-normal text-slate-400">optional</span>
-        </label>
-
-        <input
-          id="editor-title"
-          type="text"
-          value={title}
-          onChange={(event) => onTitleChange(event.target.value)}
-          placeholder="Give this post a name for your planner"
-          aria-describedby="editor-title-help"
-          disabled={saving || locked}
-          className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
-        />
-      </div>
-
-      <p id="editor-title-help" className="-mt-2 text-xs text-slate-500">This title stays in your planner and will not appear on social platforms.</p>
-      {/* Caption */}
-      <div>
-        <label
-          htmlFor="editor-caption"
-          className="mb-2 block text-sm font-semibold text-slate-700"
-        >
-          Caption
-        </label>
-
-        <textarea
-          id="editor-caption"
-          rows={8}
-          value={caption}
-          onChange={(event) => onCaptionChange(event.target.value)}
-          placeholder="What would you like to share?"
-          disabled={saving || locked}
-          required
-          className="w-full resize-y rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
-        />
-
-        <p className="mt-2 text-right text-xs text-slate-400">
-          {caption.length} characters
-        </p>
-        <PublishingCaptionGenerator
-          key={`${recoveryOwnerUserId}:${workspaceId}:${captionSessionKey}:${saving || locked}`}
-          disabled={!workspaceId || !recoveryOwnerUserId || saving || locked}
-          initialBrief={title}
-          defaultPlatform={selectedPlatforms[0] ?? "facebook"}
-          hasCaption={Boolean(caption.trim())}
-          onApply={onCaptionChange}
-        />
-      </div>
-
       </section>
       {/* Media */}
       <section aria-label="Post media" className="space-y-4">
         <div className="flex items-center gap-3">
-          <span className="flex size-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600"><ImagePlus size={17} aria-hidden="true" /></span>
-          <div><p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">Step 3</p><h2 className="text-base font-bold text-slate-900">Add an image <span className="text-xs font-normal text-slate-400">optional</span></h2></div>
+          <span className="flex size-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+            <ImagePlus size={17} aria-hidden="true" />
+          </span>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">
+              Step 3
+            </p>
+            <h2 className="text-base font-bold text-slate-900">
+              Add an image{" "}
+              <span className="text-xs font-normal text-slate-400">
+                optional
+              </span>
+            </h2>
+          </div>
         </div>
 
         {selectedMediaAssetId ? (
@@ -320,7 +431,7 @@ export function PostEditorForm({
                   setGeneratorOpen(false);
                   setLibraryOpen(true);
                 }}
-                className="rounded-lg border border-violet-300 bg-white px-3 py-2 text-xs font-medium text-violet-800 disabled:opacity-50"
+                className="rounded-lg border border-violet-300 bg-white px-2 py-2 text-xs font-normal text-violet-800 disabled:opacity-50"
               >
                 Replace image
               </button>
@@ -332,7 +443,7 @@ export function PostEditorForm({
                   setLibraryOpen(false);
                   setGeneratorOpen(true);
                 }}
-                className="rounded-lg border border-violet-300 bg-white px-3 py-2 text-xs font-medium text-violet-800 disabled:opacity-50"
+                className="rounded-lg border border-violet-300 bg-white px-2 py-2 text-xs font-normal text-violet-800 disabled:opacity-50"
               >
                 Generate replacement
               </button>
@@ -345,7 +456,7 @@ export function PostEditorForm({
                   setLibraryOpen(false);
                   setGeneratorOpen(false);
                 }}
-                className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700 disabled:opacity-50"
+                className="rounded-lg border border-rose-200 bg-white px-2 py-2 text-xs font-normal text-rose-700 disabled:opacity-50"
               >
                 Remove image
               </button>
@@ -353,8 +464,12 @@ export function PostEditorForm({
           </div>
         ) : (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-5 text-center">
-            <ImagePlus size={28} className="mx-auto mb-3 text-violet-400" aria-hidden="true" />
-            <p className="text-sm font-medium text-slate-700">
+            <ImagePlus
+              size={28}
+              className="mx-auto mb-3 text-violet-400"
+              aria-hidden="true"
+            />
+            <p className="text-sm font-normal text-slate-700">
               Bring your post to life
             </p>
 
@@ -370,7 +485,7 @@ export function PostEditorForm({
                   setGeneratorOpen(false);
                   setLibraryOpen(true);
                 }}
-                className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-normal text-white disabled:opacity-50"
               >
                 Choose from Media Library
               </button>
@@ -401,7 +516,7 @@ export function PostEditorForm({
                 type="button"
                 disabled={saving || locked}
                 onClick={() => setLibraryOpen(false)}
-                className="text-xs font-medium text-slate-600 underline"
+                className="text-xs font-normal text-slate-600 underline"
               >
                 Close
               </button>
@@ -448,33 +563,37 @@ export function PostEditorForm({
             </div>
 
             <div className="mt-5">
-              <Suspense fallback={<p role="status">Loading image generator...</p>}><PublishingImageGenerator
-                key={`${recoveryOwnerUserId ?? "no-user"}:${workspaceId ?? "no-workspace"}`}
-                workspaceId={workspaceId}
-                ownerUserId={recoveryOwnerUserId}
-                disabled={saving || locked}
-                onUseImage={(assetId) => {
-                  if (!workspaceId || saving || locked) {
-                    return;
-                  }
+              <Suspense
+                fallback={<p role="status">Loading image generator...</p>}
+              >
+                <PublishingImageGenerator
+                  key={`${recoveryOwnerUserId ?? "no-user"}:${workspaceId ?? "no-workspace"}`}
+                  workspaceId={workspaceId}
+                  ownerUserId={recoveryOwnerUserId}
+                  disabled={saving || locked}
+                  onUseImage={(assetId) => {
+                    if (!workspaceId || saving || locked) {
+                      return;
+                    }
 
-                  // Reuse the existing media-selection callback.
-                  // Do not introduce another attachment state.
-                  onMediaSelect(assetId);
+                    // Reuse the existing media-selection callback.
+                    // Do not introduce another attachment state.
+                    onMediaSelect(assetId);
 
-                  // Return to the main editor so the user sees
-                  // the selected-image preview.
-                  setGeneratorOpen(false);
-                  setLibraryOpen(false);
-                }}
-              /></Suspense>
+                    // Return to the main editor so the user sees
+                    // the selected-image preview.
+                    setGeneratorOpen(false);
+                    setLibraryOpen(false);
+                  }}
+                />
+              </Suspense>
             </div>
           </section>
         )}
 
         <p className="text-xs leading-5 text-slate-500">
-          Publish one image with your caption to Facebook or LinkedIn, or save it
-          with a draft. Scheduled image publishing is not supported yet.
+          Publish one image with your caption to Facebook or LinkedIn, or save
+          it with a draft. Scheduled image publishing is not supported yet.
         </p>
       </section>
 

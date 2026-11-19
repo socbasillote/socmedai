@@ -66,21 +66,42 @@ export function MediaLibraryPicker({
 
         if (!active) return;
 
-        setImages(response.images.map((image) => ({ ...image, previewUrl: image.previewUrl ?? null })));
+        setImages(
+          response.images.map((image) => ({
+            ...image,
+            previewUrl: image.previewUrl ?? null,
+          })),
+        );
         setLoading(false);
         // Backward compatibility for older API responses. New responses already
         // contain batched URLs, including explicit nulls for failed signing.
-        const pending = response.images.filter((image) => image.previewUrl === undefined);
+        const pending = response.images.filter(
+          (image) => image.previewUrl === undefined,
+        );
         let next = 0;
-        await Promise.all(Array.from({ length: Math.min(3, pending.length) }, async () => {
-          while (active && next < pending.length) {
-            const image = pending[next++];
-            try {
-              const access = await getWorkspaceImageUrl(image.sourceWorkspaceId, image.assetId);
-              if (active) setImages((current) => current.map((item) => item.assetId === image.assetId ? { ...item, previewUrl: access.url } : item));
-            } catch { /* Keep the image selectable even if its preview fails. */ }
-          }
-        }));
+        await Promise.all(
+          Array.from({ length: Math.min(3, pending.length) }, async () => {
+            while (active && next < pending.length) {
+              const image = pending[next++];
+              try {
+                const access = await getWorkspaceImageUrl(
+                  image.sourceWorkspaceId,
+                  image.assetId,
+                );
+                if (active)
+                  setImages((current) =>
+                    current.map((item) =>
+                      item.assetId === image.assetId
+                        ? { ...item, previewUrl: access.url }
+                        : item,
+                    ),
+                  );
+              } catch {
+                /* Keep the image selectable even if its preview fails. */
+              }
+            }
+          }),
+        );
       } catch {
         if (!active) return;
 
@@ -122,7 +143,7 @@ export function MediaLibraryPicker({
           type="button"
           onClick={() => setRefreshVersion((value) => value + 1)}
           disabled={loading || disabled || !workspaceId}
-          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-2 text-xs font-normal text-slate-700 disabled:opacity-50"
         >
           <RefreshCw size={14} aria-hidden="true" />
           Refresh
@@ -153,7 +174,7 @@ export function MediaLibraryPicker({
               aria-pressed={scope === option.value}
               onClick={() => changeScope(option.value)}
               className={[
-                "rounded-xl border px-3 py-2.5",
+                "rounded-xl border px-2 py-2.5",
                 "text-xs font-semibold transition",
                 "disabled:opacity-50",
                 scope === option.value
@@ -195,7 +216,7 @@ export function MediaLibraryPicker({
         <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center">
           <ImageIcon size={28} className="mx-auto text-slate-400" />
 
-          <p className="mt-2 text-sm font-medium text-slate-700">
+          <p className="mt-2 text-sm font-normal text-slate-700">
             No ready images found
           </p>
 
@@ -273,7 +294,7 @@ export function MediaLibraryPicker({
 
                 {scope === "all" && (
                   <p
-                    className="truncate text-xs font-medium text-slate-600"
+                    className="truncate text-xs font-normal text-slate-600"
                     title={image.sourceWorkspaceName}
                   >
                     {image.sourceWorkspaceName}

@@ -45,7 +45,7 @@ export function FacebookPageConnectionSelect({
           onChange(event.target.value || null);
         }}
         disabled={isDisabled}
-        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 disabled:cursor-not-allowed disabled:bg-slate-100"
+        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 disabled:cursor-not-allowed disabled:bg-slate-100"
       >
         <option value="">
           {loading ? "Loading Facebook Pages..." : "Select a Facebook Page"}

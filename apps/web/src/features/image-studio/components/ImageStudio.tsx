@@ -195,12 +195,15 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
       inFlight = true;
 
       void refreshStatus(assetId)
-        .then(() => { retryDelay = 4000; })
+        .then(() => {
+          retryDelay = 4000;
+        })
         .catch((cause: unknown) => {
           if (active) {
             if (cause instanceof ApiError && cause.status === 429) {
               retryDelay = Math.min(retryDelay * 2, 60_000);
-              nextPollAt = Date.now() + Math.max(retryDelay, cause.retryAfterMs ?? 0);
+              nextPollAt =
+                Date.now() + Math.max(retryDelay, cause.retryAfterMs ?? 0);
             }
             setError(
               `Unable to refresh generation status: ${errorMessage(cause)}`,
@@ -304,7 +307,9 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
           prompt: normalizedPrompt,
           aspectRatio,
           branding: buildSelectedBranding(),
-          ...(referencePhoto.reference ? { reference: referencePhoto.reference } : {}),
+          ...(referencePhoto.reference
+            ? { reference: referencePhoto.reference }
+            : {}),
         },
       });
 
@@ -336,7 +341,11 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
     }
   }
 
-  const referencePhoto = useImageReference(selectedWorkspaceId, null, submitting || pendingRetry !== null || details?.state === "processing");
+  const referencePhoto = useImageReference(
+    selectedWorkspaceId,
+    null,
+    submitting || pendingRetry !== null || details?.state === "processing",
+  );
   const availableCredits = credits?.credits.available;
   const costPerImage = credits?.credits.costPerImage;
 
@@ -346,10 +355,14 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
     availableCredits < costPerImage;
 
   const dailyLimitReached =
-    credits !== null && credits.usage.dailyLimit != null && credits.usage.attempts >= credits.usage.dailyLimit;
+    credits !== null &&
+    credits.usage.dailyLimit != null &&
+    credits.usage.attempts >= credits.usage.dailyLimit;
 
   const activeLimitReached =
-    credits !== null && credits.usage.maxActive != null && credits.usage.active >= credits.usage.maxActive;
+    credits !== null &&
+    credits.usage.maxActive != null &&
+    credits.usage.active >= credits.usage.maxActive;
 
   const cannotGenerate =
     !selectedWorkspaceId ||
@@ -371,7 +384,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
     logoSelectionBlocked;
 
   return (
-    <main className="mx-auto w-full max-w-6xl space-y-6 px-4 py-6 sm:px-6">
+    <main className="space-y-6">
       <header className="space-y-2">
         <p className="text-xs font-semibold uppercase tracking-widest text-violet-600">
           AI Media
@@ -393,7 +406,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
             type="button"
             onClick={() => void refreshCredits()}
             disabled={!selectedWorkspaceId}
-            className="mt-3 text-sm font-medium text-violet-700 hover:underline"
+            className="mt-3 text-sm font-normal text-violet-700 hover:underline"
           >
             Refresh balance
           </button>
@@ -441,7 +454,10 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
           onSubmit={handleGenerate}
           className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5"
         >
-          <ImageReferenceInput key={referencePhoto.scope} {...referencePhoto.fieldProps} />
+          <ImageReferenceInput
+            key={referencePhoto.scope}
+            {...referencePhoto.fieldProps}
+          />
           <div className="space-y-2">
             <label
               htmlFor="image-studio-prompt"
@@ -489,7 +505,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                       onChange={() => setAspectRatio(item.value)}
                       className="sr-only"
                     />
-                    <span className="block text-sm font-medium">
+                    <span className="block text-sm font-normal">
                       {item.label}
                     </span>
                     <span className="text-xs text-slate-500">
@@ -579,7 +595,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                       <p></p>
                     )}
 
-                    <span className="text-sm font-medium">{item.label}</span>
+                    <span className="text-sm font-normal">{item.label}</span>
                   </label>
                 );
               })}
@@ -602,7 +618,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
               <div className="space-y-2">
                 <label
                   htmlFor="image-studio-branding-text"
-                  className="block text-sm font-medium text-slate-700"
+                  className="block text-sm font-normal text-slate-700"
                 >
                   Text label
                 </label>
@@ -628,7 +644,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                 <div className="space-y-2">
                   <label
                     htmlFor="image-studio-branding-position"
-                    className="block text-sm font-medium text-slate-700"
+                    className="block text-sm font-normal text-slate-700"
                   >
                     Position
                   </label>
@@ -654,7 +670,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                   <div className="flex justify-between text-sm">
                     <label
                       htmlFor="image-studio-branding-size"
-                      className="font-medium text-slate-700"
+                      className="font-normal text-slate-700"
                     >
                       Size
                     </label>
@@ -680,7 +696,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                   <div className="flex justify-between text-sm">
                     <label
                       htmlFor="image-studio-branding-opacity"
-                      className="font-medium text-slate-700"
+                      className="font-normal text-slate-700"
                     >
                       Opacity
                     </label>
@@ -736,7 +752,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
           <button
             type="submit"
             disabled={cannotGenerate}
-            className="w-full rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {submitting
               ? "Generating..."
@@ -772,7 +788,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
         >
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-semibold text-slate-900">Preview</h2>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">
+            <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700">
               {details?.state ?? "No image"}
             </span>
           </div>
@@ -797,7 +813,8 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                 role="status"
                 className="p-5 text-center text-sm text-amber-800"
               >
-                {details.message ?? "This generation requires recovery. No additional generation will be started automatically."}
+                {details.message ??
+                  "This generation requires recovery. No additional generation will be started automatically."}
               </p>
             ) : details?.status === "failed" ? (
               <p role="status" className="p-5 text-center text-sm text-red-700">
@@ -825,7 +842,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                     setError(errorMessage(cause)),
                   )
                 }
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-normal"
               >
                 Refresh status
               </button>
@@ -834,7 +851,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                 <button
                   type="button"
                   onClick={() => void refreshPreview()}
-                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium"
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-normal"
                 >
                   Refresh image link
                 </button>

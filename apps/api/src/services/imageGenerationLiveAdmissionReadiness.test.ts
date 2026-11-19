@@ -23,10 +23,9 @@ function configuration(overrides: Record<string, string> = {}) {
 }
 
 describe("Live image admission readiness", () => {
-  it("rejects live admission while paid worker is unarmed", () => {
+  it("accepts live admission when the paid worker is armed", () => {
     expect(evaluateLiveAdmissionReadiness(configuration(), WORKSPACE)).toEqual({
-      ready: false,
-      reason: "worker_not_armed",
+      ready: true, provider: "openai", model: "gpt-image-2", creditCost: 1, dailyLimit: 2, maxActive: 1,
     });
   });
 
@@ -44,19 +43,18 @@ describe("Live image admission readiness", () => {
     });
   });
 
-  it("rejects non-allowlisted workspaces", () => {
+  it("accepts other valid workspaces", () => {
     expect(
       evaluateLiveAdmissionReadiness(
         configuration(),
         "507f1f77bcf86cd799439099",
       ),
     ).toEqual({
-      ready: false,
-      reason: "release_gate_closed",
+      ready: true, provider: "openai", model: "gpt-image-2", creditCost: 1, dailyLimit: 2, maxActive: 1,
     });
   });
 
-  it("does not allow a pricing change to bypass worker gating", () => {
+  it("rejects a pricing change inconsistent with billing", () => {
     expect(
       evaluateLiveAdmissionReadiness(
         configuration({
@@ -66,7 +64,7 @@ describe("Live image admission readiness", () => {
       ),
     ).toEqual({
       ready: false,
-      reason: "worker_not_armed",
+      reason: "billing_mismatch",
     });
   });
 

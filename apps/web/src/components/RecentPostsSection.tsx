@@ -87,7 +87,7 @@ export function RecentPostsSection({
       {deletePostError && (
         <div
           role="alert"
-          className="border-b border-rose-100 bg-rose-50 px-5 py-3 text-sm text-rose-700"
+          className="border-b border-rose-100 bg-rose-50 px-5 py-2 text-sm text-rose-700"
         >
           {deletePostError}
         </div>

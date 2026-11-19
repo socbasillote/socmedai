@@ -72,7 +72,7 @@ function respondError(
  *
  * Mock generation follows the existing route.
  * OpenAI generation requires the live admission
- * gate and the exact allowlisted workspace.
+ * gate and an authorized workspace.
  */
 
 function assertImageGenerationHttpEnabled(
@@ -116,19 +116,6 @@ export const generateWorkspaceImageController: RequestHandler = async (
     const config = getImageGenerationConfig();
 
     const workspaceId = routeParam(req.params.workspaceId);
-
-    // Temporary diagnostic for Step 12.3.6.7.
-    console.info("[Image HTTP Diagnostic]", {
-      provider: config.IMAGE_GENERATION_PROVIDER,
-      httpEnabled: process.env.IMAGE_GENERATION_HTTP_ENABLED === "true",
-      production: process.env.NODE_ENV === "production",
-      workspaceIdMatchesAllowlist: (
-        process.env.IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST ?? ""
-      )
-        .split(",")
-        .map((id) => id.trim())
-        .includes(workspaceId),
-    });
 
     assertImageGenerationHttpEnabled(
       config.IMAGE_GENERATION_PROVIDER,

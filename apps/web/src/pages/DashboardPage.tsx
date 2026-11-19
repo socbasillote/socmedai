@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { useNavigate } from "react-router";
 
+import { UserSettingsView } from "@/components/UserSettingsView";
 import { PAGE_PATHS } from "@/app/navigation/pagePaths";
 
 import { useFacebookOAuthCallback } from "@/features/connections/facebook/hooks/useFacebookOAuthCallback";
@@ -244,6 +245,8 @@ export default function DashboardPage() {
             key={selectedWorkspaceId ?? "no-workspace"}
             selectedWorkspaceId={selectedWorkspaceId}
           />
+        ) : activePage === "User settings" || activePage === "Profile" ? (
+          <UserSettingsView profile={activePage === "Profile"} />
         ) : (
           <DashboardPlaceholderView
             activePage={activePage}

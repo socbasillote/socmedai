@@ -123,6 +123,8 @@ vi.mock("@/features/publishing/components/PublishingControls", () => ({
 vi.mock("@/components/PostEditorForm", () => ({
   PostEditorForm: ({
     caption,
+    saving,
+    locked,
     error,
     onSave,
     onCaptionChange,
@@ -131,6 +133,8 @@ vi.mock("@/components/PostEditorForm", () => ({
     onInstagramConnectionChange,
   }: {
     caption: string;
+    saving: boolean;
+    locked: boolean;
     error: string;
     onSave: () => void | Promise<void>;
     onCaptionChange: (value: string) => void;
@@ -155,7 +159,7 @@ vi.mock("@/components/PostEditorForm", () => ({
 
       <button type="button" onClick={() => { onPlatformsChange(["instagram"]); onInstagramConnectionChange("instagram-connection"); }}>Use Instagram</button>
       <button type="button" onClick={() => onMediaSelect("507f1f77bcf86cd799439099")}>Attach image</button>
-      <button type="button" onClick={() => void onSave()}>
+      <button type="button" disabled={saving || locked} onClick={() => void onSave()}>
         Save draft
       </button>
     </div>
@@ -220,6 +224,40 @@ describe("PostEditorRoute async safety", () => {
     cleanup();
   });
 
+
+  it("saves the verified LinkedIn connection when changing a draft platform", async () => {
+    vi.mocked(getPostById).mockResolvedValue({ ...makePost(POST_A, WORKSPACE_A), platforms: ["facebook"], platformConnections: {} });
+    vi.mocked(updateDraftPost).mockResolvedValue(makePost(POST_A, WORKSPACE_A));
+    render(<PostEditorRoute mode="edit" postId={POST_A} />);
+    await screen.findByText("Existing caption");
+    fireEvent.click(screen.getByRole("button", { name: "Use LinkedIn" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(updateDraftPost).toHaveBeenCalledWith(POST_A, expect.objectContaining({ platforms: ["linkedin"], platformConnections: { linkedin: LINKEDIN_ID } })));
+  });
+
+  it("keeps the attempted post locked but unlocks a different workspace", async () => {
+    const pendingPublish = deferred<Awaited<ReturnType<typeof publishPostNow>>>();
+    vi.mocked(createPost).mockResolvedValue(makePost(POST_A, WORKSPACE_A));
+    vi.mocked(publishPostNow).mockReturnValue(pendingPublish.promise);
+    const { rerender } = render(<PostEditorRoute mode="create" />);
+    prepareNewPost();
+    fireEvent.click(screen.getByRole("button", { name: "Choose Publish Now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Publish" }));
+    await waitFor(() => expect(publishPostNow).toHaveBeenCalledTimes(1));
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(true);
+    mocks.workspace.current = WORKSPACE_B;
+    rerender(<PostEditorRoute mode="create" />);
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => {
+      pendingPublish.reject(new Error("Late network failure"));
+      await pendingPublish.promise.catch(() => {});
+    });
+    expect(screen.queryByText(/Late network failure/)).toBeNull();
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("rejects saving an existing draft under another workspace", async () => {
     vi.mocked(getPostById).mockResolvedValue(makePost(POST_B, WORKSPACE_B));
 
@@ -235,6 +273,7 @@ describe("PostEditorRoute async safety", () => {
 
     expect(updateDraftPost).not.toHaveBeenCalled();
     expect(mocks.navigate).not.toHaveBeenCalled();
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("ignores stale draft loading after switching workspaces", async () => {
@@ -304,6 +343,7 @@ describe("PostEditorRoute async safety", () => {
     mocks.workspace.current = WORKSPACE_B;
 
     rerender(<PostEditorRoute mode="create" />);
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
 
     await act(async () => {
       pendingCreate.resolve(makePost(POST_A, WORKSPACE_A));
@@ -312,6 +352,7 @@ describe("PostEditorRoute async safety", () => {
     });
 
     expect(mocks.navigate).not.toHaveBeenCalled();
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("does not navigate after a stale draft update", async () => {
@@ -340,6 +381,7 @@ describe("PostEditorRoute async safety", () => {
     mocks.workspace.current = WORKSPACE_B;
 
     rerender(<PostEditorRoute mode="edit" postId={POST_A} />);
+    expect((await screen.findByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
 
     await act(async () => {
       pendingUpdate.resolve(makePost(POST_A, WORKSPACE_A));
@@ -348,6 +390,7 @@ describe("PostEditorRoute async safety", () => {
     });
 
     expect(mocks.navigate).not.toHaveBeenCalled();
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("never starts publishing after a workspace switch during draft creation", async () => {
@@ -386,6 +429,7 @@ describe("PostEditorRoute async safety", () => {
     mocks.workspace.current = WORKSPACE_B;
 
     rerender(<PostEditorRoute mode="create" />);
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
 
     await act(async () => {
       pendingCreate.resolve(makePost(POST_A, WORKSPACE_A));
@@ -395,9 +439,8 @@ describe("PostEditorRoute async safety", () => {
 
     expect(publishPostNow).not.toHaveBeenCalled();
 
-    expect(
-      screen.getByText(/publishing request was not started/i),
-    ).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText(/publishing request was not started/i)).toBeNull();
   });
   it("saves selected media before submitting a new image post for publishing", async () => {
     vi.mocked(createPost).mockResolvedValue(makePost(POST_A, WORKSPACE_A));

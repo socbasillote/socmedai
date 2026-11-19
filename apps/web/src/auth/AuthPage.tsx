@@ -97,7 +97,7 @@ export default function AuthPage() {
             </Link>
 
             <div className="mb-8">
-              <p className="mb-3 text-sm font-medium text-slate-500">
+              <p className="mb-3 text-sm font-normal text-slate-500">
                 YOUR SOCIAL MEDIA WORKSPACE
               </p>
               <h1 className="text-3xl font-semibold tracking-tight">
@@ -137,7 +137,7 @@ export default function AuthPage() {
                 <div>
                   <label
                     htmlFor="signup-email"
-                    className="mb-2 block text-sm font-medium"
+                    className="mb-2 block text-sm font-normal"
                   >
                     Email address
                   </label>
@@ -147,7 +147,7 @@ export default function AuthPage() {
                     autoComplete="email"
                     placeholder="you@example.com"
                     aria-invalid={Boolean(signUpForm.formState.errors.email)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
                     {...signUpForm.register("email")}
                   />
                   {signUpForm.formState.errors.email && (
@@ -160,7 +160,7 @@ export default function AuthPage() {
                 <div>
                   <label
                     htmlFor="signup-password"
-                    className="mb-2 block text-sm font-medium"
+                    className="mb-2 block text-sm font-normal"
                   >
                     Password
                   </label>
@@ -170,7 +170,7 @@ export default function AuthPage() {
                     autoComplete="new-password"
                     placeholder="At least 8 characters"
                     aria-invalid={Boolean(signUpForm.formState.errors.password)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
                     {...signUpForm.register("password")}
                   />
                   {signUpForm.formState.errors.password && (
@@ -198,7 +198,7 @@ export default function AuthPage() {
                 <div>
                   <label
                     htmlFor="signin-email"
-                    className="mb-2 block text-sm font-medium"
+                    className="mb-2 block text-sm font-normal"
                   >
                     Email address
                   </label>
@@ -208,7 +208,7 @@ export default function AuthPage() {
                     autoComplete="email"
                     placeholder="you@example.com"
                     aria-invalid={Boolean(signInForm.formState.errors.email)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
                     {...signInForm.register("email")}
                   />
                   {signInForm.formState.errors.email && (
@@ -221,7 +221,7 @@ export default function AuthPage() {
                 <div>
                   <label
                     htmlFor="signin-password"
-                    className="mb-2 block text-sm font-medium"
+                    className="mb-2 block text-sm font-normal"
                   >
                     Password
                   </label>
@@ -231,7 +231,7 @@ export default function AuthPage() {
                     autoComplete="current-password"
                     placeholder="Enter your password"
                     aria-invalid={Boolean(signInForm.formState.errors.password)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
                     {...signInForm.register("password")}
                   />
                   {signInForm.formState.errors.password && (
@@ -274,7 +274,7 @@ export default function AuthPage() {
           </div>
 
           <div className="relative max-w-lg">
-            <p className="mb-5 text-sm font-medium uppercase tracking-[0.2em] text-slate-400">
+            <p className="mb-5 text-sm font-normal uppercase tracking-[0.2em] text-slate-400">
               One workspace. More momentum.
             </p>
             <h2 className="text-4xl font-semibold leading-tight tracking-tight xl:text-5xl">

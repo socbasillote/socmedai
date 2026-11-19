@@ -1,8 +1,7 @@
 /**
  * Database-backed OpenAI queue-to-worker activation contract tests.
  * No real OpenAI HTTP requests. Do not copy the test-only vi.mock into production.
- * Real production arming remains false; this suite simulates arming while
- * retaining the real workspace release gate, queue admission and billing checks.
+ * The provider is simulated while queue admission, ownership, and billing checks run normally.
  * Unmocked arming/authorization is covered by separate gate suites.
  */
 import mongoose from "mongoose";
@@ -413,12 +412,33 @@ describe("Fake OpenAI background-worker integration", () => {
     ).toBe(1);
   });
 
-  it("denies a non-allowlisted workspace before any credit mutation", async () => {
-    process.env.IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST =
-      new mongoose.Types.ObjectId().toHexString();
-    await expect(
-      enqueueLive("queue-nonallowlisted-0001"),
-    ).rejects.toMatchObject({ statusCode: 503 });
+  it("admits and discovers another workspace owned by the same user", async () => {
+    const otherWorkspaceId = new mongoose.Types.ObjectId();
+    await Workspace.collection.insertOne({ _id: otherWorkspaceId, ownerUserId: profileId, name: "Another owned workspace" });
+    const first = await enqueueLive("queue-first-owned-workspace-0001");
+    const second = await enqueueImageGeneration({ authUser, config: liveQueueConfig, command: {
+      workspaceId: String(otherWorkspaceId), idempotencyKey: "queue-other-owned-workspace-0001",
+      image: { prompt: "A product photograph in natural studio lighting.", aspectRatio: "square" },
+    } });
+    expect(second.created).toBe(true);
+    expect(await walletBalance()).toBe(3);
+    const jobs = await discoverReservedImageJobs();
+    expect(jobs.map((job) => String(job._id))).toEqual(expect.arrayContaining([String(first._id), second.assetId]));
+    expect(await CreditTransaction.countDocuments({ type: "image_debit" })).toBe(2);
+    const provider = fakeOpenAIProvider();
+    const results = await runImageGenerationWorkerOnce({ provider: provider.provider, bucket: fakeStorage().bucket });
+    expect(results).toHaveLength(2);
+    expect(results.every((result) => result.outcome === "completed")).toBe(true);
+    expect(provider.generate).toHaveBeenCalledTimes(2);
+    expect(await walletBalance()).toBe(3);
+  });
+  it("denies another user's workspace without charging credits", async () => {
+    const otherWorkspaceId = new mongoose.Types.ObjectId();
+    await Workspace.collection.insertOne({ _id: otherWorkspaceId, ownerUserId: new mongoose.Types.ObjectId(), name: "Someone else's workspace" });
+    await expect(enqueueImageGeneration({ authUser, config: liveQueueConfig, command: {
+      workspaceId: String(otherWorkspaceId), idempotencyKey: "queue-unauthorized-workspace-0001",
+      image: { prompt: "A product photograph in natural studio lighting.", aspectRatio: "square" },
+    } })).rejects.toMatchObject({ statusCode: 404 });
     expect(await MediaAsset.countDocuments()).toBe(0);
     expect(await CreditTransaction.countDocuments()).toBe(0);
     expect(await walletBalance()).toBe(5);
@@ -454,7 +474,7 @@ describe("Fake OpenAI background-worker integration", () => {
     expect(await walletBalance()).toBe(5);
   });
 
-  it("discovers an admitted OpenAI job in the allowlisted workspace", async () => {
+  it("discovers an admitted OpenAI job in an authorized workspace", async () => {
     const asset = await enqueueLive("existing-test-key-0001");
     const jobs = await discoverReservedImageJobs();
     expect(jobs.map((j) => String(j._id))).toContain(String(asset._id));
@@ -611,11 +631,11 @@ describe("Fake OpenAI background-worker integration", () => {
     expect(mismatched.generate).not.toHaveBeenCalled();
   });
 
-  it("refuses to discover live jobs outside the workspace allowlist", async () => {
+  it("discovers live jobs despite changes to the obsolete allowlist", async () => {
     const asset = await enqueueLive("existing-test-key-0001");
     process.env.IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST =
       new mongoose.Types.ObjectId().toHexString();
-    expect(await discoverReservedImageJobs()).toHaveLength(0);
+    expect((await discoverReservedImageJobs()).map((job) => String(job._id))).toContain(String(asset._id));
     expect(
       (await MediaAsset.findById(asset._id))?.generationExecution?.phase,
     ).toBe("reserved");

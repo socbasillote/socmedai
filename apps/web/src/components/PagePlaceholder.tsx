@@ -30,7 +30,7 @@ export function PagePlaceholder({
 
         <button
           onClick={onReturnToOverview}
-          className="mt-6 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-violet-700"
+          className="mt-6 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-violet-700"
         >
           <LayoutDashboard size={17} />
           Return to overview

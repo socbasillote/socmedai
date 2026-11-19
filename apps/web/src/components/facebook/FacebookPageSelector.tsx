@@ -118,7 +118,7 @@ export default function FacebookPageSelector({
               key={connection.facebookPageId}
               className="rounded-lg border border-green-200 bg-white p-3"
             >
-              <p className="font-medium text-gray-900">{connection.pageName}</p>
+              <p className="font-normal text-gray-900">{connection.pageName}</p>
 
               <p className="text-xs text-green-700">{connection.status}</p>
             </li>
@@ -129,7 +129,7 @@ export default function FacebookPageSelector({
           <button
             type="button"
             onClick={onCancel}
-            className="mt-5 rounded-lg bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800"
+            className="mt-5 rounded-lg bg-green-700 px-4 py-2 text-sm font-normal text-white hover:bg-green-800"
           >
             Done
           </button>
@@ -186,7 +186,7 @@ export default function FacebookPageSelector({
                 type="button"
                 onClick={toggleAll}
                 disabled={isSubmitting || sessionExpired}
-                className="text-sm font-medium text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                className="text-sm font-normal text-blue-600 hover:text-blue-700 disabled:opacity-50"
               >
                 {allSelected ? "Deselect all" : "Select all"}
               </button>
@@ -217,18 +217,18 @@ export default function FacebookPageSelector({
                   />
 
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium text-gray-900">{page.pageName}</p>
+                    <p className="font-normal text-gray-900">{page.pageName}</p>
 
                     <p className="mt-1 text-xs text-gray-500">
                       Page ID: {page.facebookPageId}
                     </p>
 
                     {canPublish ? (
-                      <p className="mt-2 text-xs font-medium text-green-700">
+                      <p className="mt-2 text-xs font-normal text-green-700">
                         Publishing permission available
                       </p>
                     ) : (
-                      <p className="mt-2 text-xs font-medium text-amber-700">
+                      <p className="mt-2 text-xs font-normal text-amber-700">
                         Publishing permission unavailable
                       </p>
                     )}
@@ -246,7 +246,7 @@ export default function FacebookPageSelector({
             type="button"
             onClick={onCancel}
             disabled={isSubmitting}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-normal text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -256,7 +256,7 @@ export default function FacebookPageSelector({
           type="button"
           onClick={handleConnect}
           disabled={!canSubmit}
-          className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-normal text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isSubmitting
             ? "Connecting..."

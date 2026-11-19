@@ -10,7 +10,7 @@ export function CreativeSpaceCard({ onOpenStudio }: CreativeSpaceCardProps) {
       <div className="absolute -right-4 -top-4 h-32 w-32 rounded-full border border-white/10" />
 
       <div className="relative">
-        <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-medium">
+        <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-2 py-1.5 text-xs font-normal">
           <Sparkles size={14} /> Your creative space
         </span>
         <h3 className="mt-6 max-w-xs text-2xl font-bold leading-tight">
@@ -23,7 +23,7 @@ export function CreativeSpaceCard({ onOpenStudio }: CreativeSpaceCardProps) {
 
         <button
           onClick={onOpenStudio}
-          className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-violet-700 transition hover:bg-violet-50"
+          className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-violet-700 transition hover:bg-violet-50"
         >
           Open content studio <ArrowRight size={16} />
         </button>

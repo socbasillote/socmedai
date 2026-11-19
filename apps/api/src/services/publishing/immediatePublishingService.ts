@@ -56,6 +56,7 @@ export async function claimImmediatePost({
       _id: postId,
       workspaceId,
       status: "draft",
+      scheduledClaimId: null,
       // Validate the same persisted caption atomically with the claim so an
       // overlapping draft edit cannot consume an attempt with invalid content.
       $expr: {
@@ -123,6 +124,8 @@ export async function claimImmediatePost({
         status: "publishing",
         claimedAt: now,
       },
+      // Publish Now discards a tentative time retained by composer autosave.
+      $unset: { scheduledAt: "" },
       $inc: {
         attemptCount: 1,
       },

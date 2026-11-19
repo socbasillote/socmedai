@@ -35,7 +35,7 @@ export function PostPreview({
             platforms.map((platform) => (
               <span
                 key={platform}
-                className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold capitalize text-violet-700"
+                className="rounded-full bg-violet-50 px-2 py-1 text-xs font-semibold capitalize text-violet-700"
               >
                 {platform}
               </span>
@@ -75,7 +75,13 @@ export function PostPreview({
 
         {/* Media */}
         {selectedMediaAssetId ? (
-          <div className="border-t border-slate-100 bg-slate-50 p-3"><SelectedMediaPreview key={selectedMediaAssetId} assetId={selectedMediaAssetId} variant="post" /></div>
+          <div className="border-t border-slate-100 bg-slate-50 p-3">
+            <SelectedMediaPreview
+              key={selectedMediaAssetId}
+              assetId={selectedMediaAssetId}
+              variant="post"
+            />
+          </div>
         ) : media.length > 0 ? (
           <div className="space-y-3 border-t border-slate-100 p-4">
             {media.map((item) => (
@@ -98,7 +104,9 @@ export function PostPreview({
             ))}
           </div>
         ) : (
-          <div className="border-t border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-400">Text-only post</div>
+          <div className="border-t border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-400">
+            Text-only post
+          </div>
         )}
       </div>
 

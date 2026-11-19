@@ -794,7 +794,7 @@ describe("updateWorkspaceDraft", () => {
         __v: 0,
       }),
       expect.objectContaining({
-        $set: updateInput,
+        $set: { ...updateInput, autosaveClosed: true },
         $unset: {
           "platformConnections.facebook": "",
         },
@@ -893,6 +893,7 @@ describe("updateWorkspaceDraft", () => {
       }),
       {
         $set: {
+          autosaveClosed: true,
           "platformConnections.linkedin": newConnectionId,
         },
         $unset: {
@@ -922,6 +923,7 @@ describe("updateWorkspaceDraft", () => {
       }),
       {
         $set: {
+          autosaveClosed: true,
           platforms: ["facebook"],
         },
         $unset: {
@@ -948,6 +950,7 @@ describe("updateWorkspaceDraft", () => {
       expect.anything(),
       {
         $set: {
+          autosaveClosed: true,
           caption: "Updated LinkedIn caption",
         },
         $unset: {
@@ -1039,6 +1042,7 @@ describe("updateWorkspaceDraft", () => {
       }),
       expect.objectContaining({
         $set: {
+          autosaveClosed: true,
           caption: "Versioned caption",
         },
         $inc: {
@@ -1307,6 +1311,7 @@ describe("Facebook Page selection in postService", () => {
       }),
       expect.objectContaining({
         $set: {
+          autosaveClosed: true,
           "platformConnections.facebook": newConnectionId,
         },
         $inc: {
@@ -1329,6 +1334,7 @@ describe("Facebook Page selection in postService", () => {
       expect.anything(),
       expect.objectContaining({
         $set: {
+          autosaveClosed: true,
           platforms: ["instagram"],
         },
         $unset: expect.objectContaining({

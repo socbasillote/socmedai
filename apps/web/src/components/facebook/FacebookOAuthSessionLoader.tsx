@@ -149,7 +149,7 @@ export default function FacebookOAuthSessionLoader({
           <button
             type="button"
             onClick={handleRetry}
-            className="rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800"
+            className="rounded-lg bg-red-700 px-4 py-2 text-sm font-normal text-white hover:bg-red-800"
           >
             Try Again
           </button>
@@ -158,7 +158,7 @@ export default function FacebookOAuthSessionLoader({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-800 hover:bg-red-100"
+              className="rounded-lg border border-red-300 px-4 py-2 text-sm font-normal text-red-800 hover:bg-red-100"
             >
               Close
             </button>

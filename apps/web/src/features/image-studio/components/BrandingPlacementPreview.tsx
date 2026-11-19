@@ -67,7 +67,7 @@ export function BrandingPlacementPreview({
           </div>
 
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="select-none text-center text-xs font-medium tracking-widest text-white/30">
+            <span className="select-none text-center text-xs font-normal tracking-widest text-white/30">
               IMAGE AREA
             </span>
           </div>

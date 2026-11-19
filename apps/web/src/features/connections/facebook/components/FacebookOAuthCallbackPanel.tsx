@@ -84,7 +84,7 @@ export function FacebookOAuthCallbackPanel({
           <button
             type="button"
             onClick={onClose}
-            className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-normal text-white hover:bg-slate-800"
           >
             Close
           </button>
@@ -106,14 +106,14 @@ export function FacebookOAuthCallbackPanel({
           <button
             type="button"
             onClick={onClose}
-            className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-normal text-white hover:bg-slate-800"
           >
             Close
           </button>
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="rounded-lg border border-blue-100 bg-white px-4 py-3">
+          <div className="rounded-lg border border-blue-100 bg-white px-4 py-2">
             <p className="text-xs text-slate-500">
               Connecting Pages to workspace
             </p>

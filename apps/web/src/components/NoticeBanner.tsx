@@ -9,7 +9,7 @@ export function NoticeBanner({ message, onDismiss }: NoticeBannerProps) {
   return (
     <div
       role="status"
-      className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900"
+      className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm text-violet-900"
     >
       <span>{message}</span>
       <button

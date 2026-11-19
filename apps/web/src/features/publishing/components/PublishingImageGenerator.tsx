@@ -465,7 +465,8 @@ export function PublishingImageGenerator({
           if (!active) return;
           if (error instanceof ApiError && error.status === 429) {
             retryDelay = Math.min(retryDelay * 2, 60_000);
-            nextPollAt = Date.now() + Math.max(retryDelay, error.retryAfterMs ?? 0);
+            nextPollAt =
+              Date.now() + Math.max(retryDelay, error.retryAfterMs ?? 0);
           }
 
           setGenerationStatusError(
@@ -747,16 +748,24 @@ export function PublishingImageGenerator({
 
   const costPerImage = credits?.credits.costPerImage ?? null;
 
-  const referencePhoto = useImageReference(workspaceId, ownerUserId, disabled || submissionStatus !== "idle" || recoveryLoadStatus !== "empty");
+  const referencePhoto = useImageReference(
+    workspaceId,
+    ownerUserId,
+    disabled || submissionStatus !== "idle" || recoveryLoadStatus !== "empty",
+  );
   const insufficientCredits =
     credits !== null &&
     credits.credits.available < credits.credits.costPerImage;
 
   const dailyLimitReached =
-    credits !== null && credits.usage.dailyLimit != null && credits.usage.attempts >= credits.usage.dailyLimit;
+    credits !== null &&
+    credits.usage.dailyLimit != null &&
+    credits.usage.attempts >= credits.usage.dailyLimit;
 
   const activeLimitReached =
-    credits !== null && credits.usage.maxActive != null && credits.usage.active >= credits.usage.maxActive;
+    credits !== null &&
+    credits.usage.maxActive != null &&
+    credits.usage.active >= credits.usage.maxActive;
 
   let promptError: string | null = null;
 
@@ -969,7 +978,9 @@ export function PublishingImageGenerator({
             prompt,
             aspectRatio,
             branding,
-            ...(referencePhoto.reference ? { reference: referencePhoto.reference } : {}),
+            ...(referencePhoto.reference
+              ? { reference: referencePhoto.reference }
+              : {}),
           },
         });
       } catch (error) {
@@ -1066,7 +1077,10 @@ export function PublishingImageGenerator({
         </p>
       )}
 
-      <ImageReferenceInput key={referencePhoto.scope} {...referencePhoto.fieldProps} />
+      <ImageReferenceInput
+        key={referencePhoto.scope}
+        {...referencePhoto.fieldProps}
+      />
       <div className="space-y-2">
         <label
           htmlFor="publishing-image-prompt"
@@ -1202,7 +1216,7 @@ export function PublishingImageGenerator({
             type="button"
             onClick={handleGenerate}
             disabled={!eligible}
-            className="w-full rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Generate image · {costPerImage ?? "—"} credit
             {costPerImage === 1 ? "" : "s"}
@@ -1319,7 +1333,7 @@ export function PublishingImageGenerator({
                 type="button"
                 disabled={previewLoading}
                 onClick={refreshPrivatePreview}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                className="rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50"
               >
                 Refresh private preview
               </button>
@@ -1329,7 +1343,7 @@ export function PublishingImageGenerator({
                   type="button"
                   onClick={handleUseGeneratedImage}
                   disabled={!canUseGeneratedImage}
-                  className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="w-full rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Use This Image
                 </button>
@@ -1348,7 +1362,7 @@ export function PublishingImageGenerator({
                         recoveryLoadStatus !== "found" ||
                         previewLoading
                       }
-                      className="w-full rounded-xl border border-violet-300 bg-white px-4 py-3 text-sm font-semibold text-violet-700 transition hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="w-full rounded-xl border border-violet-300 bg-white px-4 py-2 text-sm font-semibold text-violet-700 transition hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Finish Image & Generate Another
                     </button>
@@ -1392,7 +1406,8 @@ export function PublishingImageGenerator({
 
         {generationDetails?.state === "action_required" && (
           <p role="alert" className="mt-3 text-sm text-amber-900">
-            {generationDetails.message ?? "This generation requires recovery or review. Do not create another generation to retry it."}
+            {generationDetails.message ??
+              "This generation requires recovery or review. Do not create another generation to retry it."}
           </p>
         )}
 

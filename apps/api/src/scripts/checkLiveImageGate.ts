@@ -18,7 +18,7 @@ function main() {
     workerEnabled: config.workerEnabled,
     rollout: config.rollout,
     model: config.model,
-    workspaceCount: config.workspaceAllowlist.size,
+    workspaceScope: "all authorized workspaces",
     maxActive: config.maxActive,
     dailyLimit: config.dailyLimit,
     creditCost: config.creditCost,
@@ -26,14 +26,8 @@ function main() {
     paidWorkerArmed: LIVE_PAID_WORKER_ARMED,
   });
 
-  for (const workspaceId of config.workspaceAllowlist) {
-    console.log("Release gate:", evaluateLiveImageGate(config, workspaceId));
-
-    console.log(
-      "Admission readiness:",
-      evaluateLiveAdmissionReadiness(config, workspaceId),
-    );
-  }
+  console.log("Release gate:", evaluateLiveImageGate(config));
+  console.log("Admission readiness:", evaluateLiveAdmissionReadiness(config));
 }
 
 main();

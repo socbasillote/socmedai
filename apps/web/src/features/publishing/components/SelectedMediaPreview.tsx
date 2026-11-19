@@ -15,7 +15,10 @@ type PreviewState = {
   url: string | null;
 };
 
-export function SelectedMediaPreview({ assetId, variant = "attachment" }: Props) {
+export function SelectedMediaPreview({
+  assetId,
+  variant = "attachment",
+}: Props) {
   const [preview, setPreview] = useState<PreviewState>({
     metadata: null,
     url: null,
@@ -39,12 +42,18 @@ export function SelectedMediaPreview({ assetId, variant = "attachment" }: Props)
     async function loadPreview() {
       try {
         // Step 1: Resolve the asset's original workspace.
-        const metadata = await (refreshVersion ? getMediaLibraryItem(assetId, true) : getMediaLibraryItem(assetId));
+        const metadata = await (refreshVersion
+          ? getMediaLibraryItem(assetId, true)
+          : getMediaLibraryItem(assetId));
 
         // Step 2: Request a private signed URL using
         // the ORIGINAL workspace, not the current one.
         const signed = await (refreshVersion
-          ? getWorkspaceImageUrl(metadata.sourceWorkspaceId, metadata.assetId, true)
+          ? getWorkspaceImageUrl(
+              metadata.sourceWorkspaceId,
+              metadata.assetId,
+              true,
+            )
           : getWorkspaceImageUrl(metadata.sourceWorkspaceId, metadata.assetId));
 
         if (!active) return;
@@ -80,8 +89,16 @@ export function SelectedMediaPreview({ assetId, variant = "attachment" }: Props)
 
   return (
     <div aria-label="Selected media preview" className="space-y-3">
-      <div className={variant === "post" ? "space-y-2" : "flex items-start gap-4"}>
-        <div className={variant === "post" ? "flex min-h-32 w-full items-center justify-center overflow-hidden rounded-lg bg-white" : "flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white sm:h-36 sm:w-36"}>
+      <div
+        className={variant === "post" ? "space-y-2" : "flex items-start gap-4"}
+      >
+        <div
+          className={
+            variant === "post"
+              ? "flex min-h-32 w-full items-center justify-center overflow-hidden rounded-lg bg-white"
+              : "flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white sm:h-36 sm:w-36"
+          }
+        >
           {loading ? (
             <div
               role="status"
@@ -96,7 +113,11 @@ export function SelectedMediaPreview({ assetId, variant = "attachment" }: Props)
               alt="Selected post image"
               loading="lazy"
               referrerPolicy="no-referrer"
-              className={variant === "post" ? "max-h-64 w-full object-contain" : "h-full w-full object-cover"}
+              className={
+                variant === "post"
+                  ? "max-h-64 w-full object-contain"
+                  : "h-full w-full object-cover"
+              }
               onError={() => {
                 setPreview((current) => ({
                   ...current,
@@ -118,40 +139,53 @@ export function SelectedMediaPreview({ assetId, variant = "attachment" }: Props)
           )}
         </div>
 
-        {variant !== "post" && <div className="min-w-0 flex-1 space-y-2">
-          <p className="text-sm font-semibold text-slate-900">Selected image</p>
-
-          {preview.metadata ? (
-            <>
-              <p className="text-xs text-slate-600">Source workspace:</p>
-
-              <p className="break-words text-sm font-medium text-violet-700">
-                {preview.metadata.sourceWorkspaceName}
-              </p>
-
-              <p className="text-xs text-slate-500">
-                {preview.metadata.width} × {preview.metadata.height} pixels
-              </p>
-            </>
-          ) : (
-            <p className="text-xs text-slate-500">
-              {loading
-                ? "Retrieving image details..."
-                : "Image details unavailable."}
+        {variant !== "post" && (
+          <div className="min-w-0 flex-1 space-y-2">
+            <p className="text-sm font-semibold text-slate-900">
+              Selected image
             </p>
-          )}
 
+            {preview.metadata ? (
+              <>
+                <p className="text-xs text-slate-600">Source workspace:</p>
+
+                <p className="break-words text-sm font-normal text-violet-700">
+                  {preview.metadata.sourceWorkspaceName}
+                </p>
+
+                <p className="text-xs text-slate-500">
+                  {preview.metadata.width} × {preview.metadata.height} pixels
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-slate-500">
+                {loading
+                  ? "Retrieving image details..."
+                  : "Image details unavailable."}
+              </p>
+            )}
+
+            <button
+              type="button"
+              disabled={loading}
+              onClick={refreshPreview}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-normal text-slate-700 disabled:opacity-50"
+            >
+              <RefreshCw size={13} aria-hidden="true" />
+              Refresh preview
+            </button>
+          </div>
+        )}
+        {variant === "post" && error && (
           <button
             type="button"
             disabled={loading}
             onClick={refreshPreview}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 disabled:opacity-50"
+            className="text-xs font-semibold text-violet-700 underline"
           >
-            <RefreshCw size={13} aria-hidden="true" />
-            Refresh preview
+            Retry image preview
           </button>
-        </div>}
-        {variant === "post" && error && <button type="button" disabled={loading} onClick={refreshPreview} className="text-xs font-semibold text-violet-700 underline">Retry image preview</button>}
+        )}
       </div>
 
       {error && (

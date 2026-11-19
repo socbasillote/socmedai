@@ -60,7 +60,7 @@ export function DraftEditForm({
         <div className="space-y-2">
           <label
             htmlFor="edit-post-title"
-            className="block text-sm font-medium text-slate-700"
+            className="block text-sm font-normal text-slate-700"
           >
             Title (optional)
           </label>
@@ -72,14 +72,14 @@ export function DraftEditForm({
             onChange={(event) => onTitleChange(event.target.value)}
             disabled={saving}
             placeholder="Give your draft a title"
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 disabled:opacity-60"
+            className="w-full rounded-lg border border-slate-200 bg-white px-2 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 disabled:opacity-60"
           />
         </div>
 
         <div className="space-y-2">
           <label
             htmlFor="edit-post-caption"
-            className="block text-sm font-medium text-slate-700"
+            className="block text-sm font-normal text-slate-700"
           >
             Caption
           </label>
@@ -92,7 +92,7 @@ export function DraftEditForm({
             maxLength={10000}
             rows={5}
             placeholder="Write your post caption..."
-            className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 disabled:opacity-60"
+            className="w-full resize-y rounded-lg border border-slate-200 bg-white px-2 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 disabled:opacity-60"
           />
           <p className="text-right text-xs text-slate-400">
             {caption.length}/10000
@@ -100,7 +100,7 @@ export function DraftEditForm({
         </div>
 
         <fieldset className="space-y-3">
-          <legend className="text-sm font-medium text-slate-700">
+          <legend className="text-sm font-normal text-slate-700">
             Publishing platforms
           </legend>
 
@@ -134,7 +134,7 @@ export function DraftEditForm({
             type="button"
             disabled={saving}
             onClick={onCancel}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-normal text-slate-700 hover:bg-slate-100 disabled:opacity-50"
           >
             Cancel
           </button>

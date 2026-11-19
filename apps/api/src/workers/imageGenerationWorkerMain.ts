@@ -23,10 +23,7 @@ async function main() {
     const gate = parseLiveImageGateConfig(process.env);
     if (
       !LIVE_PAID_WORKER_ARMED ||
-      gate.workspaceAllowlist.size === 0 ||
-      ![...gate.workspaceAllowlist].every(
-        (id) => evaluateLiveAdmissionReadiness(gate, id).ready,
-      )
+      !evaluateLiveAdmissionReadiness(gate).ready
     ) {
       throw new Error("Live image worker is not armed or approved.");
     }
@@ -112,7 +109,6 @@ void main().catch((error: unknown) => {
     "IMAGE_WORKER_MONGODB_URI",
     "Invalid image generation provider.",
     "Invalid live image rollout mode.",
-    "Invalid live image workspace allowlist.",
     "Live image generation is unavailable.",
     "Image generation worker is disabled.",
     "Live image worker is not armed or approved.",

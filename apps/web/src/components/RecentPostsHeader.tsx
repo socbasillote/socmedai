@@ -40,7 +40,7 @@ export function RecentPostsHeader({
           onChange={(event) =>
             setStatusFilter(event.target.value as PostStatusFilter)
           }
-          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-violet-400"
+          className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-sm text-slate-700 outline-none focus:border-violet-400"
         >
           <option value="all">All statuses</option>
           <option value="draft">Draft</option>
@@ -55,7 +55,7 @@ export function RecentPostsHeader({
           onChange={(event) =>
             setPlatformFilter(event.target.value as PostPlatformFilter)
           }
-          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-violet-400"
+          className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-sm text-slate-700 outline-none focus:border-violet-400"
         >
           <option value="all">All platforms</option>
           <option value="facebook">Facebook</option>
@@ -67,7 +67,7 @@ export function RecentPostsHeader({
       <button
         type="button"
         onClick={onViewPublishing}
-        className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-violet-600 hover:bg-violet-50"
+        className="inline-flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold text-violet-600 hover:bg-violet-50"
       >
         View publishing <ArrowUpRight size={16} />
       </button>

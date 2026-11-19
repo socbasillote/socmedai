@@ -103,6 +103,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   delete process.env.IMAGE_GENERATION_HTTP_ENABLED;
   delete process.env.IMAGE_GENERATION_PROVIDER;
   delete process.env.IMAGE_GENERATION_LIVE_ENABLED;
@@ -187,7 +188,8 @@ describe("Image generation HTTP routes", () => {
     expect(enqueueImageGeneration).not.toHaveBeenCalled();
   });
 
-  it("rejects live provider configuration", async () => {
+  it("rejects live provider configuration when the worker is disabled", async () => {
+    vi.stubEnv("IMAGE_GENERATION_LIVE_WORKER_ENABLED", "false");
     process.env.IMAGE_GENERATION_PROVIDER = "openai";
     process.env.IMAGE_GENERATION_LIVE_ENABLED = "true";
 
@@ -196,6 +198,21 @@ describe("Image generation HTTP routes", () => {
     expect(response.status).toBe(503);
 
     expect(enqueueImageGeneration).not.toHaveBeenCalled();
+  });
+
+  it("accepts live generation in a workspace outside the obsolete allowlist", async () => {
+    const otherWorkspaceId = "507f1f77bcf86cd799439099";
+    for (const [key, value] of Object.entries({
+      IMAGE_GENERATION_PROVIDER: "openai", IMAGE_GENERATION_LIVE_ENABLED: "true",
+      IMAGE_GENERATION_LIVE_WORKER_ENABLED: "true", IMAGE_GENERATION_LIVE_ROLLOUT: "internal",
+      IMAGE_GENERATION_MODEL: "gpt-image-2", IMAGE_GENERATION_LIVE_CREDIT_COST: "1",
+      IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST: workspaceId, OPENAI_API_KEY: "fake-test-key",
+    })) vi.stubEnv(key, value);
+    const response = await request(app).post(`/api/ai/workspaces/${otherWorkspaceId}/images`).set("Authorization", "Bearer test-user").send(validBody);
+    expect(response.status).toBe(202);
+    expect(enqueueImageGeneration).toHaveBeenCalledWith(expect.objectContaining({
+      authUser: { id: "test-supabase-user" }, command: expect.objectContaining({ workspaceId: otherWorkspaceId }),
+    }));
   });
 
   it("returns the authenticated user's credit summary", async () => {

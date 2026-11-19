@@ -35,7 +35,7 @@ export function MetricCard({
         </button>
       </div>
 
-      <p className="mt-5 text-sm font-medium text-slate-500">{title}</p>
+      <p className="mt-5 text-sm font-normal text-slate-500">{title}</p>
 
       <div className="mt-2 flex flex-wrap items-baseline gap-2">
         <span className="text-3xl font-bold tracking-tight text-slate-950">

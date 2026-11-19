@@ -1103,7 +1103,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       <button
         type="button"
         onClick={handleCancel}
-        className="mt-4 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm"
+        className="mt-4 rounded-lg bg-white px-4 py-2 text-sm font-normal text-slate-700 shadow-sm"
       >
         Back to Posts
       </button>
@@ -1225,7 +1225,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           }
         >
           <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <p className="text-xs font-normal uppercase tracking-wide text-slate-500">
               Active Workspace
             </p>
 

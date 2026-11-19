@@ -95,7 +95,11 @@ export function SocialConnectionsMenu({
 
         <span className="sm:hidden">Accounts</span>
 
-        {open ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+        {open ? (
+          <ChevronUp size={14} aria-hidden="true" />
+        ) : (
+          <ChevronDown size={14} aria-hidden="true" />
+        )}
       </Button>
 
       {open && (
@@ -169,7 +173,7 @@ export function SocialConnectionsMenu({
                 {!facebookConnectionsLoading &&
                   !facebookConnectionsError &&
                   connectedPageCount > 0 && (
-                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-normal text-emerald-700">
                       {connectedPageCount} connected
                     </span>
                   )}
@@ -219,7 +223,7 @@ export function SocialConnectionsMenu({
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0 flex-1">
-                              <p className="break-words text-sm font-medium text-slate-900">
+                              <p className="break-words text-sm font-normal text-slate-900">
                                 {connection.pageName}
                               </p>
 
@@ -228,7 +232,7 @@ export function SocialConnectionsMenu({
                               </p>
 
                               <p
-                                className={`mt-2 text-xs font-medium ${statusClassName}`}
+                                className={`mt-2 text-xs font-normal ${statusClassName}`}
                               >
                                 {statusLabel}
                               </p>
@@ -282,7 +286,8 @@ export function SocialConnectionsMenu({
                 </p>
               )}
             </div>
-            <InstagramConnectionsPanel key={facebookProps.workspaceId}
+            <InstagramConnectionsPanel
+              key={facebookProps.workspaceId}
               workspaceId={facebookProps.workspaceId}
               workspacesLoading={facebookProps.workspacesLoading}
               pages={facebookConnections}

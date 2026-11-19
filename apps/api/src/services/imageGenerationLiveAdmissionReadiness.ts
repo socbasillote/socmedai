@@ -34,7 +34,7 @@ export type LiveAdmissionReadiness =
  */
 export function evaluateLiveAdmissionReadiness(
   config: LiveGateConfig,
-  workspaceId: string,
+  workspaceId?: string,
 ): LiveAdmissionReadiness {
   const release = evaluateLiveImageGate(config, workspaceId);
 
@@ -45,8 +45,7 @@ export function evaluateLiveAdmissionReadiness(
     };
   }
 
-  // In Step 12.3.6.2 this is intentionally
-  // false, even with valid environment flags.
+  // Provider execution must remain explicitly armed.
   if (!LIVE_PAID_WORKER_ARMED) {
     return {
       ready: false,

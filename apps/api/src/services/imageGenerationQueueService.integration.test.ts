@@ -233,7 +233,8 @@ describe("Durable image queue admission", () => {
     expect(await walletBalance()).toBe(3);
   });
 
-  it("blocks live provider configuration before admission", async () => {
+  it("blocks disabled live provider configuration before admission", async () => {
+    vi.stubEnv("IMAGE_GENERATION_LIVE_WORKER_ENABLED", "false");
     const liveConfig = parseImageGenerationConfig({
       IMAGE_GENERATION_PROVIDER: "openai",
       IMAGE_GENERATION_LIVE_ENABLED: "true",

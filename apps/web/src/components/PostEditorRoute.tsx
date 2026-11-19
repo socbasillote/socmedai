@@ -136,7 +136,6 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     setMediaState(createPostMediaState());
   }
 
-
   // The current UI supports one selected image.
   // The underlying API supports multiple media IDs.
   const selectedMediaAssetId = mediaState.selectedMediaIds[0] ?? null;
@@ -146,10 +145,27 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     "facebook",
   ]);
 
-  const instagram = useInstagramConnections(selectedWorkspaceId ?? "", selectedPlatforms.includes("instagram"));
-  const [selectedInstagram, setSelectedInstagram] = useState<{ workspaceId: string; id: string | null }>({ workspaceId: "", id: null });
-  const selectedInstagramConnectionId = selectedInstagram.workspaceId === selectedWorkspaceId ? selectedInstagram.id : null;
-  const validInstagramConnection = !instagram.loading && !instagram.error && instagram.connections.some((item) => item.id === selectedInstagramConnectionId && item.status === "connected" && item.canPublish);
+  const instagram = useInstagramConnections(
+    selectedWorkspaceId ?? "",
+    selectedPlatforms.includes("instagram"),
+  );
+  const [selectedInstagram, setSelectedInstagram] = useState<{
+    workspaceId: string;
+    id: string | null;
+  }>({ workspaceId: "", id: null });
+  const selectedInstagramConnectionId =
+    selectedInstagram.workspaceId === selectedWorkspaceId
+      ? selectedInstagram.id
+      : null;
+  const validInstagramConnection =
+    !instagram.loading &&
+    !instagram.error &&
+    instagram.connections.some(
+      (item) =>
+        item.id === selectedInstagramConnectionId &&
+        item.status === "connected" &&
+        item.canPublish,
+    );
 
   // Publishing options
   const [postMode, setPostMode] = useState<PostMode>(() =>
@@ -210,13 +226,29 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     string | null
   >(null);
 
+  // Operation state belongs to the current editor session. Late responses are
+  // guarded below so they cannot lock or unlock another post's editor.
+  useLayoutEffect(() => {
+    setSaving(false);
+    setPublishing(false);
+    publishingLockRef.current = false;
+    setSavedPublishingPostId(null);
+    setPublishingMessage("");
+    setPublishingOutcome(null);
+    setError("");
+  }, [mode, selectedWorkspaceId, postId]);
+
   const autosaveDate = parseLocalScheduleDate(scheduledAt);
   const composerAutosave = useComposerAutosave({
     ownerId: recoveryOwnerUserId,
-    enabled: mode === "create" && !saving && !publishing && !savedPublishingPostId,
+    enabled:
+      mode === "create" && !saving && !publishing && !savedPublishingPostId,
     content: {
-      workspaceId: selectedWorkspaceId ?? "", title, caption,
-      platforms: selectedPlatforms, mediaIds: [...mediaState.selectedMediaIds],
+      workspaceId: selectedWorkspaceId ?? "",
+      title,
+      caption,
+      platforms: selectedPlatforms,
+      mediaIds: [...mediaState.selectedMediaIds],
       ...(autosaveDate ? { scheduledAt: autosaveDate.toISOString() } : {}),
     },
   });
@@ -262,7 +294,10 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           post.platformConnections?.facebook ?? null,
         );
 
-        setSelectedInstagram({ workspaceId: post.workspaceId, id: post.platformConnections?.instagram ?? null });
+        setSelectedInstagram({
+          workspaceId: post.workspaceId,
+          id: post.platformConnections?.instagram ?? null,
+        });
         // Restore the original media snapshot.
         setMediaState(createPostMediaState(post.mediaIds ?? []));
 
@@ -452,8 +487,17 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       }
     }
 
-    if (postMode === "scheduled" && selectedPlatforms.includes("instagram") && (!validInstagramConnection || mediaState.selectedMediaIds.length !== 1 || caption.trim().length > 2200)) {
-      setError("Instagram scheduling requires a connected account, one image, and a caption of at most 2,200 characters."); return;
+    if (
+      postMode === "scheduled" &&
+      selectedPlatforms.includes("instagram") &&
+      (!validInstagramConnection ||
+        mediaState.selectedMediaIds.length !== 1 ||
+        caption.trim().length > 2200)
+    ) {
+      setError(
+        "Instagram scheduling requires a connected account, one image, and a caption of at most 2,200 characters.",
+      );
+      return;
     }
     if (mode === "create") {
       if (workspacesLoading) {
@@ -473,7 +517,11 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
       // Scheduled media publishing is not supported yet.
       // Image attachments can be saved with drafts only.
-      if (postMode === "scheduled" && !selectedPlatforms.includes("instagram") && mediaState.selectedMediaIds.length > 0) {
+      if (
+        postMode === "scheduled" &&
+        !selectedPlatforms.includes("instagram") &&
+        mediaState.selectedMediaIds.length > 0
+      ) {
         setError(
           "Scheduled image publishing is not supported yet. " +
             "Save this post as a draft or remove the image.",
@@ -535,7 +583,11 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           platforms: selectedPlatforms,
           scheduledAt: scheduledAtIso,
           platformConnections: {
-            ...(selectedPlatforms.includes("instagram") && validInstagramConnection && selectedInstagramConnectionId ? { instagram: selectedInstagramConnectionId } : {}),
+            ...(selectedPlatforms.includes("instagram") &&
+            validInstagramConnection &&
+            selectedInstagramConnectionId
+              ? { instagram: selectedInstagramConnectionId }
+              : {}),
             ...(selectedPlatforms.includes("linkedin") && linkedInConnectionId
               ? { linkedin: linkedInConnectionId }
               : {}),
@@ -602,15 +654,22 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         ...getPostMediaUpdate(mediaState),
         platforms: selectedPlatforms,
 
-        ...(selectedPlatforms.includes("instagram") && validInstagramConnection && selectedInstagramConnectionId
-          ? { platformConnections: { instagram: selectedInstagramConnectionId, ...(selectedPlatforms.includes("facebook") && selectedFacebookConnectionId ? { facebook: selectedFacebookConnectionId } : {}) } }
-          : selectedPlatforms.includes("facebook") && selectedFacebookConnectionId
-          ? {
-              platformConnections: {
-                facebook: selectedFacebookConnectionId,
-              },
-            }
-          : {}),
+        platformConnections: {
+          ...(selectedPlatforms.includes("linkedin") &&
+          linkedInStatus === "connected" &&
+          linkedInConnectionId
+            ? { linkedin: linkedInConnectionId }
+            : {}),
+          ...(selectedPlatforms.includes("instagram") &&
+          validInstagramConnection &&
+          selectedInstagramConnectionId
+            ? { instagram: selectedInstagramConnectionId }
+            : {}),
+          ...(selectedPlatforms.includes("facebook") &&
+          selectedFacebookConnectionId
+            ? { facebook: selectedFacebookConnectionId }
+            : {}),
+        },
       });
 
       if (checkEditorSession(saveSession)) {
@@ -676,7 +735,9 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         ? selectedFacebookConnectionId
         : platform === "linkedin"
           ? linkedInConnectionId
-          : platform === "instagram" ? selectedInstagramConnectionId : null;
+          : platform === "instagram"
+            ? selectedInstagramConnectionId
+            : null;
 
     const validConnection =
       platform === "facebook"
@@ -692,7 +753,9 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       mediaState.selectedMediaIds.length > 1 ||
       !selectedWorkspace ||
       !caption.trim() ||
-      (platform === "instagram" && (mediaState.selectedMediaIds.length !== 1 || caption.trim().length > 2200)) ||
+      (platform === "instagram" &&
+        (mediaState.selectedMediaIds.length !== 1 ||
+          caption.trim().length > 2200)) ||
       selectedPlatforms.length !== 1 ||
       !validConnection ||
       !connectionId
@@ -705,9 +768,16 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       return;
     }
 
-    const publishingPlatform = platform as "facebook" | "linkedin" | "instagram";
+    const publishingPlatform = platform as
+      | "facebook"
+      | "linkedin"
+      | "instagram";
     const platformLabel =
-      publishingPlatform === "instagram" ? "Instagram" : publishingPlatform === "facebook" ? "Facebook" : "LinkedIn";
+      publishingPlatform === "instagram"
+        ? "Instagram"
+        : publishingPlatform === "facebook"
+          ? "Facebook"
+          : "LinkedIn";
 
     const platformConnections = {
       [publishingPlatform]: connectionId,
@@ -756,28 +826,18 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         savedPostId = targetPostId;
       }
 
-      // The draft has been saved or updated successfully.
-      // Record its ID so a changed editor session cannot
-      // accidentally initiate a second publishing attempt.
+      // A save may finish after switching workspaces or posts. Do not carry
+      // its lock into the new editor or start an external publishing request.
+      if (checkEditorSession(publishingSession)) return;
       setSavedPublishingPostId(targetPostId);
-
-      // Critical safety boundary:
-      // The user may have changed workspaces or posts while
-      // the create/update request was in flight.
-      const sessionError = checkEditorSession(publishingSession);
-
-      if (sessionError) {
-        // No external publishing request has started.
-        // The existing catch block handles the saved-draft
-        // outcome and explains that publication did not start.
-        throw new Error(sessionError);
-      }
 
       // Do not place another await between this check
       // and the publishing API request.
       publishRequestStarted = true;
 
       const response = await publishPostNow(targetPostId);
+
+      if (checkEditorSession(publishingSession)) return;
 
       const platformResult = response.result.results.find(
         (result) => result.platform === publishingPlatform,
@@ -818,6 +878,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       );
       setShowPublishConfirmation(false);
     } catch (err) {
+      if (checkEditorSession(publishingSession)) return;
       const errorMessage =
         err instanceof Error ? err.message : "An unexpected error occurred.";
 
@@ -850,11 +911,12 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
       setShowPublishConfirmation(false);
     } finally {
-      setPublishing(false);
-      setSaving(false);
-
-      if (!publishRequestStarted && !savedPostId) {
-        publishingLockRef.current = false;
+      if (!checkEditorSession(publishingSession)) {
+        setPublishing(false);
+        setSaving(false);
+        if (!publishRequestStarted && !savedPostId) {
+          publishingLockRef.current = false;
+        }
       }
     }
   }
@@ -941,8 +1003,15 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         return;
       }
     } else if (platform === "instagram") {
-      if (!validInstagramConnection || mediaState.selectedMediaIds.length !== 1 || caption.trim().length > 2200) {
-        setError("Select a connected Instagram account, one image, and a caption of at most 2,200 characters."); return;
+      if (
+        !validInstagramConnection ||
+        mediaState.selectedMediaIds.length !== 1 ||
+        caption.trim().length > 2200
+      ) {
+        setError(
+          "Select a connected Instagram account, one image, and a caption of at most 2,200 characters.",
+        );
+        return;
       }
     } else {
       setError("Publish Now does not support this platform yet.");
@@ -961,7 +1030,11 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   }
 
   const publishingPlatformLabel =
-    selectedPlatforms[0] === "instagram" ? "Instagram" : selectedPlatforms[0] === "facebook" ? "Facebook" : "LinkedIn";
+    selectedPlatforms[0] === "instagram"
+      ? "Instagram"
+      : selectedPlatforms[0] === "facebook"
+        ? "Facebook"
+        : "LinkedIn";
 
   // Phase 13.3.1:
   // Derive checklist data from the existing editor state.
@@ -994,7 +1067,10 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   for (const platform of selectedPlatforms) {
     let connectionId = "";
     let accountName: string = platform;
-    let format: PublishingDestination["format"] = mediaState.selectedMediaIds.length ? "image" : "text";
+    let format: PublishingDestination["format"] = mediaState.selectedMediaIds
+      .length
+      ? "image"
+      : "text";
     let connected = false;
     let canPublish = false;
 
@@ -1021,9 +1097,13 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     }
 
     if (platform === "instagram") {
-      const connection = instagram.connections.find((item) => item.id === selectedInstagramConnectionId);
+      const connection = instagram.connections.find(
+        (item) => item.id === selectedInstagramConnectionId,
+      );
       connectionId = connection?.id ?? "";
-      accountName = connection ? `@${connection.username}` : "Select an Instagram account";
+      accountName = connection
+        ? `@${connection.username}`
+        : "Select an Instagram account";
       connected = validInstagramConnection;
       canPublish = validInstagramConnection;
       format = "image";
@@ -1109,7 +1189,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       <button
         type="button"
         onClick={handleCancel}
-        className="mt-4 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm"
+        className="mt-4 rounded-lg bg-white px-4 py-2 text-sm font-normal text-slate-700 shadow-sm"
       >
         Back to Posts
       </button>
@@ -1157,8 +1237,12 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       selectedInstagramConnectionId={selectedInstagramConnectionId}
       instagramLoading={instagram.loading}
       instagramError={instagram.error}
-      onInstagramConnectionChange={(id) => setSelectedInstagram({ workspaceId: selectedWorkspaceId ?? "", id })}
-      onConnectInstagram={(id) => { void instagram.connect(id); }}
+      onInstagramConnectionChange={(id) =>
+        setSelectedInstagram({ workspaceId: selectedWorkspaceId ?? "", id })
+      }
+      onConnectInstagram={(id) => {
+        void instagram.connect(id);
+      }}
       facebookConnections={facebookConnections}
       selectedFacebookConnectionId={
         facebookConnections.some(
@@ -1221,8 +1305,18 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
                   onCancel={handleCancel}
                 />
                 <details className="group border-t border-slate-100 pt-4">
-                  <summary className="cursor-pointer text-sm font-semibold text-slate-700 focus-visible:outline-violet-500">View publishing checklist <span className="ml-1 text-xs font-normal text-slate-400">{readiness.readyCount}/{readiness.totalCount} ready</span></summary>
-                  <div className="mt-4"><PublishingChecklistPanel readiness={readiness} blockers={checklistBlockers} /></div>
+                  <summary className="cursor-pointer text-sm font-semibold text-slate-700 focus-visible:outline-violet-500">
+                    View publishing checklist{" "}
+                    <span className="ml-1 text-xs font-normal text-slate-400">
+                      {readiness.readyCount}/{readiness.totalCount} ready
+                    </span>
+                  </summary>
+                  <div className="mt-4">
+                    <PublishingChecklistPanel
+                      readiness={readiness}
+                      blockers={checklistBlockers}
+                    />
+                  </div>
                 </details>
               </div>
             ) : undefined
@@ -1232,9 +1326,16 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
               <PostPreview
                 title={title}
                 selectedMediaAssetId={selectedMediaAssetId}
-                accountName={selectedPlatforms[0] === "facebook"
-                  ? facebookConnections.find((connection) => connection.id === selectedFacebookConnectionId)?.pageName || "Your Facebook Page"
-                  : selectedPlatforms[0] === "linkedin" ? linkedInDisplayName || "Your LinkedIn account" : `@${instagram.connections.find((item) => item.id === selectedInstagramConnectionId)?.username ?? "Instagram account"}`}
+                accountName={
+                  selectedPlatforms[0] === "facebook"
+                    ? facebookConnections.find(
+                        (connection) =>
+                          connection.id === selectedFacebookConnectionId,
+                      )?.pageName || "Your Facebook Page"
+                    : selectedPlatforms[0] === "linkedin"
+                      ? linkedInDisplayName || "Your LinkedIn account"
+                      : `@${instagram.connections.find((item) => item.id === selectedInstagramConnectionId)?.username ?? "Instagram account"}`
+                }
                 caption={caption}
                 platforms={selectedPlatforms}
               />
@@ -1242,7 +1343,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           }
         >
           <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <p className="text-xs font-normal uppercase tracking-wide text-slate-500">
               Active Workspace
             </p>
 
@@ -1348,13 +1449,19 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
               </p>
             </div>
           )}
-          {mode === "create" && <p role="status" className="mb-4 text-xs text-slate-600">
-            {composerAutosave.status === "saving" ? "Saving draft..."
-              : composerAutosave.status === "saved" ? "Draft saved automatically"
-              : composerAutosave.status === "pending" ? "Draft saved on this device; waiting to sync"
-              : composerAutosave.status === "unavailable" ? "Autosave unavailable. Save your draft before leaving."
-              : "Your work saves automatically as a draft"}
-          </p>}
+          {mode === "create" && (
+            <p role="status" className="mb-4 text-xs text-slate-600">
+              {composerAutosave.status === "saving"
+                ? "Saving draft..."
+                : composerAutosave.status === "saved"
+                  ? "Draft saved automatically"
+                  : composerAutosave.status === "pending"
+                    ? "Draft saved on this device; waiting to sync"
+                    : composerAutosave.status === "unavailable"
+                      ? "Autosave unavailable. Save your draft before leaving."
+                      : "Your work saves automatically as a draft"}
+            </p>
+          )}
           {editorContent}
         </PostEditorPage>
       </div>
@@ -1393,8 +1500,13 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
               <p className="mt-2 text-sm font-semibold text-slate-900">
                 {selectedPlatforms[0] === "facebook"
-                  ? facebookConnections.find((connection) => connection.id === selectedFacebookConnectionId)?.pageName || "Selected Facebook Page"
-                  : selectedPlatforms[0] === "instagram" ? `@${instagram.connections.find((item) => item.id === selectedInstagramConnectionId)?.username ?? "Instagram account"}` : linkedInDisplayName || "Connected LinkedIn account"}
+                  ? facebookConnections.find(
+                      (connection) =>
+                        connection.id === selectedFacebookConnectionId,
+                    )?.pageName || "Selected Facebook Page"
+                  : selectedPlatforms[0] === "instagram"
+                    ? `@${instagram.connections.find((item) => item.id === selectedInstagramConnectionId)?.username ?? "Instagram account"}`
+                    : linkedInDisplayName || "Connected LinkedIn account"}
               </p>
 
               <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -1405,7 +1517,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
                 {caption.trim()}
               </p>
               {selectedMediaAssetId && (
-                <p className="mt-3 text-sm font-medium text-violet-700">
+                <p className="mt-3 text-sm font-normal text-violet-700">
                   Includes your selected image.
                 </p>
               )}

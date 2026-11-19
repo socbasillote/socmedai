@@ -4,7 +4,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import Post from "../models/Post.js";
 import UserProfile from "../models/UserProfile.js";
 import Workspace from "../models/Workspace.js";
-import { autosaveWorkspaceDraft, createWorkspacePost } from "./postService.js";
+import { autosaveWorkspaceDraft, createWorkspacePost, updateWorkspaceDraft } from "./postService.js";
+import { claimImmediatePost } from "./publishing/immediatePublishingService.js";
+import { PublishingOrchestrator } from "./publishing/publishingOrchestrator.js";
 import { autosaveDraftSchema } from "../schemas/postSchema.js";
 
 let mongo: MongoMemoryServer;
@@ -23,7 +25,7 @@ beforeAll(async () => {
   await Workspace.collection.insertOne({ _id: workspaceId, ownerUserId: userId, name: "Autosave" });
 });
 beforeEach(async () => { await Post.deleteMany({}); });
-afterAll(async () => { await mongoose.disconnect(); await mongo.stop(); });
+afterAll(async () => { await mongoose.disconnect(); await mongo?.stop(); });
 
 describe("composer draft autosave", () => {
   it("persists an incomplete Untitled draft and updates the same record", async () => {
@@ -66,6 +68,38 @@ describe("composer draft autosave", () => {
     expect(await Post.countDocuments()).toBe(1);
     expect((await Post.findById(first._id)).status).toBe("published");
     expect((await Post.findById(first._id)).caption).toBe("Published content");
+  });
+
+  it("protects manual edits from delayed composer autosaves", async () => {
+    const first = await autosaveWorkspaceDraft(auth, input(1, "Original"));
+    await updateWorkspaceDraft(auth, String(first._id), { title: "Manual title", caption: "Manual caption", platforms: ["facebook"] });
+    await autosaveWorkspaceDraft(auth, input(999, "Late composer caption"));
+    const persisted = await Post.findById(first._id).lean();
+    expect(persisted).toMatchObject({ title: "Manual title", caption: "Manual caption", platforms: ["facebook"], autosaveClosed: true });
+    expect(await Post.countDocuments()).toBe(1);
+  });
+
+  it("versions autosaves to reject manual writes based on an older snapshot", async () => {
+    const first = await autosaveWorkspaceDraft(auth, input(1, "Original"));
+    const latest = await autosaveWorkspaceDraft(auth, input(2, "Newer content"));
+    expect(latest.__v).toBeGreaterThan(first.__v);
+    const staleWrite = await Post.updateOne({ _id: first._id, __v: first.__v }, { $set: { caption: "Stale manual edit" } });
+    expect(staleWrite.matchedCount).toBe(0);
+    expect((await Post.findById(first._id)).caption).toBe("Newer content");
+  });
+
+  it("publishes a draft with an autosaved time through the immediate pipeline", async () => {
+    const first = await autosaveWorkspaceDraft(auth, { ...input(1, "Publish now"), platforms: ["linkedin"], scheduledAt: "2099-01-01T00:00:00Z" });
+    await Post.updateOne({ _id: first._id }, { $set: { "platformConnections.linkedin": new mongoose.Types.ObjectId() } });
+    const claimed = await claimImmediatePost({ authUser: auth, workspaceId: String(workspaceId), postId: String(first._id) });
+    expect(claimed.scheduledAt).toBeUndefined();
+    const orchestrator = new PublishingOrchestrator({ publish: async (request) => ({ outcome: "published", postId: request.postId, platform: request.platform, externalPostId: "confirmed-test-post", publishedAt: new Date() }) });
+    await orchestrator.processPost(claimed);
+    const persisted = await Post.findById(first._id).lean();
+    expect(persisted.status).toBe("published");
+    expect(persisted.scheduledAt).toBeUndefined();
+    expect(persisted.platformResults[0].status).toBe("published");
+    await expect(claimImmediatePost({ authUser: auth, workspaceId: String(workspaceId), postId: String(first._id) })).rejects.toMatchObject({ statusCode: 409 });
   });
 
   it("does not authorize a different account", async () => {

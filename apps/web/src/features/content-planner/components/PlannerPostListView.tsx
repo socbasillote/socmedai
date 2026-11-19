@@ -71,7 +71,7 @@ export function PlannerPostListView({
             type="button"
             onClick={refresh}
             disabled={loading || loadingMore}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2 py-2 text-sm font-normal hover:bg-slate-50 disabled:opacity-50"
           >
             <RefreshCw size={16} />
             Refresh
@@ -102,7 +102,7 @@ export function PlannerPostListView({
             type="button"
             onClick={posts.length > 0 ? loadMore : refresh}
             disabled={loading || loadingMore}
-            className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 font-medium hover:bg-rose-100 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-2 py-2 font-normal hover:bg-rose-100 disabled:opacity-50"
           >
             <RefreshCw size={15} />
             Retry

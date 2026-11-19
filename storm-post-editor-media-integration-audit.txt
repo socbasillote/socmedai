@@ -873,7 +873,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       <button
         type="button"
         onClick={handleCancel}
-        className="mt-4 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm"
+        className="mt-4 rounded-lg bg-white px-4 py-2 text-sm font-normal text-slate-700 shadow-sm"
       >
         Back to Posts
       </button>
@@ -989,7 +989,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           }
         >
           <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <p className="text-xs font-normal uppercase tracking-wide text-slate-500">
               Active Workspace
             </p>
 
@@ -1349,7 +1349,7 @@ export function PostEditorForm({
                 type="button"
                 disabled={saving || locked}
                 onClick={() => setLibraryOpen(true)}
-                className="rounded-lg border border-violet-300 bg-white px-3 py-2 text-xs font-medium text-violet-800 disabled:opacity-50"
+                className="rounded-lg border border-violet-300 bg-white px-2 py-2 text-xs font-normal text-violet-800 disabled:opacity-50"
               >
                 Replace image
               </button>
@@ -1361,7 +1361,7 @@ export function PostEditorForm({
                   onMediaRemove();
                   setLibraryOpen(false);
                 }}
-                className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700 disabled:opacity-50"
+                className="rounded-lg border border-rose-200 bg-white px-2 py-2 text-xs font-normal text-rose-700 disabled:opacity-50"
               >
                 Remove image
               </button>
@@ -1369,7 +1369,7 @@ export function PostEditorForm({
           </div>
         ) : (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-5 text-center">
-            <p className="text-sm font-medium text-slate-700">
+            <p className="text-sm font-normal text-slate-700">
               No image selected
             </p>
 
@@ -1381,7 +1381,7 @@ export function PostEditorForm({
               type="button"
               disabled={!workspaceId || saving || locked}
               onClick={() => setLibraryOpen(true)}
-              className="mt-4 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="mt-4 rounded-lg bg-violet-600 px-4 py-2 text-sm font-normal text-white disabled:opacity-50"
             >
               Choose from Media Library
             </button>
@@ -1399,7 +1399,7 @@ export function PostEditorForm({
                 type="button"
                 disabled={saving || locked}
                 onClick={() => setLibraryOpen(false)}
-                className="text-xs font-medium text-slate-600 underline"
+                className="text-xs font-normal text-slate-600 underline"
               >
                 Close
               </button>

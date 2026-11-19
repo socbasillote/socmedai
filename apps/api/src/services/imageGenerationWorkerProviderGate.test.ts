@@ -39,21 +39,15 @@ describe("Persisted worker provider selection", () => {
     });
   });
 
-  it("keeps paid execution unarmed", () => {
-    expect(LIVE_PAID_WORKER_ARMED).toBe(false);
+  it("keeps paid execution armed", () => {
+    expect(LIVE_PAID_WORKER_ARMED).toBe(true);
   });
 
-  it("rejects live jobs despite valid rollout configuration", () => {
-    expect(() =>
-      selectWorkerImageProvider(
-        {
-          workspaceId: WORKSPACE,
-          provider: "openai",
-          model: "gpt-image-2",
-        },
-        liveConfig,
-      ),
-    ).toThrow(WorkerProviderNotAllowedError);
+  it("selects live jobs outside the obsolete workspace allowlist", () => {
+    expect(selectWorkerImageProvider({ workspaceId: "507f1f77bcf86cd799439099", provider: "openai", model: "gpt-image-2" }, liveConfig)).toEqual({ kind: "openai", model: "gpt-image-2" });
+  });
+  it("rejects live jobs when live generation is disabled", () => {
+    expect(() => selectWorkerImageProvider({ workspaceId: WORKSPACE, provider: "openai", model: "gpt-image-2" }, { ...liveConfig, liveEnabled: false })).toThrow(WorkerProviderNotAllowedError);
   });
 
   it("rejects unsupported persisted models", () => {

@@ -1,0 +1,112 @@
+import { useState } from "react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
+import { WorkspaceSelector } from "./WorkspaceSelector";
+import { SidebarAccountMenu } from "./SidebarAccountMenu";
+import { DashboardSidebar } from "./DashboardSidebar";
+import type { Workspace } from "@/lib/workspaces";
+const mocks = vi.hoisted(() => ({ signOut: vi.fn(), navigate: vi.fn(), notifications: vi.fn(), create: vi.fn(), store: vi.fn() }));
+vi.mock("@/auth/useAuth", () => ({ useAuth: () => ({ user: { id: "user-1", email: "diana@example.com", user_metadata: { full_name: "Diana Ivanova" } }, signOut: mocks.signOut }) }));
+const workspaces = Array.from({ length: 12 }, (_, index) => ({ _id: String(index + 1), name: `Workspace ${index + 1}` }) as Workspace);
+function Harness() {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState("1");
+  return <><WorkspaceSelector workspaces={workspaces} selectedWorkspace={workspaces.find((item) => item._id === selected)!} selectedWorkspaceId={selected}
+    workspacesLoading={false} workspaceError="" workspaceMenuOpen={open} setWorkspaceMenuOpen={setOpen} setSelectedWorkspaceId={setSelected} storeWorkspaceId={mocks.store} onCreateWorkspace={mocks.create} onWorkspaceSettings={() => mocks.navigate("/settings")} /><button>Outside</button></>;
+}
+beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); mocks.signOut.mockResolvedValue({ error: null }); });
+afterEach(cleanup);
+it("opens on click or keyboard focus, never hover; shows current, recent, full list and create", async () => {
+  localStorage.setItem("storm:recent-workspaces:user-1", JSON.stringify(["1", "8", "5", "4"]));
+  const user = userEvent.setup();
+  render(<Harness />);
+  const trigger = screen.getByRole("button", { name: "Switch workspace" });
+  fireEvent.pointerEnter(trigger, { pointerType: "mouse" });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Create workspace" })).not.toBeInTheDocument();
+  await user.tab();
+  expect(trigger).toHaveFocus();
+  const dialog = screen.getByRole("dialog", { name: "Workspace switcher" });
+  expect(within(dialog).getByLabelText("Current workspace")).toBeInTheDocument();
+  expect(within(dialog).getAllByRole("button").slice(0, 4).map((item) => item.textContent)).toEqual(["Workspace 1", "Workspace 8", "Workspace 5", "Workspace 4"]);
+  await user.click(within(dialog).getByRole("button", { name: "View all 12 workspaces" }));
+  expect(within(dialog).getByRole("button", { name: "Workspace 12" })).toBeInTheDocument();
+  await user.type(screen.getByRole("textbox", { name: "Find a workspace" }), "Workspace 12");
+  await user.click(within(dialog).getByRole("button", { name: "Workspace 12" }));
+  expect(mocks.store).toHaveBeenCalledWith("12");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(trigger).toHaveFocus();
+  await user.click(trigger);
+  expect(within(screen.getByRole("dialog")).getAllByRole("button")[1]).toHaveTextContent("Workspace 1");
+  await user.click(screen.getByRole("button", { name: "Create workspace" }));
+  expect(mocks.create).toHaveBeenCalledOnce();
+});
+it("supports arrow navigation, Tab, Escape, outside dismissal and an independent settings button", async () => {
+  const user = userEvent.setup(); render(<Harness />);
+  await user.click(screen.getByRole("button", { name: "Switch workspace" }));
+  await user.keyboard("{ArrowDown}");
+  expect(screen.getByRole("textbox", { name: "Find a workspace" })).toHaveFocus();
+  await user.tab();
+  expect(screen.getByRole("button", { name: /^Workspace 1Current workspace$/ })).toHaveFocus();
+  await user.keyboard("{ArrowDown}");
+  expect(screen.getByRole("button", { name: "Workspace 2" })).toHaveFocus();
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Switch workspace" })).toHaveFocus();
+  await user.keyboard("{ArrowDown}");
+  expect(screen.getByRole("textbox", { name: "Find a workspace" })).toHaveFocus();
+  await user.keyboard("{Escape}");
+  await user.click(screen.getByRole("button", { name: "Workspace settings" }));
+  expect(mocks.navigate).toHaveBeenCalledWith("/settings");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Switch workspace" }));
+  await user.click(screen.getByRole("button", { name: "Outside" }));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+it("opens the account menu above its block with keyboard-accessible personal actions and sign out", async () => {
+  const user = userEvent.setup();
+  render(<MemoryRouter><SidebarAccountMenu onSelectPage={mocks.navigate} onNotificationClick={mocks.notifications} /><button>Outside</button></MemoryRouter>);
+  await user.tab();
+  expect(screen.getByRole("menu", { name: "My account" })).toBeInTheDocument();
+  expect(screen.getByText("DI")).toBeInTheDocument();
+  await user.tab(); expect(screen.getByRole("menuitem", { name: "User settings" })).toHaveFocus();
+  await user.keyboard("{ArrowDown}"); expect(screen.getByRole("menuitem", { name: "Profile" })).toHaveFocus();
+  await user.keyboard("{ArrowUp}");
+  await user.keyboard("{Enter}"); expect(mocks.navigate).toHaveBeenCalledWith("User settings");
+  await user.click(screen.getByRole("button", { name: "My account" }));
+  await user.click(screen.getByRole("menuitem", { name: "Notifications" })); expect(mocks.notifications).toHaveBeenCalledOnce();
+  await user.click(screen.getByRole("button", { name: "My account" }));
+  await user.keyboard("{ArrowUp}"); expect(screen.getByRole("menuitem", { name: "Sign out" })).toHaveFocus();
+  await user.keyboard("{Escape}"); expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "My account" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: "My account" }));
+  await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
+  expect(mocks.signOut).toHaveBeenCalledOnce();
+});
+it("opens the account block on mouse hover and touch tap, and dismisses outside", async () => {
+  const user = userEvent.setup();
+  render(<MemoryRouter><SidebarAccountMenu onSelectPage={mocks.navigate} onNotificationClick={mocks.notifications} /><button>Outside</button></MemoryRouter>);
+  const trigger = screen.getByRole("button", { name: "My account" });
+  // jsdom needs an explicit pointerType for React pointer event handlers.
+  const enter = new Event("pointerover", { bubbles: true }); Object.defineProperty(enter, "pointerType", { value: "mouse" });
+  fireEvent(trigger, enter);
+  expect(screen.getByRole("menu")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Outside" }));
+  expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  await user.pointer([{ keys: "[TouchA>]", target: trigger }, { keys: "[/TouchA]", target: trigger }]);
+  expect(screen.getByRole("menu")).toBeInTheDocument();
+});
+it("puts the account after help and routes both workspace-settings entry points identically", async () => {
+  const user = userEvent.setup();
+  render(<MemoryRouter><DashboardSidebar activePage="Overview" mobileMenuOpen={false} onCloseMobileMenu={vi.fn()} onSelectPage={mocks.navigate}
+    onNotificationClick={mocks.notifications} workspaceSelectorProps={{ workspaces, selectedWorkspace: workspaces[0], selectedWorkspaceId: "1", workspacesLoading: false, workspaceError: "", workspaceMenuOpen: false, setWorkspaceMenuOpen: vi.fn(), setSelectedWorkspaceId: vi.fn(), storeWorkspaceId: mocks.store, onCreateWorkspace: mocks.create }} /></MemoryRouter>);
+  const settings = screen.getAllByRole("button", { name: "Workspace settings" });
+  expect(settings).toHaveLength(2);
+  for (const button of settings) await user.click(button);
+  expect(mocks.navigate.mock.calls).toEqual([["Workspace settings"], ["Workspace settings"]]);
+  const help = screen.getByRole("button", { name: "Help and support" });
+  const account = screen.getByRole("button", { name: "My account" });
+  expect(help.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});

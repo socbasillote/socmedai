@@ -60,13 +60,6 @@ export async function enqueueImageGeneration(
     );
   }
 
-  /**
-   * Phase 12.3.1 is mock-only.
-   *
-   * Even if a developer enables the live
-   * feature flag, paid provider execution
-   * is unavailable through this service.
-   */
   // Trust only backend configuration; never accept provider/model
   // selection from the HTTP command.
   let generation: { provider: string; model: string };
@@ -81,7 +74,7 @@ export async function enqueueImageGeneration(
     };
   } else {
     // Paid jobs remain blocked while LIVE_PAID_WORKER_ARMED=false.
-    // Readiness rejects nonallowlisted workspaces and billing mismatches.
+    // Readiness checks provider availability and billing configuration.
     const liveConfig = parseLiveImageGateConfig(process.env);
     const readiness = evaluateLiveAdmissionReadiness(
       liveConfig,

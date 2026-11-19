@@ -229,7 +229,7 @@ export function WorkspaceLogoUploader({
         <h3 className="text-sm font-semibold text-slate-900">Workspace logo</h3>
 
         <span
-          className={`rounded-full px-2 py-1 text-xs font-medium ${
+          className={`rounded-full px-2 py-1 text-xs font-normal ${
             isEnabled
               ? "bg-green-100 text-green-800"
               : "bg-slate-200 text-slate-700"
@@ -271,7 +271,7 @@ export function WorkspaceLogoUploader({
           </div>
 
           <div className="space-y-2">
-            <p className="text-sm font-medium text-slate-800">
+            <p className="text-sm font-normal text-slate-800">
               Saved workspace logo
             </p>
 
@@ -281,7 +281,7 @@ export function WorkspaceLogoUploader({
               type="button"
               onClick={() => void refreshPreview()}
               disabled={busy || disabled}
-              className="text-xs font-medium text-violet-700 underline disabled:opacity-50"
+              className="text-xs font-normal text-violet-700 underline disabled:opacity-50"
             >
               Refresh preview
             </button>
@@ -302,7 +302,7 @@ export function WorkspaceLogoUploader({
       <div className="space-y-2">
         <label
           htmlFor="image-studio-logo-upload"
-          className="block text-sm font-medium text-slate-700"
+          className="block text-sm font-normal text-slate-700"
         >
           {hasLogo ? "Replace logo" : "Upload logo"}
         </label>
@@ -316,7 +316,7 @@ export function WorkspaceLogoUploader({
           accept="image/png,image/jpeg,image/webp"
           disabled={!workspaceId || loading || busy || disabled}
           onChange={(event) => void handleFileChange(event)}
-          className="block w-full text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-100 file:px-4 file:py-2 file:font-medium file:text-violet-800 disabled:opacity-50"
+          className="block w-full text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-100 file:px-4 file:py-2 file:font-normal file:text-violet-800 disabled:opacity-50"
         />
 
         <p className="text-xs text-slate-500">
@@ -347,7 +347,7 @@ export function WorkspaceLogoUploader({
           type="button"
           disabled={busy || disabled}
           onClick={() => void handleRetryEnable()}
-          className="rounded-lg border border-violet-300 px-3 py-2 text-sm font-medium text-violet-800 disabled:opacity-50"
+          className="rounded-lg border border-violet-300 px-2 py-2 text-sm font-normal text-violet-800 disabled:opacity-50"
         >
           Retry enable
         </button>

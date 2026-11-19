@@ -52,7 +52,7 @@ function ChecklistRow({ item }: { item: ChecklistItem }) {
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-sm font-medium text-slate-800">
+          <span className="text-sm font-normal text-slate-800">
             {item.label}
           </span>
 

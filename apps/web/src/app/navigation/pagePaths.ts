@@ -15,7 +15,9 @@ export const PAGE_PATHS = {
   "Media library": "/media",
   Publishing: "/publishing",
   Analytics: "/analytics",
-  Settings: "/settings",
+  "Workspace settings": "/settings",
+  "User settings": "/account/settings",
+  Profile: "/account/profile",
 } as const;
 
 export type DashboardPageName = keyof typeof PAGE_PATHS;

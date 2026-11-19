@@ -67,14 +67,9 @@ export function PublishingControls({
     : null;
 
   return (
-    <section
-      aria-label="Publishing controls"
-      className="space-y-4"
-    >
+    <section aria-label="Publishing controls" className="space-y-4">
       <div>
-        <h2 className="text-base font-bold text-slate-900">
-          Finish your post
-        </h2>
+        <h2 className="text-base font-bold text-slate-900">Finish your post</h2>
 
         <p className="mt-1 text-xs text-slate-500">
           Save your content or choose when to publish.
@@ -104,7 +99,7 @@ export function PublishingControls({
                     : undefined
                 }
                 className={[
-                  "rounded-xl border px-2 py-3",
+                  "rounded-xl border px-2 py-2",
                   "text-xs font-semibold transition",
                   "disabled:cursor-not-allowed",
                   "disabled:opacity-50",
@@ -120,8 +115,19 @@ export function PublishingControls({
         </div>
       </fieldset>
 
-      <p className="text-xs leading-5 text-slate-500">{postMode === "draft" ? "Save privately and come back when you are ready." : postMode === "immediate" ? "Review your caption, image, and destination before confirming." : "Choose a future date for your post. Instagram requires one image."}</p>
-      {editorMode === "edit" && <p className="text-xs text-slate-400">Existing drafts can be saved or published now. Scheduling is available for new posts.</p>}
+      <p className="text-xs leading-5 text-slate-500">
+        {postMode === "draft"
+          ? "Save privately and come back when you are ready."
+          : postMode === "immediate"
+            ? "Review your caption, image, and destination before confirming."
+            : "Choose a future date for your post. Instagram requires one image."}
+      </p>
+      {editorMode === "edit" && (
+        <p className="text-xs text-slate-400">
+          Existing drafts can be saved or published now. Scheduling is available
+          for new posts.
+        </p>
+      )}
       {postMode === "scheduled" && (
         <div className="space-y-2">
           <label
@@ -143,7 +149,8 @@ export function PublishingControls({
           />
 
           <p className="text-xs text-slate-500">
-            Time zone: {Intl.DateTimeFormat().resolvedOptions().timeZone || "Local time"}.
+            Time zone:{" "}
+            {Intl.DateTimeFormat().resolvedOptions().timeZone || "Local time"}.
           </p>
         </div>
       )}
@@ -164,7 +171,7 @@ export function PublishingControls({
           form={formId}
           disabled={disabled || actionBlocked}
           aria-describedby={issue ? "publishing-action-issue" : undefined}
-          className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {buttonLabel}
         </button>

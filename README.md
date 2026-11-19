@@ -127,6 +127,12 @@ objects under `publishing/instagram/` after an interrupted worker or failed clea
 Container processing is bounded; the final publish request is never automatically
 retried when its outcome is uncertain. The post then needs review on Instagram.
 
+Live image generation is available in every workspace owned by the authenticated
+user. `IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST` is no longer used and can be
+removed from existing environments. Provider activation flags, workspace
+ownership checks, credit billing, and configured usage limits still apply.
+Restart the API and image worker after updating to this version.
+
 Image generation quotas are currently disabled by default. Set
 `IMAGE_GENERATION_LIMITS_ENABLED=true` and restart the API and image worker to
 restore the configured daily and active-job limits. Usage counters and credit

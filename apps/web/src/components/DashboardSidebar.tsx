@@ -13,10 +13,12 @@ import {
   X,
 } from "lucide-react";
 import { Link } from "react-router";
+import { SidebarAccountMenu } from "@/components/SidebarAccountMenu";
 import { WorkspaceSelector } from "@/components/WorkspaceSelector";
 import type { ComponentProps } from "react";
 
 type DashboardSidebarProps = {
+  onNotificationClick?: () => void;
   activePage: string;
   mobileMenuOpen: boolean;
   onCloseMobileMenu: () => void;
@@ -25,6 +27,7 @@ type DashboardSidebarProps = {
 };
 
 export function DashboardSidebar({
+  onNotificationClick = () => {},
   activePage,
   mobileMenuOpen,
   onCloseMobileMenu,
@@ -78,9 +81,12 @@ export function DashboardSidebar({
           </button>
         </div>
 
-        <WorkspaceSelector {...workspaceSelectorProps} />
+        <WorkspaceSelector
+          {...workspaceSelectorProps}
+          onWorkspaceSettings={() => onSelectPage("Workspace settings")}
+        />
 
-        <nav className="flex-1 space-y-1 min-h-0 overflow-y-auto px-3 py-4">
+        <nav className="flex-1 space-y-1 min-h-0 overflow-y-auto px-2 py-4">
           {navigation.map(({ label, icon: Icon }) => {
             const active = activePage === label;
 
@@ -88,7 +94,7 @@ export function DashboardSidebar({
               <button
                 key={label}
                 onClick={() => onSelectPage(label)}
-                className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-xs transition ${
+                className={`flex min-h-11 w-full items-center gap-2 rounded-xl px-2 py-2 text-xs transition ${
                   active
                     ? "bg-violet-500/15 text-violet-300"
                     : "text-slate-300 hover:bg-white/5 hover:text-white"
@@ -106,13 +112,13 @@ export function DashboardSidebar({
           })}
 
           <div className="!mt-4 border-t border-white/10 pt-4">
-            <p className="px-3 pb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">
+            <p className="px-2 pb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">
               Manage
             </p>
 
             <button
               onClick={() => onSelectPage("Analytics")}
-              className={`flex w-full items-center gap-3 rounded-xl px-2 py-2 text-xs font-medium ${
+              className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-2 py-2 text-xs font-normal ${
                 activePage === "Analytics"
                   ? "bg-violet-500/15 text-violet-300"
                   : "text-slate-300 hover:bg-white/5 hover:text-white"
@@ -123,15 +129,15 @@ export function DashboardSidebar({
             </button>
 
             <button
-              onClick={() => onSelectPage("Settings")}
-              className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-sm font-medium ${
-                activePage === "Settings"
+              onClick={() => onSelectPage("Workspace settings")}
+              className={`flex min-h-11 w-full items-center gap-2 rounded-xl px-2 py-2 text-sm font-normal ${
+                activePage === "Workspace settings"
                   ? "bg-violet-500/15 text-violet-300"
                   : "text-slate-300 hover:bg-white/5 hover:text-white"
               }`}
             >
               <Settings size={19} />
-              Settings
+              Workspace settings
             </button>
           </div>
         </nav>
@@ -139,17 +145,21 @@ export function DashboardSidebar({
         <div className="shrink-0 p-3">
           <button
             onClick={() => onSelectPage("Content studio")}
-            className="flex min-h-11 w-full items-center gap-3 rounded-xl border border-white/10 bg-violet-500/15 px-3 text-sm font-semibold text-violet-200 hover:bg-violet-500/25"
+            className="flex min-h-11 w-full items-center gap-3 rounded-xl border border-white/10 bg-violet-500/15 px-2 text-sm font-semibold text-violet-200 hover:bg-violet-500/25"
           >
             <Sparkles size={18} aria-hidden="true" />
             <span className="flex-1 text-left">Create with AI</span>
             <ArrowRight size={16} aria-hidden="true" />
           </button>
 
-          <button className="mt-2 min-h-11 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-300 hover:bg-white/5 hover:text-white">
+          <button className="mt-2 min-h-11 flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm text-slate-300 hover:bg-white/5 hover:text-white">
             <CircleHelp size={18} />
             Help and support
           </button>
+          <SidebarAccountMenu
+            onSelectPage={onSelectPage}
+            onNotificationClick={onNotificationClick}
+          />
         </div>
       </aside>
     </>

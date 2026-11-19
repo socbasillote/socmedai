@@ -37,7 +37,7 @@ describe("Live image generation release gate", () => {
     });
   });
 
-  it("accepts explicit, allowlisted internal configuration", () => {
+  it("accepts explicit internal configuration", () => {
     const decision = evaluateLiveImageGate(configured(), WORKSPACE_A);
 
     expect(decision).toEqual({
@@ -93,11 +93,16 @@ describe("Live image generation release gate", () => {
     ).toBe(false);
   });
 
-  it("rejects a non-allowlisted workspace", () => {
-    expect(evaluateLiveImageGate(configured(), WORKSPACE_B)).toMatchObject({
-      allowed: false,
-      reason: "workspace_not_allowed",
-    });
+  it("allows every valid workspace despite an obsolete allowlist", () => {
+    expect(evaluateLiveImageGate(configured(), WORKSPACE_B).allowed).toBe(true);
+  });
+  it("allows startup and generation without an allowlist", () => {
+    const config = configured({ IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST: "" });
+    expect(evaluateLiveImageGate(config).allowed).toBe(true);
+    expect(evaluateLiveImageGate(config, WORKSPACE_B).allowed).toBe(true);
+  });
+  it("rejects invalid workspace identifiers", () => {
+    expect(evaluateLiveImageGate(configured(), "invalid").allowed).toBe(false);
   });
 
   it("requires an API key without exposing it", () => {
@@ -125,10 +130,10 @@ describe("Live image generation release gate", () => {
     ).toBe(false);
   });
 
-  it("disables rollout quota caps without bypassing workspace authorization", () => {
+  it("disables rollout quota caps for all valid workspaces", () => {
     const config = configured({ IMAGE_GENERATION_LIMITS_ENABLED: "false", IMAGE_GENERATION_LIVE_DAILY_LIMIT: "100", IMAGE_GENERATION_LIVE_MAX_ACTIVE: "4" });
     expect(evaluateLiveImageGate(config, WORKSPACE_A).allowed).toBe(true);
-    expect(evaluateLiveImageGate(config, WORKSPACE_B).allowed).toBe(false);
+    expect(evaluateLiveImageGate(config, WORKSPACE_B).allowed).toBe(true);
   });
 
   it("rejects excessive concurrency", () => {
@@ -147,12 +152,8 @@ describe("Live image generation release gate", () => {
     ).toThrow();
   });
 
-  it("rejects malformed workspace allowlists", () => {
-    expect(() =>
-      configured({
-        IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST: "not-an-object-id",
-      }),
-    ).toThrow();
+  it("ignores obsolete workspace allowlist values", () => {
+    expect(evaluateLiveImageGate(configured({ IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST: "not-an-object-id" }), WORKSPACE_B).allowed).toBe(true);
   });
 
   it("rejects unknown rollout modes", () => {

@@ -9,7 +9,6 @@ export type LiveGateConfig = {
   workerEnabled: boolean;
   rollout: LiveRolloutMode;
   model: string;
-  workspaceAllowlist: ReadonlySet<string>;
   maxActive: number;
   dailyLimit: number;
   creditCost: number;
@@ -51,20 +50,6 @@ function positiveInteger(value: string | undefined, fallback: number): number {
   }
 
   return parsed;
-}
-
-function parseAllowlist(value: string | undefined): ReadonlySet<string> {
-  if (!value?.trim()) {
-    return new Set();
-  }
-
-  const ids = value.split(",").map((item) => item.trim());
-
-  if (ids.some((id) => !OBJECT_ID_PATTERN.test(id))) {
-    throw new Error("Invalid live image workspace allowlist.");
-  }
-
-  return new Set(ids);
 }
 
 /**
@@ -130,9 +115,6 @@ export function parseLiveImageGateConfig(
     ),
     rollout,
     model: source.IMAGE_GENERATION_MODEL ?? LIVE_IMAGE_MODEL,
-    workspaceAllowlist: parseAllowlist(
-      source.IMAGE_GENERATION_LIVE_WORKSPACE_ALLOWLIST,
-    ),
     maxActive,
     dailyLimit,
     creditCost,
@@ -149,7 +131,7 @@ export function parseLiveImageGateConfig(
  */
 export function evaluateLiveImageGate(
   config: LiveGateConfig,
-  workspaceId: string,
+  workspaceId?: string,
 ): LiveGateDecision {
   if (
     config.provider !== "openai" ||
@@ -176,10 +158,8 @@ export function evaluateLiveImageGate(
     };
   }
 
-  if (
-    !OBJECT_ID_PATTERN.test(workspaceId) ||
-    !config.workspaceAllowlist.has(workspaceId)
-  ) {
+  // Provider availability is global; admission still authorizes workspace ownership.
+  if (workspaceId !== undefined && !OBJECT_ID_PATTERN.test(workspaceId)) {
     return {
       allowed: false,
       reason: "workspace_not_allowed",

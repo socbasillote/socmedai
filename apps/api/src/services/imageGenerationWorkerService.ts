@@ -101,13 +101,7 @@ export async function discoverReservedImageJobs(
     return [];
   }
 
-  const approvedWorkspaces = liveMode
-    ? [...liveConfig.workspaceAllowlist]
-        .filter((id) => evaluateLiveImageGate(liveConfig, id).allowed)
-        .map((id) => new mongoose.Types.ObjectId(id))
-    : [];
-
-  if (liveMode && approvedWorkspaces.length === 0) {
+  if (liveMode && !evaluateLiveImageGate(liveConfig).allowed) {
     return [];
   }
 
@@ -115,7 +109,6 @@ export async function discoverReservedImageJobs(
     ? {
         "generation.provider": "openai",
         "generation.model": "gpt-image-2",
-        workspaceId: { $in: approvedWorkspaces },
       }
     : {
         "generation.provider": "mock",

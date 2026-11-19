@@ -822,7 +822,7 @@ export function ContentStudio({
           <div>
             <label
               htmlFor="studio-brief"
-              className="mb-2 block text-sm font-medium text-slate-700"
+              className="mb-2 block text-sm font-normal text-slate-700"
             >
               What would you like to promote?
             </label>
@@ -849,7 +849,7 @@ export function ContentStudio({
           <div>
             <label
               htmlFor="studio-platform"
-              className="mb-2 block text-sm font-medium text-slate-700"
+              className="mb-2 block text-sm font-normal text-slate-700"
             >
               Target platform
             </label>
@@ -873,7 +873,7 @@ export function ContentStudio({
           {/* LinkedIn account information */}
           {platform === "linkedin" && (
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-slate-700">
+              <label className="block text-sm font-normal text-slate-700">
                 Connected LinkedIn account
               </label>
 
@@ -907,7 +907,7 @@ export function ContentStudio({
           <div>
             <label
               htmlFor="studio-tone"
-              className="mb-2 block text-sm font-medium text-slate-700"
+              className="mb-2 block text-sm font-normal text-slate-700"
             >
               Writing tone
             </label>
@@ -932,7 +932,7 @@ export function ContentStudio({
           <div>
             <label
               htmlFor="studio-audience"
-              className="mb-2 block text-sm font-medium text-slate-700"
+              className="mb-2 block text-sm font-normal text-slate-700"
             >
               Target audience
             </label>
@@ -953,7 +953,7 @@ export function ContentStudio({
           <div>
             <label
               htmlFor="studio-cta"
-              className="mb-2 block text-sm font-medium text-slate-700"
+              className="mb-2 block text-sm font-normal text-slate-700"
             >
               Call to action
             </label>
@@ -974,7 +974,7 @@ export function ContentStudio({
           <div>
             <label
               htmlFor="studio-length"
-              className="mb-2 block text-sm font-medium text-slate-700"
+              className="mb-2 block text-sm font-normal text-slate-700"
             >
               Caption length
             </label>
@@ -1004,7 +1004,7 @@ export function ContentStudio({
               revising ||
               brief.trim().length < 3
             }
-            className="w-full rounded-xl bg-violet-600 py-3 font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
+            className="w-full rounded-xl bg-violet-600 py-2 font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
           >
             <WandSparkles size={17} />
             {generating ? "Generating caption..." : "Generate caption"}
@@ -1019,7 +1019,7 @@ export function ContentStudio({
               brief.trim().length < 3
             }
             onClick={() => void handleGenerateVariations()}
-            className="w-full rounded-xl border border-violet-200 bg-violet-50 py-3 font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+            className="w-full rounded-xl border border-violet-200 bg-violet-50 py-2 font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-50"
           >
             <Sparkles size={17} />
             {generatingVariations
@@ -1039,7 +1039,7 @@ export function ContentStudio({
               brief.trim().length < 3
             }
             onClick={() => void handleGeneratePlatformCaptions()}
-            className="w-full rounded-xl bg-slate-900 py-3 font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+            className="w-full rounded-xl bg-slate-900 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
           >
             <Sparkles size={17} />
 
@@ -1060,10 +1060,10 @@ export function ContentStudio({
           </div>
 
           <div className="mb-4 flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold capitalize text-violet-700">
+            <span className="rounded-full bg-violet-50 px-2 py-1 text-xs font-semibold capitalize text-violet-700">
               {platform}
             </span>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium capitalize text-slate-600">
+            <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-normal capitalize text-slate-600">
               {tone}
             </span>
           </div>
@@ -1096,7 +1096,7 @@ export function ContentStudio({
                       </h5>
 
                       {platformDraftSaved[targetPlatform] && (
-                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                        <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-normal text-emerald-700">
                           Draft saved
                         </span>
                       )}
@@ -1104,7 +1104,7 @@ export function ContentStudio({
 
                     <label
                       htmlFor={`studio-${targetPlatform}-caption`}
-                      className="mb-2 block text-sm font-medium text-slate-700"
+                      className="mb-2 block text-sm font-normal text-slate-700"
                     >
                       {dualPlatformLabels[targetPlatform]} caption
                     </label>
@@ -1131,7 +1131,7 @@ export function ContentStudio({
                     <div className="mt-4 space-y-2">
                       <label
                         htmlFor={`studio-${targetPlatform}-revision`}
-                        className="block text-sm font-medium text-slate-700"
+                        className="block text-sm font-normal text-slate-700"
                       >
                         Revise {dualPlatformLabels[targetPlatform]} caption
                       </label>
@@ -1174,7 +1174,7 @@ export function ContentStudio({
                         onClick={() =>
                           void handleRevisePlatformCaption(targetPlatform)
                         }
-                        className="w-full rounded-xl border border-violet-200 bg-violet-50 py-3 font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                        className="w-full rounded-xl border border-violet-200 bg-violet-50 py-2 font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-50"
                       >
                         {revisingPlatform === targetPlatform
                           ? "Revising caption..."
@@ -1309,7 +1309,7 @@ export function ContentStudio({
 
           <label
             htmlFor="studio-caption"
-            className="mb-2 block text-sm font-medium text-slate-700"
+            className="mb-2 block text-sm font-normal text-slate-700"
           >
             Caption editor
           </label>
@@ -1334,7 +1334,7 @@ export function ContentStudio({
           <div className="mt-4 space-y-2">
             <label
               htmlFor="studio-revision-instruction"
-              className="block text-sm font-medium text-slate-700"
+              className="block text-sm font-normal text-slate-700"
             >
               How would you like to improve this caption?
             </label>
@@ -1359,7 +1359,7 @@ export function ContentStudio({
                 revisionInstruction.trim().length < 3
               }
               onClick={() => void handleReviseCaption()}
-              className="w-full rounded-xl border border-violet-200 bg-white py-3 font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+              className="w-full rounded-xl border border-violet-200 bg-white py-2 font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-50"
             >
               {revising ? "Revising caption..." : "Revise caption"}
             </Button>
@@ -1383,7 +1383,7 @@ export function ContentStudio({
                 type="button"
                 onClick={() => setPostSaveMode("draft")}
                 aria-pressed={postSaveMode === "draft"}
-                className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
                   postSaveMode === "draft"
                     ? "border-violet-400 bg-violet-50 text-violet-700"
                     : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
@@ -1396,7 +1396,7 @@ export function ContentStudio({
                 type="button"
                 onClick={() => setPostSaveMode("scheduled")}
                 aria-pressed={postSaveMode === "scheduled"}
-                className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
                   postSaveMode === "scheduled"
                     ? "border-violet-400 bg-violet-50 text-violet-700"
                     : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
@@ -1411,7 +1411,7 @@ export function ContentStudio({
               <div className="space-y-2">
                 <label
                   htmlFor="studio-scheduled-at"
-                  className="block text-sm font-medium text-slate-700"
+                  className="block text-sm font-normal text-slate-700"
                 >
                   Publishing date and time
                 </label>
@@ -1442,7 +1442,7 @@ export function ContentStudio({
                 (postSaveMode === "scheduled" && !scheduledAt)
               }
               onClick={() => void handleSaveDraft()}
-              className="w-full rounded-xl bg-violet-600 py-3 font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
+              className="w-full rounded-xl bg-violet-600 py-2 font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
             >
               {savingDraft
                 ? "Saving..."

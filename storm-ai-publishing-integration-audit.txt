@@ -382,7 +382,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
             type="button"
             onClick={() => void refreshCredits()}
             disabled={!selectedWorkspaceId}
-            className="mt-3 text-sm font-medium text-violet-700 hover:underline"
+            className="mt-3 text-sm font-normal text-violet-700 hover:underline"
           >
             Refresh balance
           </button>
@@ -477,7 +477,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                       onChange={() => setAspectRatio(item.value)}
                       className="sr-only"
                     />
-                    <span className="block text-sm font-medium">
+                    <span className="block text-sm font-normal">
                       {item.label}
                     </span>
                     <span className="text-xs text-slate-500">
@@ -567,7 +567,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                       <p></p>
                     )}
 
-                    <span className="text-sm font-medium">{item.label}</span>
+                    <span className="text-sm font-normal">{item.label}</span>
                   </label>
                 );
               })}
@@ -590,7 +590,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
               <div className="space-y-2">
                 <label
                   htmlFor="image-studio-branding-text"
-                  className="block text-sm font-medium text-slate-700"
+                  className="block text-sm font-normal text-slate-700"
                 >
                   Text label
                 </label>
@@ -616,7 +616,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                 <div className="space-y-2">
                   <label
                     htmlFor="image-studio-branding-position"
-                    className="block text-sm font-medium text-slate-700"
+                    className="block text-sm font-normal text-slate-700"
                   >
                     Position
                   </label>
@@ -642,7 +642,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                   <div className="flex justify-between text-sm">
                     <label
                       htmlFor="image-studio-branding-size"
-                      className="font-medium text-slate-700"
+                      className="font-normal text-slate-700"
                     >
                       Size
                     </label>
@@ -668,7 +668,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                   <div className="flex justify-between text-sm">
                     <label
                       htmlFor="image-studio-branding-opacity"
-                      className="font-medium text-slate-700"
+                      className="font-normal text-slate-700"
                     >
                       Opacity
                     </label>
@@ -724,7 +724,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
           <button
             type="submit"
             disabled={cannotGenerate}
-            className="w-full rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {submitting
               ? "Generating..."
@@ -760,7 +760,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
         >
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-semibold text-slate-900">Preview</h2>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">
+            <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700">
               {details?.state ?? "No image"}
             </span>
           </div>
@@ -819,7 +819,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                     setError(errorMessage(cause)),
                   )
                 }
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-normal"
               >
                 Refresh status
               </button>
@@ -828,7 +828,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                 <button
                   type="button"
                   onClick={() => void refreshPreview()}
-                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium"
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-normal"
                 >
                   Refresh image link
                 </button>
@@ -1257,7 +1257,7 @@ export function ImageHistoryGallery({
           type="button"
           onClick={refreshHistory}
           disabled={!selectedWorkspaceId || loading}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          className="rounded-lg border border-slate-300 px-2 py-2 text-sm font-normal text-slate-700 hover:bg-slate-50 disabled:opacity-50"
         >
           Refresh history
         </button>
@@ -1311,7 +1311,7 @@ export function ImageHistoryGallery({
                         onClick={() => {
                           void openImage(item);
                         }}
-                        className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white hover:bg-violet-700"
+                        className="rounded-lg bg-violet-600 px-2 py-2 text-sm font-normal text-white hover:bg-violet-700"
                         aria-label={`Open image ${item.assetId}`}
                       >
                         Open image
@@ -1358,7 +1358,7 @@ export function ImageHistoryGallery({
             onClick={() => {
               void loadMore();
             }}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-normal text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
             {loadingMore ? "Loading..." : "Load more"}
           </button>
@@ -1379,7 +1379,7 @@ export function ImageHistoryGallery({
               <button
                 type="button"
                 onClick={closePreview}
-                className="rounded-lg border px-3 py-2 text-sm"
+                className="rounded-lg border px-2 py-2 text-sm"
               >
                 Close
               </button>
@@ -1415,7 +1415,7 @@ export function ImageHistoryGallery({
                 onClick={() => {
                   void openImage(selected);
                 }}
-                className="rounded-lg bg-violet-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+                className="rounded-lg bg-violet-600 px-2 py-2 text-sm text-white disabled:opacity-50"
               >
                 Refresh private URL
               </button>
@@ -1423,7 +1423,7 @@ export function ImageHistoryGallery({
               <button
                 type="button"
                 onClick={closePreview}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="rounded-lg border border-slate-300 px-2 py-2 text-sm"
               >
                 Close preview
               </button>
@@ -1985,7 +1985,7 @@ export function PostEditorForm({
                 type="button"
                 disabled={saving || locked}
                 onClick={() => setLibraryOpen(true)}
-                className="rounded-lg border border-violet-300 bg-white px-3 py-2 text-xs font-medium text-violet-800 disabled:opacity-50"
+                className="rounded-lg border border-violet-300 bg-white px-2 py-2 text-xs font-normal text-violet-800 disabled:opacity-50"
               >
                 Replace image
               </button>
@@ -1997,7 +1997,7 @@ export function PostEditorForm({
                   onMediaRemove();
                   setLibraryOpen(false);
                 }}
-                className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700 disabled:opacity-50"
+                className="rounded-lg border border-rose-200 bg-white px-2 py-2 text-xs font-normal text-rose-700 disabled:opacity-50"
               >
                 Remove image
               </button>
@@ -2005,7 +2005,7 @@ export function PostEditorForm({
           </div>
         ) : (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-5 text-center">
-            <p className="text-sm font-medium text-slate-700">
+            <p className="text-sm font-normal text-slate-700">
               No image selected
             </p>
 
@@ -2017,7 +2017,7 @@ export function PostEditorForm({
               type="button"
               disabled={!workspaceId || saving || locked}
               onClick={() => setLibraryOpen(true)}
-              className="mt-4 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="mt-4 rounded-lg bg-violet-600 px-4 py-2 text-sm font-normal text-white disabled:opacity-50"
             >
               Choose from Media Library
             </button>
@@ -2035,7 +2035,7 @@ export function PostEditorForm({
                 type="button"
                 disabled={saving || locked}
                 onClick={() => setLibraryOpen(false)}
-                className="text-xs font-medium text-slate-600 underline"
+                className="text-xs font-normal text-slate-600 underline"
               >
                 Close
               </button>
@@ -3195,7 +3195,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       <button
         type="button"
         onClick={handleCancel}
-        className="mt-4 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm"
+        className="mt-4 rounded-lg bg-white px-4 py-2 text-sm font-normal text-slate-700 shadow-sm"
       >
         Back to Posts
       </button>
@@ -3317,7 +3317,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           }
         >
           <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <p className="text-xs font-normal uppercase tracking-wide text-slate-500">
               Active Workspace
             </p>
 
@@ -3643,7 +3643,7 @@ export function MediaLibraryPicker({
           type="button"
           onClick={() => setRefreshVersion((value) => value + 1)}
           disabled={loading || disabled || !workspaceId}
-          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-2 text-xs font-normal text-slate-700 disabled:opacity-50"
         >
           <RefreshCw size={14} aria-hidden="true" />
           Refresh
@@ -3674,7 +3674,7 @@ export function MediaLibraryPicker({
               aria-pressed={scope === option.value}
               onClick={() => changeScope(option.value)}
               className={[
-                "rounded-xl border px-3 py-2.5",
+                "rounded-xl border px-2 py-2.5",
                 "text-xs font-semibold transition",
                 "disabled:opacity-50",
                 scope === option.value
@@ -3716,7 +3716,7 @@ export function MediaLibraryPicker({
         <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center">
           <ImageIcon size={28} className="mx-auto text-slate-400" />
 
-          <p className="mt-2 text-sm font-medium text-slate-700">
+          <p className="mt-2 text-sm font-normal text-slate-700">
             No ready images found
           </p>
 
@@ -3794,7 +3794,7 @@ export function MediaLibraryPicker({
 
                 {scope === "all" && (
                   <p
-                    className="truncate text-xs font-medium text-slate-600"
+                    className="truncate text-xs font-normal text-slate-600"
                     title={image.sourceWorkspaceName}
                   >
                     {image.sourceWorkspaceName}
