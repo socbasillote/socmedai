@@ -306,7 +306,7 @@ describe.skipIf(!integrationEnabled)(
 
       // Unknown outcomes must not be
       // incorrectly marked as published.
-      expect(persisted?.status).toBe("publishing");
+      expect(persisted?.status).toBe("unknown");
 
       expect(persisted?.publishedAt).toBeUndefined();
 

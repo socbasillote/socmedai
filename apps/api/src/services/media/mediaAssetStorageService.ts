@@ -62,7 +62,7 @@ async function finalizeVerifiedImage(
   image: StoredImage,
 ) {
   try {
-    return await markMediaAssetReady(
+    const ready = await markMediaAssetReady(
       context.authUser,
       context.workspaceId,
       context.assetId,
@@ -74,6 +74,12 @@ async function finalizeVerifiedImage(
         fileSize: image.fileSize,
       },
     );
+    if (ready.source === "uploaded") {
+      // Uploaded assets receive the hash only after storage read-back verification.
+      ready.contentSha256 = image.sha256;
+      await ready.save();
+    }
+    return ready;
   } catch (error) {
     if (error instanceof MediaAssetServiceError && error.statusCode === 409) {
       return resolveCompletionConflict(context, image.storageKey);

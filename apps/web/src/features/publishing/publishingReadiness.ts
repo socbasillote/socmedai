@@ -17,6 +17,7 @@ export type AccountCapability = {
 
 export type PublishingCapabilityContext = {
   accounts: Record<string, AccountCapability | undefined>;
+  serverCapabilities?: Record<string, { publishNow: boolean; schedule: boolean }>;
 };
 
 export type ChecklistItem = {
@@ -291,9 +292,7 @@ export function evaluatePublishingReadiness(
       } else {
         items.push(checkAccount(destination, context));
 
-        const formatSupported =
-          (capability?.formats.includes(destination.format) ?? false) &&
-          (action !== "schedule" || destination.format === "text" || destination.platform === "instagram");
+        const formatSupported = capability?.formats.includes(destination.format) ?? false;
 
         items.push(
           checklist(
@@ -306,8 +305,10 @@ export function evaluatePublishingReadiness(
           ),
         );
 
+        const server = context.serverCapabilities?.[destination.platform];
         const actionSupported =
-          action === "now" ? capability?.publishNow : capability?.schedule;
+          (action === "now" ? capability?.publishNow : capability?.schedule) &&
+          (context.serverCapabilities === undefined || (action === "now" ? server?.publishNow : server?.schedule));
 
         items.push(
           checklist(
@@ -320,7 +321,7 @@ export function evaluatePublishingReadiness(
               ? "Supported by the current Storm integration."
               : action === "now"
                 ? "Publish Now is unavailable for this platform."
-                : "Scheduling is unavailable for this platform.",
+                : "Scheduling is unavailable for this platform on the server.",
           ),
         );
 
@@ -330,15 +331,13 @@ export function evaluatePublishingReadiness(
       }
 
       if (action !== "draft" && content && content.media.length > 0) {
-        const supported = (destination.platform === "instagram" || (action === "now" &&
-          (destination.platform === "facebook" || destination.platform === "linkedin"))) &&
+        const supported = ["instagram", "facebook", "linkedin"].includes(destination.platform) &&
           content.media.length === 1 && content.media[0].type === "image";
         items.push(checklist(
           "media-publishing", "Media publishing support",
           supported ? "added" : "invalid",
           supported ? "One image will be published with your caption." :
-            action === "schedule" ? "Scheduled image publishing is not supported yet." :
-              "Publishing supports one image per Facebook or LinkedIn post.",
+            "Publishing supports one image per post.",
         ));
       }
 

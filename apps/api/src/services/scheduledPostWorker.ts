@@ -1,5 +1,6 @@
 import Post from "../models/Post.js";
 import { randomUUID } from "node:crypto";
+import { getPublishingCapabilities } from "./publishing/publishingCapabilities.js";
 
 const SCHEDULED_LEASE_MS = 15 * 60 * 1000;
 
@@ -17,6 +18,7 @@ export async function claimNextDuePost(now: Date = new Date()) {
   return Post.findOneAndUpdate(
     {
       status: "scheduled",
+      ...(!getPublishingCapabilities().facebook.publishNow ? { $nor: [{ platforms: ["facebook"] }] } : {}),
       scheduledAt: { $lte: now },
 
       // First publishing attempt only.
@@ -29,7 +31,7 @@ export async function claimNextDuePost(now: Date = new Date()) {
             { platforms: ["instagram"], mediaIds: { $size: 1 }, "platformConnections.instagram": { $exists: true, $ne: null } },
             {
               platforms: ["facebook"],
-              mediaIds: { $size: 0 },
+              "mediaIds.1": { $exists: false },
               "platformConnections.facebook": {
                 $exists: true,
                 $ne: null,
@@ -37,7 +39,7 @@ export async function claimNextDuePost(now: Date = new Date()) {
             },
             {
               platforms: ["linkedin"],
-              mediaIds: { $size: 0 },
+              "mediaIds.1": { $exists: false },
               "platformConnections.linkedin": {
                 $exists: true,
                 $ne: null,

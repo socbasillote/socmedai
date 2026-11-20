@@ -95,7 +95,7 @@ the image directly to the selected provider. Images from another workspace you
 own remain supported. Publishing copies are converted to JPEG with a maximum
 4096-pixel edge and a 10 MB size limit; original stored images are preserved.
 
-Scheduled Facebook and LinkedIn posts remain text-only; Instagram schedules require one image. Video and multiple-image publishing are not
+Scheduled Facebook and LinkedIn posts support text or one image; Instagram schedules require one image. Video and multiple-image publishing are not
 supported. Provider requests are not automatically retried when a public post's
 outcome is uncertain.
 
@@ -196,3 +196,15 @@ does not update an already-running Node worker. Expired post-provider leases are
 reported as interrupted, and old pending records without active admissions are
 reported as inactive rather than shown as indefinitely queued. Recovery verifies
 existing stored image checksums and never repeats an uncertain provider call.
+
+
+Publishing availability is exposed through the authenticated `GET /api/posts/capabilities`
+endpoint. The editor blocks execution until these server capabilities are verified.
+Disabled actions are rejected before saving a schedule or consuming an immediate attempt.
+Facebook schedules already in the queue stay queued while Facebook publishing is disabled.
+
+Run `npm test --workspace @storm/api` and `npm test --workspace @storm/web` for the
+standard suites. Run `npm run test:integration --workspace @storm/api` for the opt-in
+MongoDB publishing tests using a disposable local MongoDB instance. This command
+overrides the application database URI and cleans up the temporary instance afterward.
+Real Supabase storage tests remain opt-in and require `RUN_REAL_STORAGE_TESTS=1`.

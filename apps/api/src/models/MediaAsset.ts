@@ -12,7 +12,7 @@ export const MEDIA_ASSET_MIME_TYPES = [
 
 export type MediaAssetMimeType = (typeof MEDIA_ASSET_MIME_TYPES)[number];
 
-export const MEDIA_ASSET_SOURCES = ["ai-generated"] as const;
+export const MEDIA_ASSET_SOURCES = ["ai-generated", "uploaded"] as const;
 
 export const MEDIA_STORAGE_PROVIDERS = ["supabase"] as const;
 

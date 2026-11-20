@@ -104,6 +104,7 @@ export function uploadWorkspaceImageReference(workspaceId: string, file: File, s
 export type GenerateImageCommand = {
   idempotencyKey: string;
   image: {
+    goal?: import("./postGoals").PostGoal;
     prompt: string;
     aspectRatio: ImageAspectRatio;
     branding?: ImageBranding;

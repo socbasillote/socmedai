@@ -10,7 +10,8 @@
     "start:image-worker": "npm run build && node dist/workers/imageGenerationWorkerMain.js",
     "dev:image-worker": "tsx watch src/workers/imageGenerationWorkerMain.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:integration": "node scripts/testIntegration.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",

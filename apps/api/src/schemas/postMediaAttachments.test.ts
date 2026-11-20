@@ -41,11 +41,11 @@ describe("Post media attachment schemas", () => {
     }
   });
 
-  it("rejects scheduled posts containing media", () => {
+  it("rejects scheduled posts containing multiple images", () => {
     const result = createPostSchema.safeParse({
       ...basePost,
       platforms: ["facebook"],
-      mediaIds: [ASSET_A],
+      mediaIds: [ASSET_A, ASSET_B],
       platformConnections: {
         facebook: FACEBOOK_ID,
       },

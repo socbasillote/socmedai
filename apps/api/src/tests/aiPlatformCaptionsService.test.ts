@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, test } from "node:test";
+import { afterEach, test } from "vitest";
 
 // Configure the environment before importing the service.
 process.env.SUPABASE_URL ??= "https://example.supabase.co";

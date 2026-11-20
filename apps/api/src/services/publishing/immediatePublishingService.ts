@@ -1,4 +1,5 @@
 import Post from "../../models/Post.js";
+import { getPublishingCapabilities } from "./publishingCapabilities.js";
 
 import type { AuthenticatedUser } from "../userProfileService.js";
 import { PublishingOrchestrator } from "./publishingOrchestrator.js";
@@ -56,6 +57,8 @@ export async function claimImmediatePost({
       _id: postId,
       workspaceId,
       status: "draft",
+      // Check availability in the atomic claim, before consuming an attempt.
+      ...(!getPublishingCapabilities().facebook.publishNow ? { $nor: [{ platforms: ["facebook"] }] } : {}),
       scheduledClaimId: null,
       // Validate the same persisted caption atomically with the claim so an
       // overlapping draft edit cannot consume an attempt with invalid content.

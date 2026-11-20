@@ -254,3 +254,23 @@ it.each(["now", "schedule"] as const)("allows a verified Instagram image for %s"
  draft = setSharedCaption(draft, "x".repeat(2201));
  expect(evaluatePublishingReadiness(draft, verified, action, new Date("2030-01-01")).ready).toBe(false);
 });
+
+
+it.each([facebook, linkedin])("allows one scheduled image for $platform", (destination) => {
+  const draft = setSharedMedia(draftWith({ ...destination, format: "image" }), [{ assetId: "image-1", type: "image" }]);
+  draft.publishing.scheduledAt = "2099-01-01T00:00:00.000Z";
+  draft.publishing.timezone = "Asia/Manila";
+  expect(evaluatePublishingReadiness(draft, context, "schedule").ready).toBe(true);
+});
+
+it("blocks disabled and unverified server capabilities but still allows drafts", () => {
+  const draft = draftWith(facebook);
+  draft.publishing.scheduledAt = "2099-01-01T00:00:00.000Z";
+  draft.publishing.timezone = "Asia/Manila";
+  for (const serverCapabilities of ([{}, { facebook: { publishNow: false, schedule: false } }] as NonNullable<PublishingCapabilityContext["serverCapabilities"]>[])) {
+    const restricted = { ...context, serverCapabilities };
+    expect(evaluatePublishingReadiness(draft, restricted, "now").ready).toBe(false);
+    expect(evaluatePublishingReadiness(draft, restricted, "schedule").ready).toBe(false);
+    expect(evaluatePublishingReadiness(draft, restricted, "draft").ready).toBe(true);
+  }
+});

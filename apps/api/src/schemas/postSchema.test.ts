@@ -78,6 +78,8 @@ describe("createPostSchema", () => {
   it("accepts a future scheduled time", () => {
     const result = createPostSchema.safeParse({
       ...validPost,
+      platforms: ["facebook"],
+      platformConnections: { facebook: "507f1f77bcf86cd799439012" },
       scheduledAt: "2099-01-01T00:00:00.000Z",
     });
 

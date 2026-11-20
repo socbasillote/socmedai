@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { postGoalCatalog, type PostGoal } from "../services/postGoalCatalog.js";
 
 /**
  * User-facing aspect ratios.
@@ -72,6 +73,7 @@ export const imageBrandingSchema = z.discriminatedUnion("type", [
 
 export const generateImageSchema = z
   .object({
+    goal: z.custom<PostGoal>((value) => typeof value === "string" && Object.hasOwn(postGoalCatalog, value), "Choose a valid post goal.").optional(),
     prompt: z
       .string()
       .trim()
@@ -86,7 +88,9 @@ export const generateImageSchema = z
 
     branding: imageBrandingSchema.default({ type: "none" }),
   })
-  .strict();
+  .strict()
+  .transform(({ goal, ...image }) => ({ ...image, prompt: goal ? `${image.prompt}\nVisual objective: ${postGoalCatalog[goal]}` : image.prompt }))
+  .refine(image => image.prompt.length <= 3000, "The image prompt including its goal must not exceed 3,000 characters.");
 
 export type ImageAspectRatio = z.infer<typeof imageAspectRatioSchema>;
 

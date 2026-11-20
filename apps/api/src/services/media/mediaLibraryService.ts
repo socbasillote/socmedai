@@ -98,7 +98,7 @@ export async function listAuthorizedMediaLibrary({
     },
     createdByUserId: profile._id,
     type: "image",
-    source: "ai-generated",
+    source: { $in: ["ai-generated", "uploaded"] },
     status: "ready",
     storageKey: {
       $type: "string",
@@ -109,14 +109,10 @@ export async function listAuthorizedMediaLibrary({
     height: { $gte: 1 },
     fileSize: { $gte: 1 },
     storageProvider: "supabase",
-    idempotencyKey: {
-      $type: "string",
-      $ne: "",
-    },
-    generationExecution: {
-      $exists: true,
-      $ne: null,
-    },
+    $or: [
+      { source: "uploaded" },
+      { source: "ai-generated", idempotencyKey: { $type: "string", $ne: "" }, generationExecution: { $exists: true, $ne: null } },
+    ],
     contentSha256: /^[a-f0-9]{64}$/,
   })
     .select(
@@ -180,7 +176,7 @@ export async function getAuthorizedMediaLibraryItem(
     _id: assetId,
     createdByUserId: profile._id,
     type: "image",
-    source: "ai-generated",
+    source: { $in: ["ai-generated", "uploaded"] },
     status: "ready",
     storageProvider: "supabase",
     storageKey: {

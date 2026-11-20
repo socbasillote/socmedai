@@ -7,6 +7,7 @@ type PostEditorPageProps = {
   children: ReactNode;
   sidebar?: ReactNode;
   preview?: ReactNode;
+  headerActions?: ReactNode;
 };
 
 export function PostEditorPage({
@@ -15,6 +16,7 @@ export function PostEditorPage({
   children,
   sidebar,
   preview,
+  headerActions,
 }: PostEditorPageProps) {
   return (
     <div className="space-y-6">
@@ -28,9 +30,12 @@ export function PostEditorPage({
           Back to Posts
         </button>
 
+        <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold text-slate-900">
-          {mode === "create" ? "Create a post" : "Edit Post"}
+          {mode === "create" ? "Create Post" : "Edit Post"}
         </h1>
+        {headerActions}
+        </div>
 
         <p className="mt-1 text-sm text-slate-500">
           {mode === "create"

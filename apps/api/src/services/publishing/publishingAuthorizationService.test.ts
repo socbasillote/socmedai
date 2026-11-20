@@ -168,7 +168,7 @@ describe("authorizePublishing", () => {
     });
   });
 
-  it("rejects a post not configured for LinkedIn", async () => {
+  it("rejects a post with multiple platforms", async () => {
     mockPost({
       _id: "post-123",
       workspaceId: "workspace-123",
@@ -177,7 +177,7 @@ describe("authorizePublishing", () => {
 
     await expect(authorizePublishing(input)).rejects.toMatchObject({
       statusCode: 409,
-      message: "This post is not configured for LinkedIn publishing.",
+      message: "Immediate publishing requires exactly one platform.",
     });
   });
 

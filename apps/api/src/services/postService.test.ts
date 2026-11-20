@@ -13,7 +13,17 @@ const mocks = vi.hoisted(() => ({
   postCountDocuments: vi.fn(),
   validateLinkedInSelection: vi.fn(),
   facebookFindOne: vi.fn(),
+  validateMedia: vi.fn(),
 }));
+
+vi.mock("./media/validateDraftMediaAttachments.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./media/validateDraftMediaAttachments.js")>(),
+  validateDraftMediaAttachments: mocks.validateMedia,
+}));
+import { DraftMediaAttachmentError } from "./media/validateDraftMediaAttachments.js";
+beforeEach(() => {
+  mocks.validateMedia.mockImplementation(async ({ mediaIds }: { mediaIds: string[] }) => [...mediaIds]);
+});
 
 vi.mock("../models/UserProfile.js", () => ({
   default: {
@@ -137,11 +147,13 @@ describe("postService", () => {
       }));
 
       const scheduledAt = "2099-01-01T00:00:00.000Z";
+      mocks.facebookFindOne.mockReturnValue({ select: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue({ _id: linkedinConnectionId, status: "connected", tasks: ["CREATE_CONTENT"] }) }) });
 
       const result = await createWorkspacePost(authUser, {
         workspaceId,
         caption: "Scheduled campaign",
-        platforms: ["instagram"],
+        platforms: ["facebook"],
+        platformConnections: { facebook: linkedinConnectionId },
         mediaIds: [],
         scheduledAt,
       });
@@ -211,8 +223,9 @@ describe("postService", () => {
       expect(mocks.postCreate).not.toHaveBeenCalled();
     });
 
-    it("rejects media attachments until media support exists", async () => {
+    it("rejects unavailable media attachments", async () => {
       mockAuthorizedWorkspace();
+      mocks.validateMedia.mockRejectedValue(new DraftMediaAttachmentError("Image unavailable.", 400));
 
       await expect(
         createWorkspacePost(authUser, {
@@ -898,6 +911,7 @@ describe("updateWorkspaceDraft", () => {
         },
         $unset: {
           "platformConnections.facebook": "",
+          "platformConnections.instagram": "",
         },
         $inc: {
           __v: 1,
@@ -928,6 +942,7 @@ describe("updateWorkspaceDraft", () => {
         },
         $unset: {
           "platformConnections.linkedin": "",
+          "platformConnections.instagram": "",
         },
         $inc: {
           __v: 1,
@@ -955,6 +970,7 @@ describe("updateWorkspaceDraft", () => {
         },
         $unset: {
           "platformConnections.facebook": "",
+          "platformConnections.instagram": "",
         },
         $inc: {
           __v: 1,

@@ -145,9 +145,10 @@ describe("Publishing factory and orchestrator integration", () => {
         status: "simulated",
         attemptCount: 1,
       }),
+      undefined,
     );
 
-    expect(mocks.reconcile).toHaveBeenCalledWith(postId);
+    expect(mocks.reconcile).toHaveBeenCalledWith(postId, undefined);
   });
 
   it("keeps Facebook publishing disabled", async () => {
@@ -173,10 +174,11 @@ describe("Publishing factory and orchestrator integration", () => {
         status: "failed",
         attemptCount: 1,
       }),
+      undefined,
     );
   });
 
-  it("keeps Instagram publishing disabled", async () => {
+  it("rejects Instagram without a selected account", async () => {
     const orchestrator = createOrchestrator();
 
     const result = await orchestrator.processPost(createPost("instagram"));
@@ -186,7 +188,7 @@ describe("Publishing factory and orchestrator integration", () => {
         outcome: "failed",
         postId,
         platform: "instagram",
-        message: "Publishing is not configured for instagram.",
+        message: "No Instagram account was selected for this post.",
       },
     ]);
 
@@ -198,6 +200,7 @@ describe("Publishing factory and orchestrator integration", () => {
         platform: "instagram",
         status: "failed",
       }),
+      undefined,
     );
   });
 
@@ -229,6 +232,7 @@ describe("Publishing factory and orchestrator integration", () => {
         platform: "linkedin",
         status: "failed",
       }),
+      undefined,
     );
   });
 
@@ -258,6 +262,7 @@ describe("Publishing factory and orchestrator integration", () => {
         platform: "linkedin",
         status: "unknown",
       }),
+      undefined,
     );
   });
 
@@ -277,6 +282,6 @@ describe("Publishing factory and orchestrator integration", () => {
 
     expect(mocks.update).not.toHaveBeenCalled();
 
-    expect(mocks.reconcile).toHaveBeenCalledWith(postId);
+    expect(mocks.reconcile).toHaveBeenCalledWith(postId, undefined);
   });
 });

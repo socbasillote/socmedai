@@ -139,11 +139,11 @@ export const createPostSchema = z
         }
       }
 
-      if (selectedPlatform !== "instagram" && data.mediaIds.length > 0) {
+      if (data.mediaIds.length > 1) {
         context.addIssue({
           code: "custom",
           path: ["mediaIds"],
-          message: "Scheduled media publishing is not supported yet.",
+          message: "Scheduled publishing supports at most one image.",
         });
       }
     }

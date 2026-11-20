@@ -60,7 +60,7 @@ export function evaluateImageEligibility(
 
   if (
     asset.type !== "image" ||
-    asset.source !== "ai-generated" ||
+    (asset.source !== "ai-generated" && asset.source !== "uploaded") ||
     asset.status !== "ready"
   ) {
     return {
@@ -94,10 +94,12 @@ export function evaluateImageEligibility(
   }
 
   if (
-    typeof asset.idempotencyKey !== "string" ||
-    asset.idempotencyKey.trim().length === 0 ||
-    !asset.generationExecution ||
-    typeof asset.generationExecution !== "object" ||
+    (asset.source === "ai-generated" && (
+      typeof asset.idempotencyKey !== "string" ||
+      asset.idempotencyKey.trim().length === 0 ||
+      !asset.generationExecution ||
+      typeof asset.generationExecution !== "object"
+    )) ||
     typeof asset.contentSha256 !== "string" ||
     !SHA256_PATTERN.test(asset.contentSha256)
   ) {

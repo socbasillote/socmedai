@@ -75,6 +75,7 @@ export async function createPendingMediaAsset(
   generation: {
     provider: string;
     model: string;
+    source?: "ai-generated" | "uploaded";
   },
 ) {
   const authorized = await authorizeWorkspace(authUser, workspaceId);
@@ -84,7 +85,7 @@ export async function createPendingMediaAsset(
     createdByUserId: authorized.profileId,
 
     type: "image",
-    source: "ai-generated",
+    source: generation.source ?? "ai-generated",
     status: "pending",
 
     storageProvider: "supabase",

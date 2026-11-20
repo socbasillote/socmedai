@@ -79,6 +79,7 @@ const claimedPost = {
   caption: "Untrusted orchestration snapshot",
   mediaIds: [],
   platforms: ["facebook" as const],
+  platformConnections: { facebook: CONNECTION_ID },
 };
 
 // The adapter must load the persisted post rather
@@ -257,6 +258,7 @@ describe("Facebook adapter and orchestrator integration", () => {
         attemptCount: 1,
         publishedAt: expect.any(Date),
       }),
+      undefined,
     );
 
     expect(result.results).toHaveLength(1);
@@ -369,6 +371,7 @@ describe("Facebook adapter and orchestrator integration", () => {
         status: "unknown",
         attemptCount: 1,
       }),
+      undefined,
     );
 
     expect(fetchMock).not.toHaveBeenCalled();

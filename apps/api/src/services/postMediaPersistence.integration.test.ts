@@ -1,7 +1,16 @@
+import FacebookConnection from "../models/FacebookConnection.js";
+import LinkedInConnection from "../models/LinkedInConnection.js";
+import { createPostSchema } from "../schemas/postSchema.js";
+import { claimNextDuePost } from "./scheduledPostWorker.js";
+import { claimImmediatePost } from "./publishing/immediatePublishingService.js";
+import { dispatchScheduledPost } from "./publishing/scheduledPublishingDispatcher.js";
+import { ScheduledLeaseSignal } from "./publishing/scheduledPublishingHeartbeat.js";
+import { FacebookPublishingAdapter } from "./publishing/facebookPublishingAdapter.js";
+import { LinkedInPublishingAdapter } from "./publishing/linkedinPublishingAdapter.js";
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import UserProfile from "../models/UserProfile.js";
 import Workspace from "../models/Workspace.js";
@@ -130,10 +139,16 @@ describe("Post media persistence integration", () => {
     });
   }, 60000);
 
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
+
   beforeEach(async () => {
+    vi.stubEnv("FACEBOOK_PUBLISHING_ENABLED", "true");
+    vi.stubEnv("SCHEDULED_PUBLISHING_ENABLED", "true");
     // These deletes affect only MongoMemoryServer.
     await Promise.all([
       Post.deleteMany({}),
+      FacebookConnection.deleteMany({}),
+      LinkedInConnection.deleteMany({}),
       MediaAsset.deleteMany({}),
       Workspace.deleteMany({}),
       UserProfile.deleteMany({}),
@@ -272,7 +287,7 @@ describe("Post media persistence integration", () => {
     expect(persisted?.__v).toBe(originalVersion + 1);
   });
 
-  it("does not allow scheduled posts containing media", async () => {
+  it("rejects scheduled image posts without an authorized Page", async () => {
     await expect(
       createWorkspacePost(authUser, {
         workspaceId: oid(ids.workspaceB),
@@ -286,9 +301,53 @@ describe("Post media persistence integration", () => {
         scheduledAt: "2035-01-01T12:00:00.000Z",
       }),
     ).rejects.toMatchObject({
-      statusCode: 400,
+      statusCode: 404,
     });
 
     expect(await Post.countDocuments()).toBe(0);
   });
+
+  it.each(["facebook", "linkedin"] as const)("saves, claims, and dispatches a scheduled %s image exactly once", async (platform) => {
+    const connectionId = new mongoose.Types.ObjectId();
+    if (platform === "facebook") {
+      await FacebookConnection.collection.insertOne({ _id: connectionId, workspaceId: ids.workspaceB, status: "connected", tasks: ["CREATE_CONTENT"] });
+    } else {
+      await LinkedInConnection.collection.insertOne({ _id: connectionId, workspaceId: ids.workspaceB, status: "connected", scopes: ["w_member_social"], tokenExpiresAt: new Date(Date.now() + 86400000) });
+    }
+    const scheduledAt = new Date(Date.now() + 60000).toISOString();
+    const input = createPostSchema.parse({ workspaceId: oid(ids.workspaceB), caption: "Scheduled image", platforms: [platform], mediaIds: [oid(ids.imageB)], platformConnections: { [platform]: String(connectionId) }, scheduledAt });
+    const post = await createWorkspacePost(authUser, input);
+    await Post.updateOne({ _id: post._id }, { $set: { scheduledAt: new Date(Date.now() - 1000) } });
+    const claimed = await claimNextDuePost();
+    expect(String(claimed?._id)).toBe(String(post._id));
+    expect(await claimNextDuePost()).toBeNull();
+    const adapter = platform === "facebook" ? FacebookPublishingAdapter.prototype : LinkedInPublishingAdapter.prototype;
+    const publish = vi.spyOn(adapter, "publish").mockImplementation(async (request) => {
+      request.lease?.assertOwnership();
+      return { outcome: "published", postId: request.postId, platform, externalPostId: "test-external-post", publishedAt: new Date() };
+    });
+    await dispatchScheduledPost(String(post._id), new ScheduledLeaseSignal());
+    expect(publish).toHaveBeenCalledOnce();
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ platform, mediaIds: [oid(ids.imageB)], connectionId: String(connectionId), lease: expect.any(ScheduledLeaseSignal) }));
+    const stored = await Post.findById(post._id).lean();
+    expect(stored?.status).toBe("published");
+    expect(stored?.platformResults[0].externalPostId).toBe("test-external-post");
+  });
+
+  it("rejects scheduling when the worker is disabled without saving a queued post", async () => {
+    vi.stubEnv("SCHEDULED_PUBLISHING_ENABLED", "false");
+    await expect(createWorkspacePost(authUser, { workspaceId: oid(ids.workspaceB), caption: "Disabled schedule", platforms: ["facebook"], mediaIds: [], scheduledAt: new Date(Date.now() + 60000).toISOString() })).rejects.toMatchObject({ statusCode: 409 });
+    expect(await Post.countDocuments()).toBe(0);
+  });
+
+  it("leaves Facebook drafts and schedules untouched when Facebook publishing is disabled", async () => {
+    vi.stubEnv("FACEBOOK_PUBLISHING_ENABLED", "false");
+    const post = await Post.create({ workspaceId: ids.workspaceB, createdByUserId: ids.owner, caption: "Disabled Facebook", platforms: ["facebook"], mediaIds: [], platformConnections: { facebook: ids.imageB }, status: "draft" });
+    await expect(claimImmediatePost({ authUser, workspaceId: oid(ids.workspaceB), postId: String(post._id) })).rejects.toMatchObject({ statusCode: 409 });
+    expect((await Post.findById(post._id))?.attemptCount).toBe(0);
+    await Post.updateOne({ _id: post._id }, { $set: { status: "scheduled", scheduledAt: new Date(Date.now() - 1000) } });
+    expect(await claimNextDuePost()).toBeNull();
+    expect((await Post.findById(post._id))?.status).toBe("scheduled");
+  });
+
 });

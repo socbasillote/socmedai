@@ -1,5 +1,6 @@
+import { vi } from "vitest";
 import assert from "node:assert/strict";
-import { beforeEach, after, before, test } from "node:test";
+import { beforeEach, afterAll, beforeAll, test } from "vitest";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
@@ -37,12 +38,14 @@ beforeEach(async () => {
   await Post.deleteMany({});
 });
 
-before(async () => {
+beforeAll(async () => {
+  vi.stubEnv("FACEBOOK_PUBLISHING_ENABLED", "true");
   mongo = await MongoMemoryServer.create();
   await mongoose.connect(mongo.getUri());
 });
 
-after(async () => {
+afterAll(async () => {
+  vi.unstubAllEnvs();
   await mongoose.disconnect();
   await mongo?.stop();
 });

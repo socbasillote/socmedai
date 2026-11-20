@@ -46,7 +46,7 @@ it("shows dated drafts, platform icons, times, status shapes, and accurate total
   expect(draft).toHaveClass("border-dashed", "border-amber-500");
   expect(within(draft).getByLabelText("LinkedIn")).toBeInTheDocument();
   expect(draft.querySelector("time")?.textContent).toBeTruthy();
-  expect(screen.getByRole("button", { name: /View published post: Published post/ })).toHaveClass("bg-emerald-700");
+  expect(screen.getByRole("button", { name: /View published post: Published post/ })).toHaveClass("bg-emerald-50", "text-emerald-700");
   expect(screen.getByRole("button", { name: /View scheduled post: Scheduled post/ })).toHaveClass("border-l-4");
 });
 

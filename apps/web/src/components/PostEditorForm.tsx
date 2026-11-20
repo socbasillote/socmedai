@@ -596,7 +596,7 @@ export function PostEditorForm({
 
         <p className="text-xs leading-5 text-slate-500">
           Publish one image with your caption to Facebook or LinkedIn, or save
-          it with a draft. Scheduled image publishing is not supported yet.
+          it with a draft, publish now, or schedule it with your caption.
         </p>
       </section>
 

@@ -2,6 +2,7 @@ import { validateInstagramSelection, InstagramConnectionError } from "./instagra
 import PublishingAttemptEvidence from "../models/PublishingAttemptEvidence.js";
 import LinkedInConnection from "../models/LinkedInConnection.js";
 import mongoose from "mongoose";
+import { publishingUnavailableReason } from "./publishing/publishingCapabilities.js";
 import { schedulingRuleError } from "../schemas/workspaceSettingsSchema.js";
 
 import Post from "../models/Post.js";
@@ -200,6 +201,12 @@ export async function createWorkspacePost(
 
   // Validate scheduled publishing separately from drafts.
   const isScheduled = input.scheduledAt !== undefined;
+  if (isScheduled) {
+    for (const platform of input.platforms) {
+      const reason = publishingUnavailableReason(platform, "schedule");
+      if (reason) throw new PostServiceError(reason, 409);
+    }
+  }
 
   const scheduledAt = isScheduled ? new Date(input.scheduledAt!) : undefined;
 
@@ -257,10 +264,10 @@ export async function createWorkspacePost(
     }
   }
 
-  // Scheduled Instagram posts require one image; other scheduled platforms remain text-only.
-  if (isScheduled && input.platforms[0] !== "instagram" && input.mediaIds.length > 0) {
+  // Each scheduled destination supports at most one authorized image.
+  if (isScheduled && input.mediaIds.length > 1) {
     throw new PostServiceError(
-      "Scheduled media publishing is not supported yet.",
+      "Scheduled publishing supports at most one image.",
       400,
     );
   }
@@ -781,12 +788,16 @@ export async function changeWorkspaceSchedule(authUser: AuthenticatedUser, postI
   if (!existing) throw new PostServiceError("Post not found.", 404);
   const workspaceId = String(existing.workspaceId);
   if (scheduledAt) {
+    for (const platform of existing.platforms) {
+      const reason = publishingUnavailableReason(platform, "schedule");
+      if (reason) throw new PostServiceError(reason, 409);
+    }
     const workspace = await Workspace.findOne({ _id: workspaceId }).select("settings").lean();
     const ruleError = schedulingRuleError(workspace?.settings ?? {}, scheduledAt);
     if (ruleError) throw new PostServiceError(ruleError, 400);
     if (existing.platforms.length !== 1 || !["facebook", "linkedin", "instagram"].includes(existing.platforms[0]) ||
-        (existing.platforms[0] === "instagram" ? existing.mediaIds.length !== 1 : existing.mediaIds.length !== 0)) {
-      throw new PostServiceError("Schedule one Instagram image or one text-only Facebook or LinkedIn destination.", 400);
+        (existing.platforms[0] === "instagram" ? existing.mediaIds.length !== 1 : existing.mediaIds.length > 1)) {
+      throw new PostServiceError("Schedule one destination with at most one image. Instagram requires an image.", 400);
     }
     if (existing.platforms[0] === "instagram") {
       if (!existing.platformConnections?.instagram) throw new PostServiceError("Select an Instagram account before scheduling.", 409);

@@ -149,3 +149,10 @@ describe("Image eligibility", () => {
     });
   });
 });
+it("accepts verified uploads without an AI generation claim and rejects unverified uploads", () => {
+  const asset = { ...makeReadyAsset(), source: "uploaded", idempotencyKey: undefined, generationExecution: undefined };
+  expect(isPreviewReadyImage(asset)).toBe(true);
+  expect(isPreviewReadyImage({ ...asset, contentSha256: undefined })).toBe(false);
+  expect(isPreviewReadyImage({ ...asset, status: "pending" })).toBe(false);
+  expect(isPreviewReadyImage({ ...asset, storageKey: "another/workspace/image.png" })).toBe(false);
+});

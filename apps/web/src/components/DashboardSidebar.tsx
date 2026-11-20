@@ -1,15 +1,11 @@
 import {
   Activity,
-  ArrowRight,
   CalendarDays,
-  CircleHelp,
   FileText,
   Image,
   LayoutDashboard,
   Send,
-  Settings,
   Sparkles,
-  TrendingUp,
   X,
 } from "lucide-react";
 import { Link } from "react-router";

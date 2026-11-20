@@ -13,6 +13,7 @@ export type CaptionLength = "short" | "medium" | "long";
 
 export type GenerateCaptionInput = {
   language?: "en" | "fil" | "es" | "fr" | "de" | "ja" | "ko" | "pt" | "zh";
+  goal?: import("./postGoals").PostGoal;
   brief: string;
   platform: PostPlatform;
   tone: CaptionTone;

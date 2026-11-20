@@ -1,6 +1,8 @@
+import { AIPostFlow } from "./AIPostFlow";
 import { useComposerAutosave } from "@/features/posts/hooks/useComposerAutosave";
 import { readWorkspacePreferences, nextPreferredSchedule, parseZonedInput, zonedInputValue, canApplyWorkspaceDefaults } from "@/lib/workspaceSettings";
 import { useInstagramConnections } from "@/hooks/useInstagramConnections";
+import { usePublishingCapabilities } from "@/hooks/usePublishingCapabilities";
 import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -73,6 +75,8 @@ type PostEditorRouteProps = {
 
 
 export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
+  const [composeMode, setComposeMode] = useState<"Manual" | "AI">("Manual");
+  const serverCapabilities = usePublishingCapabilities();
   const navigate = useNavigate();
 
   const { user } = useAuth();
@@ -143,7 +147,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
   const instagram = useInstagramConnections(
     selectedWorkspaceId ?? "",
-    selectedPlatforms.includes("instagram"),
+    selectedPlatforms.includes("instagram") || composeMode === "AI",
   );
   const [selectedInstagram, setSelectedInstagram] = useState<{
     workspaceId: string;
@@ -448,6 +452,14 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     return null;
   }
 
+  function checkServerAvailability(action: "now" | "schedule") {
+    const available = selectedPlatforms.every((platform) =>
+      action === "now" ? serverCapabilities[platform]?.publishNow : serverCapabilities[platform]?.schedule,
+    );
+    if (!available) setError("Publishing availability could not be verified or this action is disabled on the server. Refresh and try again.");
+    return available;
+  }
+
   async function handleSave() {
     if (saving || showPublishConfirmation) {
       return;
@@ -466,6 +478,8 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       handlePublishReview();
       return;
     }
+
+    if (postMode === "scheduled" && !checkServerAvailability("schedule")) return;
 
     const trimmedTitle = title.trim();
     const trimmedCaption = caption.trim();
@@ -528,16 +542,14 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         return;
       }
 
-      // Scheduled media publishing is not supported yet.
-      // Image attachments can be saved with drafts only.
+      // Scheduled publishing supports one image per destination.
       if (
         postMode === "scheduled" &&
         !selectedPlatforms.includes("instagram") &&
-        mediaState.selectedMediaIds.length > 0
+        mediaState.selectedMediaIds.length > 1
       ) {
         setError(
-          "Scheduled image publishing is not supported yet. " +
-            "Save this post as a draft or remove the image.",
+          "Scheduled publishing supports at most one image per post.",
         );
         return;
       }
@@ -706,6 +718,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   }
 
   async function handleConfirmPublish() {
+    if (!checkServerAvailability("now")) { setShowPublishConfirmation(false); return; }
     if (publishingLockRef.current || publishing || saving) {
       return;
     }
@@ -935,6 +948,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   }
 
   function handlePublishReview() {
+    if (!checkServerAvailability("now")) return;
     if (
       saving ||
       publishing ||
@@ -1075,6 +1089,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
   const accountCapabilities: PublishingCapabilityContext = {
     accounts: {},
+    serverCapabilities,
   };
 
   for (const platform of selectedPlatforms) {
@@ -1295,10 +1310,28 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     />
   );
 
+  const modeToggle = (mode === "create" ? <div className="mb-5 flex justify-end gap-1" role="group" aria-label="Composition mode">{(["Manual", "AI"] as const).map(value => <button type="button" key={value} aria-pressed={composeMode === value} onClick={() => setComposeMode(value)} className={`rounded-xl px-5 py-2 text-sm font-semibold ${composeMode === value ? "bg-violet-600 text-white" : "bg-white text-slate-500"}`}>{value}</button>)}</div> : null);
+
   return (
     <main className="min-h-screen bg-slate-50 p-6 text-slate-900">
       <div className="mx-auto max-w-7xl">
-        <PostEditorPage
+
+        {mode === "create" && composeMode === "AI" ? selectedWorkspaceId ? <AIPostFlow
+          key={contentScope}
+          workspaceId={selectedWorkspaceId}
+          timezone={scheduleTimezone}
+          headerActions={modeToggle}
+          scheduleCapabilities={serverCapabilities}
+          onBack={handleCancel}
+          disabled={Boolean(selectedWorkspace?.archivedAt)}
+          connections={{ facebook: selectedFacebookConnectionId ?? undefined, linkedin: linkedInConnectionId ?? undefined, instagram: selectedInstagramConnectionId ?? undefined }}
+          destinations={<div className="space-y-3">
+            <label className="block text-sm">Facebook Page<select aria-label="AI Facebook Page" className="mt-1 block w-full rounded-xl border border-slate-200 p-2" value={selectedFacebookConnectionId ?? ""} onChange={e => setSelectedFacebookConnectionId(e.target.value || null)}><option value="">Choose a connected Page</option>{facebookConnections.map(c => <option key={c.id} value={c.id}>{c.pageName}</option>)}</select></label>
+            <p className="text-sm text-slate-500">LinkedIn: {linkedInDisplayName || "Connect an account in workspace settings"}</p>
+            <label className="block text-sm">Instagram account<select aria-label="AI Instagram account" className="mt-1 block w-full rounded-xl border border-slate-200 p-2" value={selectedInstagramConnectionId ?? ""} onChange={e => setSelectedInstagram({ workspaceId: selectedWorkspaceId, id: e.target.value || null })}><option value="">Choose an account</option>{instagram.connections.map(c => <option key={c.id} value={c.id}>{c.username}</option>)}</select></label>
+          </div>}
+        /> : <p role="status">Select a workspace to create AI posts.</p> : <PostEditorPage
+          headerActions={modeToggle}
           mode={mode}
           onBack={handleCancel}
           sidebar={
@@ -1486,7 +1519,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
             </p>
           )}
           {editorContent}
-        </PostEditorPage>
+        </PostEditorPage>}
       </div>
 
       {showPublishConfirmation && (

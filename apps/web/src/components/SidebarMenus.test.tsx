@@ -98,15 +98,15 @@ it("opens the account block on mouse hover and touch tap, and dismisses outside"
   await user.pointer([{ keys: "[TouchA>]", target: trigger }, { keys: "[/TouchA]", target: trigger }]);
   expect(screen.getByRole("menu")).toBeInTheDocument();
 });
-it("puts the account after help and routes both workspace-settings entry points identically", async () => {
+it("routes workspace settings and keeps the account after navigation", async () => {
   const user = userEvent.setup();
   render(<MemoryRouter><DashboardSidebar activePage="Overview" mobileMenuOpen={false} onCloseMobileMenu={vi.fn()} onSelectPage={mocks.navigate}
     onNotificationClick={mocks.notifications} workspaceSelectorProps={{ workspaces, selectedWorkspace: workspaces[0], selectedWorkspaceId: "1", workspacesLoading: false, workspaceError: "", workspaceMenuOpen: false, setWorkspaceMenuOpen: vi.fn(), setSelectedWorkspaceId: vi.fn(), storeWorkspaceId: mocks.store, onCreateWorkspace: mocks.create }} /></MemoryRouter>);
   const settings = screen.getAllByRole("button", { name: "Workspace settings" });
-  expect(settings).toHaveLength(2);
+  expect(settings).toHaveLength(1);
   for (const button of settings) await user.click(button);
-  expect(mocks.navigate.mock.calls).toEqual([["Workspace settings"], ["Workspace settings"]]);
-  const help = screen.getByRole("button", { name: "Help and support" });
+  expect(mocks.navigate.mock.calls).toEqual([["Workspace settings"]]);
+  const navigation = screen.getByRole("button", { name: /^Publishing/ });
   const account = screen.getByRole("button", { name: "My account" });
-  expect(help.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(navigation.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });

@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import { requireAuth } from "../auth/requireAuth.js";
+import { getPublishingCapabilities } from "../services/publishing/publishingCapabilities.js";
 import {
   autosaveDraft,
   createPost,
@@ -16,6 +17,9 @@ import {
 const postRoutes = Router();
 
 postRoutes.use(requireAuth);
+postRoutes.get("/capabilities", (_req, res) => {
+  res.set("Cache-Control", "no-store").json({ capabilities: getPublishingCapabilities() });
+});
 
 postRoutes.post("/", createPost);
 postRoutes.put("/autosave", autosaveDraft);

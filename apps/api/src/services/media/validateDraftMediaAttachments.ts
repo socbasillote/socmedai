@@ -112,7 +112,7 @@ export async function validateDraftMediaAttachments({
     },
     createdByUserId: profile._id,
     type: "image",
-    source: "ai-generated",
+    source: { $in: ["ai-generated", "uploaded"] },
     status: "ready",
   })
     .select(

@@ -145,10 +145,10 @@ export async function dispatchScheduledPost(
 
     const platform = post.platforms[0];
 
-    // 3. Instagram requires one image; other scheduled platforms remain text-only.
-    if (platform === "instagram" ? post.mediaIds.length !== 1 : post.mediaIds.length > 0) {
+    // 3. Instagram requires one image; other platforms support text or one image.
+    if (platform === "instagram" ? post.mediaIds.length !== 1 : post.mediaIds.length > 1) {
       throw new ScheduledPublishingError(
-        "Schedule one Instagram image or a text-only Facebook or LinkedIn post.",
+        "Schedule one destination with at most one image. Instagram requires an image.",
       );
     }
 

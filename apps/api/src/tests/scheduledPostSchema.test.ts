@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 
 import { createPostSchema } from "../schemas/postSchema.js";
 
@@ -95,14 +95,14 @@ test("scheduled publishing rejects multiple platforms", () => {
   );
 });
 
-test("scheduled publishing rejects unsupported Instagram", () => {
+test("scheduled Instagram requires one image and a connected account", () => {
   expectRejected(
     {
       ...validFacebookSchedule(),
       platforms: ["instagram"],
       platformConnections: {},
     },
-    "platforms",
+    "mediaIds",
   );
 });
 
@@ -136,11 +136,11 @@ test("scheduled publishing rejects empty captions", () => {
   );
 });
 
-test("scheduled publishing rejects media attachments", () => {
+test("scheduled publishing rejects multiple media attachments", () => {
   expectRejected(
     {
       ...validFacebookSchedule(),
-      mediaIds: [mediaId],
+      mediaIds: [mediaId, "507f1f77bcf86cd799439014"],
     },
     "mediaIds",
   );

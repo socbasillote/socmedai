@@ -54,7 +54,7 @@ describe.skipIf(!integrationEnabled)(
         createdByUserId: new mongoose.Types.ObjectId(),
         caption: "Integration test post",
         platforms: ["facebook", "instagram"],
-        status: "draft",
+        status: "publishing",
       });
 
       postId = post._id;

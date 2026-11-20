@@ -112,7 +112,7 @@ describe.skipIf(!integrationEnabled)(
       ).toBe("published");
     });
 
-    it("preserves publishing status when a platform outcome is unknown", async () => {
+    it("records unknown status when a platform outcome is unknown", async () => {
       await Post.updateOne(
         { _id: postId },
         {
@@ -127,7 +127,7 @@ describe.skipIf(!integrationEnabled)(
 
       const persisted = await Post.findById(postId).lean();
 
-      expect(persisted?.status).toBe("publishing");
+      expect(persisted?.status).toBe("unknown");
       expect(persisted?.publishedAt).toBeUndefined();
     });
 
@@ -146,7 +146,7 @@ describe.skipIf(!integrationEnabled)(
 
       const persisted = await Post.findById(postId).lean();
 
-      expect(persisted?.status).toBe("publishing");
+      expect(persisted?.status).toBe("unknown");
       expect(persisted?.platformResults[1]?.status).toBe("unknown");
       expect(persisted?.platformResults[1]?.lastError).toBe(
         "Concurrent update",

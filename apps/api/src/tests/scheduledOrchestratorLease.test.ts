@@ -1,5 +1,6 @@
+import { vi } from "vitest";
 import assert from "node:assert/strict";
-import { before, after, beforeEach, test } from "node:test";
+import { beforeAll, afterAll, beforeEach, test } from "vitest";
 
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
@@ -21,7 +22,8 @@ import {
 
 let mongo: MongoMemoryServer;
 
-before(async () => {
+beforeAll(async () => {
+  vi.stubEnv("FACEBOOK_PUBLISHING_ENABLED", "true");
   mongo = await MongoMemoryServer.create();
   await mongoose.connect(mongo.getUri());
 });
@@ -30,7 +32,8 @@ beforeEach(async () => {
   await Post.deleteMany({});
 });
 
-after(async () => {
+afterAll(async () => {
+  vi.unstubAllEnvs();
   await mongoose.disconnect();
   await mongo.stop();
 });

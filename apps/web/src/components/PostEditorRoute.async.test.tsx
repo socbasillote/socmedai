@@ -1,3 +1,8 @@
+vi.mock("@/hooks/usePublishingCapabilities", () => ({ usePublishingCapabilities: () => ({
+  facebook: { publishNow: true, schedule: true },
+  linkedin: { publishNow: true, schedule: true },
+  instagram: { publishNow: true, schedule: true },
+}) }));
 import {
   act,
   cleanup,

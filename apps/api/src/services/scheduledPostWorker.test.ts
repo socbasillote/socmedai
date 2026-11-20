@@ -42,8 +42,8 @@ describe("scheduledPostWorker", () => {
     expect(filter.$and).toHaveLength(2);
     expect(filter.$and[1].$or).toEqual(expect.arrayContaining([
       expect.objectContaining({ platforms: ["instagram"], mediaIds: { $size: 1 } }),
-      expect.objectContaining({ platforms: ["facebook"], mediaIds: { $size: 0 } }),
-      expect.objectContaining({ platforms: ["linkedin"], mediaIds: { $size: 0 } }),
+      expect.objectContaining({ platforms: ["facebook"], "mediaIds.1": { $exists: false } }),
+      expect.objectContaining({ platforms: ["linkedin"], "mediaIds.1": { $exists: false } }),
     ]));
     expect(update.$set).toMatchObject({ status: "publishing", claimedAt: now, scheduledClaimId: expect.any(String), scheduledLeaseExpiresAt: new Date(now.getTime() + 900000) });
     expect(options.sort).toEqual({ scheduledAt: 1, _id: 1 });

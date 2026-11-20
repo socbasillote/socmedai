@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { after, before, beforeEach, test } from "node:test";
+import { afterAll, beforeAll, beforeEach, test } from "vitest";
 
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
@@ -72,7 +72,7 @@ async function expectServiceError(
   );
 }
 
-before(async () => {
+beforeAll(async () => {
   mongo = await MongoMemoryServer.create();
   await mongoose.connect(mongo.getUri());
 });
@@ -121,7 +121,7 @@ beforeEach(async () => {
   });
 });
 
-after(async () => {
+afterAll(async () => {
   await mongoose.disconnect();
   await mongo.stop();
 });
@@ -236,7 +236,7 @@ test("scheduled post rejects a past scheduled date", async () => {
   assert.equal(await Post.countDocuments({}), 0);
 });
 
-test("scheduled post rejects unsupported Instagram", async () => {
+test("scheduled Instagram rejects a missing account and image", async () => {
   const input = validFacebookInput();
 
   await expectServiceError(
@@ -338,14 +338,14 @@ test("scheduled publishing rejects whitespace-only captions", async () => {
   assert.equal(await Post.countDocuments({}), 0);
 });
 
-test("scheduled publishing rejects media attachments until supported", async () => {
+test("scheduled publishing rejects multiple image attachments", async () => {
   const input = validFacebookInput();
 
   await expectServiceError(
     () =>
       createWorkspacePost(authUser, {
         ...input,
-        mediaIds: [String(new mongoose.Types.ObjectId())],
+        mediaIds: [String(new mongoose.Types.ObjectId()), String(new mongoose.Types.ObjectId())],
       }),
     400,
   );
