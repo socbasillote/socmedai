@@ -36,6 +36,8 @@ export function useDashboardWorkspace(setNotice: NoticeHandler) {
     workspacesLoading,
     workspaceError,
     addWorkspace,
+    replaceWorkspace,
+    removeWorkspace,
   } = useWorkspaces();
 
   // Existing workspace selector menu.
@@ -81,6 +83,8 @@ export function useDashboardWorkspace(setNotice: NoticeHandler) {
     workspacesLoading,
     workspaceError,
     selectedWorkspace,
+    replaceWorkspace,
+    removeWorkspace,
 
     // Workspace selector menu.
     workspaceMenuOpen,

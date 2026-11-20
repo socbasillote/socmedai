@@ -7,6 +7,7 @@ type Props = {
   postMode: PostMode;
   scheduledAt: string;
   minScheduledAt: string;
+  timezone?: string;
   saving: boolean;
   locked: boolean;
   readiness: PublishingReadiness;
@@ -31,6 +32,7 @@ export function PublishingControls({
   postMode,
   scheduledAt,
   minScheduledAt,
+  timezone,
   saving,
   locked,
   readiness,
@@ -150,7 +152,7 @@ export function PublishingControls({
 
           <p className="text-xs text-slate-500">
             Time zone:{" "}
-            {Intl.DateTimeFormat().resolvedOptions().timeZone || "Local time"}.
+            {timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Local time"}.
           </p>
         </div>
       )}

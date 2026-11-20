@@ -12,6 +12,7 @@ export type CaptionTone =
 export type CaptionLength = "short" | "medium" | "long";
 
 export type GenerateCaptionInput = {
+  language?: "en" | "fil" | "es" | "fr" | "de" | "ja" | "ko" | "pt" | "zh";
   brief: string;
   platform: PostPlatform;
   tone: CaptionTone;

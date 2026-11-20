@@ -60,6 +60,7 @@ const variationDescriptions: Record<CaptionVariationStyle, string> = {
 };
 
 type ContentStudioProps = {
+  defaultLanguage?: string;
   selectedWorkspaceId: string;
 
   linkedInConnectionId: string | null;
@@ -98,6 +99,7 @@ const emptySavedPlatformDrafts = (): SavedPlatformDrafts => ({
 });
 
 export function ContentStudio({
+  defaultLanguage = "en",
   selectedWorkspaceId,
   linkedInConnectionId,
   linkedInDisplayName,
@@ -107,6 +109,7 @@ export function ContentStudio({
   const [brief, setBrief] = useState("");
   const [platform, setPlatform] = useState<PostPlatform>("instagram");
   const [tone, setTone] = useState<CaptionTone>("friendly");
+  const [language, setLanguage] = useState(defaultLanguage);
   const [audience, setAudience] = useState("");
   const [callToAction, setCallToAction] = useState("");
   const [length, setLength] = useState<CaptionLength>("medium");
@@ -208,6 +211,7 @@ export function ContentStudio({
 
     try {
       const result = await generateCaption({
+        language: language as import("@/lib/aiContent").GenerateCaptionInput["language"],
         brief: brief.trim(),
         platform,
         tone,
@@ -249,6 +253,7 @@ export function ContentStudio({
 
     try {
       const result = await generateCaptionVariations({
+        language: language as import("@/lib/aiContent").GenerateCaptionInput["language"],
         brief: brief.trim(),
         platform,
         tone,
@@ -311,6 +316,7 @@ export function ContentStudio({
 
     try {
       const result = await generatePlatformCaptions({
+        language: language as import("@/lib/aiContent").GenerateCaptionInput["language"],
         brief: brief.trim(),
         tone,
         audience: audience.trim() || "General audience",
@@ -904,6 +910,7 @@ export function ContentStudio({
               )}
             </div>
           )}
+          <label className="block text-sm text-slate-700">Content language<select className="mt-2 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm" value={language} onChange={(event) => { setLanguage(event.target.value); clearCaptionVariations(); clearPlatformCaptions(); }}>{Object.entries({ en: "English", fil: "Filipino", es: "Spanish", fr: "French", de: "German", ja: "Japanese", ko: "Korean", pt: "Portuguese", zh: "Chinese" }).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <div>
             <label
               htmlFor="studio-tone"

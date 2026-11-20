@@ -111,7 +111,7 @@ export function DashboardSidebar({
             );
           })}
 
-          <div className="!mt-4 border-t border-white/10 pt-4">
+          {/* <div className="!mt-4 border-t border-white/10 pt-4">
             <p className="px-2 pb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">
               Manage
             </p>
@@ -127,23 +127,11 @@ export function DashboardSidebar({
               <TrendingUp size={19} />
               Analytics
             </button>
-
-            <button
-              onClick={() => onSelectPage("Workspace settings")}
-              className={`flex min-h-11 w-full items-center gap-2 rounded-xl px-2 py-2 text-sm font-normal ${
-                activePage === "Workspace settings"
-                  ? "bg-violet-500/15 text-violet-300"
-                  : "text-slate-300 hover:bg-white/5 hover:text-white"
-              }`}
-            >
-              <Settings size={19} />
-              Workspace settings
-            </button>
-          </div>
+          </div> */}
         </nav>
 
         <div className="shrink-0 p-3">
-          <button
+          {/* <button
             onClick={() => onSelectPage("Content studio")}
             className="flex min-h-11 w-full items-center gap-3 rounded-xl border border-white/10 bg-violet-500/15 px-2 text-sm font-semibold text-violet-200 hover:bg-violet-500/25"
           >
@@ -155,7 +143,7 @@ export function DashboardSidebar({
           <button className="mt-2 min-h-11 flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm text-slate-300 hover:bg-white/5 hover:text-white">
             <CircleHelp size={18} />
             Help and support
-          </button>
+          </button> */}
           <SidebarAccountMenu
             onSelectPage={onSelectPage}
             onNotificationClick={onNotificationClick}

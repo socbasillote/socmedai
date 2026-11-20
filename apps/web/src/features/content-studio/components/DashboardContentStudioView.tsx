@@ -9,6 +9,7 @@ import { ContentStudio } from "@/components/ContentStudio";
 type ContentStudioProps = ComponentProps<typeof ContentStudio>;
 
 type DashboardContentStudioViewProps = {
+  defaultLanguage?: string;
   selectedWorkspaceId: ContentStudioProps["selectedWorkspaceId"];
 
   linkedInConnectionId: ContentStudioProps["linkedInConnectionId"];
@@ -35,6 +36,7 @@ type DashboardContentStudioViewProps = {
  * - Own workspace selection.
  */
 export function DashboardContentStudioView({
+  defaultLanguage,
   selectedWorkspaceId,
   linkedInConnectionId,
   linkedInDisplayName,
@@ -43,6 +45,7 @@ export function DashboardContentStudioView({
 }: DashboardContentStudioViewProps) {
   return (
     <ContentStudio
+      defaultLanguage={defaultLanguage}
       selectedWorkspaceId={selectedWorkspaceId}
       linkedInConnectionId={linkedInConnectionId}
       linkedInDisplayName={linkedInDisplayName}

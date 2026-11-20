@@ -1,4 +1,5 @@
 import express, { Router } from "express";
+import { workspaceSettings, workspaceLifecycle } from "../controllers/workspaceSettingsController.js";
 
 import { requireAuth } from "../auth/requireAuth.js";
 import {
@@ -20,6 +21,9 @@ workspaceRoutes.use(requireAuth);
 
 workspaceRoutes.get("/", listWorkspaces);
 workspaceRoutes.post("/", createWorkspace);
+workspaceRoutes.get("/:workspaceId/settings", workspaceSettings);
+workspaceRoutes.patch("/:workspaceId/settings", workspaceSettings);
+workspaceRoutes.post("/:workspaceId/lifecycle", workspaceLifecycle);
 
 workspaceRoutes.post(
   "/:workspaceId/logo",

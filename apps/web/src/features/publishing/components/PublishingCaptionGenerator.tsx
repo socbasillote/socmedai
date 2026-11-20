@@ -11,6 +11,7 @@ type Props = {
   disabled: boolean;
   initialBrief: string;
   defaultPlatform: PostPlatform;
+  defaultLanguage?: string;
   hasCaption: boolean;
   onApply: (caption: string) => void;
 };
@@ -24,6 +25,7 @@ export function PublishingCaptionGenerator({
   disabled,
   initialBrief,
   defaultPlatform,
+  defaultLanguage = "en",
   hasCaption,
   onApply,
 }: Props) {
@@ -32,6 +34,7 @@ export function PublishingCaptionGenerator({
   const [brief, setBrief] = useState(initialBrief.slice(0, 3000));
   const [platform, setPlatform] = useState<PostPlatform>(defaultPlatform);
   const [tone, setTone] = useState<CaptionTone>("friendly");
+  const [language, setLanguage] = useState(defaultLanguage);
   const [length, setLength] = useState<CaptionLength>("medium");
   const [audience, setAudience] = useState("");
   const [callToAction, setCallToAction] = useState("");
@@ -62,6 +65,7 @@ export function PublishingCaptionGenerator({
       const caption = await generateCaption({
         brief: normalizedBrief,
         platform,
+        language: language as import("@/lib/aiContent").GenerateCaptionInput["language"],
         tone,
         length,
         audience: audience.trim(),
@@ -135,6 +139,7 @@ export function PublishingCaptionGenerator({
                 className={fieldClass}
               />
             </div>
+            <label className="block text-sm text-slate-700">Content language<select className={fieldClass} value={language} onChange={(e) => setLanguage(e.target.value)}>{Object.entries({ en: "English", fil: "Filipino", es: "Spanish", fr: "French", de: "German", ja: "Japanese", ko: "Korean", pt: "Portuguese", zh: "Chinese" }).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             <div className="grid gap-3 sm:grid-cols-3">
               <div>
                 <label

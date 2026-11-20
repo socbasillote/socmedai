@@ -272,7 +272,7 @@ export function CalendarMonthView({
           aria-busy={loading}
           className="overflow-x-auto rounded-xl border border-slate-200"
         >
-          <div className="min-w-[700px]">
+          <div className="min-w-[700px] ">
             <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
               {WEEKDAYS.map((day) => (
                 <div

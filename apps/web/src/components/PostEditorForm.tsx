@@ -24,6 +24,7 @@ type PostEditorFormProps = {
 
   recoveryOwnerUserId: string | null;
   captionSessionKey?: string;
+  defaultLanguage?: string;
 
   title: string;
   caption: string;
@@ -113,6 +114,7 @@ export function PostEditorForm({
   onMediaRemove,
   recoveryOwnerUserId,
   captionSessionKey = mode,
+  defaultLanguage,
 }: PostEditorFormProps) {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [generatorOpen, setGeneratorOpen] = useState(false);
@@ -380,6 +382,7 @@ export function PostEditorForm({
             disabled={!workspaceId || !recoveryOwnerUserId || saving || locked}
             initialBrief={title}
             defaultPlatform={selectedPlatforms[0] ?? "facebook"}
+            defaultLanguage={defaultLanguage}
             hasCaption={Boolean(caption.trim())}
             onApply={onCaptionChange}
           />

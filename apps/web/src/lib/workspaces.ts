@@ -5,6 +5,7 @@ export type Workspace = {
   name: string;
   ownerUserId: string;
   settings: Record<string, unknown>;
+  archivedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };

@@ -9,6 +9,7 @@ export const generateCaptionSchema = z
       .max(3000, "The brief cannot exceed 3,000 characters."),
 
     platform: z.enum(["facebook", "instagram", "linkedin"]),
+    language: z.enum(["en", "fil", "es", "fr", "de", "ja", "ko", "pt", "zh"]).optional(),
 
     tone: z.enum([
       "professional",

@@ -3,6 +3,42 @@
 Storm is an AI-powered social media management application for creating
 branded content, managing social accounts, and publishing or scheduling posts.
 
+## Workspace settings
+
+Open **Workspace settings** from the workspace selector or sidebar. General
+Settings saves the workspace name, description, IANA timezone, content language,
+and a separate avatar (PNG/JPG/WebP, up to 120 KB, normalized to 128 × 128 WebP).
+The branding logo remains independent.
+
+Social Accounts lists Facebook Pages and the connected LinkedIn account, with
+status, reconnection, and optional default destinations. Unavailable or expired
+connections cannot be saved as defaults. Instagram defaults and approval
+requirements are unavailable in this settings release.
+
+Publishing Preferences supplies defaults for new posts only. Manual selections,
+calendar dates, and existing drafts take precedence. Preferred times suggest the
+next eligible slot; allowed weekdays, minimum notice, and maximum advance are
+validated by the API for new schedules and reschedules. Existing schedules are
+not changed. New-post times use the workspace timezone, including daylight-saving
+transitions; nonexistent local times are rejected. The content-language selector
+starts with the workspace language and remains editable.
+
+The danger zone requires the exact workspace name. Archive preserves content and
+can be reversed in settings. Archive and deletion require no scheduled posts,
+active publishing, or pending image generation. Deletion hides the workspace from
+the app and cannot be reversed through its UI; database records and private media
+are retained. Neither action deletes published social posts or revokes access at
+the provider. No database migration is required for existing workspaces.
+
+Run workspace settings checks from each app directory:
+
+```powershell
+# apps/api
+node ../../node_modules/vitest/vitest.mjs run src/services/workspaceSettings.integration.test.ts
+# apps/web
+node ../../node_modules/vitest/vitest.mjs run src/components/WorkspaceSettingsView.test.tsx src/components/PostEditorRoute.defaults.test.tsx src/lib/workspaceSettings.test.ts
+```
+
 ## Technology stack
 
 - Frontend: React, TypeScript, Vite, Tailwind CSS

@@ -1,4 +1,5 @@
 import { useComposerAutosave } from "@/features/posts/hooks/useComposerAutosave";
+import { readWorkspacePreferences, nextPreferredSchedule, parseZonedInput, zonedInputValue, canApplyWorkspaceDefaults } from "@/lib/workspaceSettings";
 import { useInstagramConnections } from "@/hooks/useInstagramConnections";
 import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -27,9 +28,7 @@ import {
 } from "@/lib/posts";
 
 import {
-  parseLocalScheduleDate,
   toScheduledAtISOString,
-  toLocalDateTimeInputValue,
 } from "@/shared/utils/schedulingDate";
 
 import { getPlannerReturnUrl } from "@/features/content-planner/utils/plannerNavigation";
@@ -72,9 +71,6 @@ type PostEditorRouteProps = {
   postId?: string;
 };
 
-function getLocalDateTime(): string {
-  return toLocalDateTimeInputValue(new Date());
-}
 
 export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   const navigate = useNavigate();
@@ -176,6 +172,23 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     () => plannerScheduledAt ?? "",
   );
 
+  const preferences = readWorkspacePreferences(selectedWorkspace);
+  const scheduleTimezone = preferences.timezone;
+  const [defaultsScope, setDefaultsScope] = useState("");
+  const [explicitChoices, setExplicitChoices] = useState<Record<string, string>>({});
+  function markExplicit(choice: string) {
+    setExplicitChoices((current) => ({ ...current, [choice]: contentScope }));
+  }
+  if (selectedWorkspace && canApplyWorkspaceDefaults(mode, false, defaultsScope === contentScope)) {
+    setDefaultsScope(contentScope);
+    if (explicitChoices.mode !== contentScope) setPostMode(plannerScheduledAt ? "scheduled" : preferences.publishing.defaultPostMode);
+    if (explicitChoices.schedule !== contentScope) {
+      setScheduledAt(plannerScheduledAt ?? nextPreferredSchedule(preferences));
+    }
+    if (explicitChoices.platforms !== contentScope) setSelectedPlatforms([preferences.defaultDestinations.facebook ? "facebook" : preferences.defaultDestinations.linkedin ? "linkedin" : "facebook"]);
+    if (explicitChoices.facebook !== contentScope) setSelectedFacebookConnectionId(preferences.defaultDestinations.facebook);
+  }
+
   // Existing post loading
   const [loadingPost, setLoadingPost] = useState(mode === "edit");
   const [loadError, setLoadError] = useState("");
@@ -238,11 +251,11 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     setError("");
   }, [mode, selectedWorkspaceId, postId]);
 
-  const autosaveDate = parseLocalScheduleDate(scheduledAt);
+  const autosaveDate = parseZonedInput(scheduledAt, scheduleTimezone);
   const composerAutosave = useComposerAutosave({
     ownerId: recoveryOwnerUserId,
     enabled:
-      mode === "create" && !saving && !publishing && !savedPublishingPostId,
+      mode === "create" && !selectedWorkspace?.archivedAt && !saving && !publishing && !savedPublishingPostId,
     content: {
       workspaceId: selectedWorkspaceId ?? "",
       title,
@@ -253,7 +266,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     },
   });
 
-  const minScheduledAt = getLocalDateTime();
+  const minScheduledAt = zonedInputValue(new Date(), scheduleTimezone);
 
   useEffect(() => {
     if (mode !== "edit" || !postId) {
@@ -537,7 +550,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           return;
         }
 
-        const scheduledDate = parseLocalScheduleDate(scheduledAt);
+        const scheduledDate = parseZonedInput(scheduledAt, scheduleTimezone);
 
         if (!scheduledDate) {
           setError("Enter a valid scheduling date and time.");
@@ -1040,7 +1053,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   // Derive checklist data from the existing editor state.
   // Do not replace the current publishing submission flow.
 
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const timezone = scheduleTimezone;
 
   let checklistDraft = createPublishingDraft(
     selectedWorkspaceId ?? "",
@@ -1129,7 +1142,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   }
 
   if (postMode === "scheduled" && scheduledAt) {
-    const parsed = parseLocalScheduleDate(scheduledAt);
+    const parsed = parseZonedInput(scheduledAt, scheduleTimezone);
 
     checklistDraft.publishing.scheduledAt = parsed
       ? toScheduledAtISOString(parsed)
@@ -1170,7 +1183,9 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     );
   }
 
-  const editorContent = loadingPost ? (
+  const editorContent = selectedWorkspace?.archivedAt ? (
+    <p role="alert" className="rounded-xl bg-amber-50 p-6 text-amber-900">This workspace is archived. Restore it in workspace settings before creating or editing posts.</p>
+  ) : loadingPost ? (
     <div
       role="status"
       className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center"
@@ -1197,6 +1212,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   ) : (
     <PostEditorForm
       captionSessionKey={`${mode}:${postId ?? "new"}`}
+      defaultLanguage={preferences.defaultLanguage}
       mode={mode}
       recoveryOwnerUserId={recoveryOwnerUserId}
       locked={savedPublishingPostId !== null}
@@ -1222,14 +1238,17 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         setError("");
       }}
       onPlatformsChange={(platforms) => {
+        markExplicit("platforms");
         setSelectedPlatforms(platforms);
         setError("");
       }}
       onPostModeChange={(value) => {
+        markExplicit("mode");
         setPostMode(value);
         setError("");
       }}
       onScheduledAtChange={(value) => {
+        markExplicit("schedule");
         setScheduledAt(value);
         setError("");
       }}
@@ -1257,6 +1276,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       facebookConnectionsLoading={facebookConnectionsLoading}
       facebookConnectionsError={facebookConnectionsError}
       onFacebookConnectionChange={(connectionId) => {
+        markExplicit("facebook");
         setSelectedFacebookConnectionId(connectionId);
         setError("");
       }}
@@ -1282,23 +1302,26 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           mode={mode}
           onBack={handleCancel}
           sidebar={
-            !loadingPost && !loadError ? (
+            !loadingPost && !loadError && !selectedWorkspace?.archivedAt ? (
               <div className="space-y-5">
                 <PublishingControls
                   editorMode={mode}
                   postMode={postMode}
                   scheduledAt={scheduledAt}
                   minScheduledAt={minScheduledAt}
+                  timezone={scheduleTimezone}
                   saving={saving || publishing}
                   locked={savedPublishingPostId !== null}
                   readiness={readiness}
                   blockers={checklistBlockers}
                   formId="storm-post-editor-form"
                   onPostModeChange={(value) => {
+                    markExplicit("mode");
                     setPostMode(value);
                     setError("");
                   }}
                   onScheduledAtChange={(value) => {
+                    markExplicit("schedule");
                     setScheduledAt(value);
                     setError("");
                   }}
@@ -1322,7 +1345,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
             ) : undefined
           }
           preview={
-            !loadingPost && !loadError ? (
+            !loadingPost && !loadError && !selectedWorkspace?.archivedAt ? (
               <PostPreview
                 title={title}
                 selectedMediaAssetId={selectedMediaAssetId}

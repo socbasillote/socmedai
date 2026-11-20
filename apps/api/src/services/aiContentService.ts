@@ -64,6 +64,7 @@ export async function generateCaption(
     "Return only the caption, without an introduction, explanation, or surrounding quotation marks.",
     "",
     "Campaign brief:",
+    ...(input.language ? [`Default content language: ${input.language}. Honor an explicitly requested language in the brief instead.`] : []),
     input.brief,
   ].join("\n");
 
@@ -309,6 +310,7 @@ export async function generateCaptionVariations(
     }),
     "",
     "Campaign brief:",
+    ...(input.language ? [`Default content language: ${input.language}. Honor an explicitly requested language in the brief instead.`] : []),
     input.brief,
   ].join("\n");
 
@@ -493,6 +495,7 @@ export async function generatePlatformCaptions(
     }),
     "",
     "Campaign brief:",
+    ...(input.language ? [`Default content language: ${input.language}. Honor an explicitly requested language in the brief instead.`] : []),
     input.brief,
   ].join("\n");
 

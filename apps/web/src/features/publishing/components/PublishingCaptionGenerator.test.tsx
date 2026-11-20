@@ -17,11 +17,22 @@ it("generates from the brief and preferences, applying only after explicit revie
   fireEvent.change(screen.getByLabelText("Audience (optional)"), { target: { value: "Coffee lovers" } });
   generate();
   await screen.findByText("Fresh coffee for your morning.");
-  expect(generateCaption).toHaveBeenCalledWith({ brief: props.initialBrief, platform: "linkedin", tone: "professional", length: "short", audience: "Coffee lovers", callToAction: "" });
+  expect(generateCaption).toHaveBeenCalledWith({ brief: props.initialBrief, language: "en", platform: "linkedin", tone: "professional", length: "short", audience: "Coffee lovers", callToAction: "" });
   expect(props.onApply).not.toHaveBeenCalled();
   expect(screen.getByText(/replaces your current caption/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Use this caption" }));
   expect(props.onApply).toHaveBeenCalledWith("Fresh coffee for your morning.");
+});
+
+it("starts in the workspace language and honors an explicit content-language choice", async () => {
+  vi.mocked(generateCaption).mockResolvedValue("Un nuevo café");
+  render(<PublishingCaptionGenerator {...props} defaultLanguage="fil" />);
+  open();
+  expect(screen.getByLabelText("Content language")).toHaveValue("fil");
+  fireEvent.change(screen.getByLabelText("Content language"), { target: { value: "es" } });
+  generate();
+  await screen.findByText("Un nuevo café");
+  expect(generateCaption).toHaveBeenCalledWith(expect.objectContaining({ language: "es" }));
 });
 it("validates the brief before spending a generation attempt", () => {
   render(<PublishingCaptionGenerator {...props} initialBrief="" />);

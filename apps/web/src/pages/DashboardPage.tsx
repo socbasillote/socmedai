@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { useNavigate } from "react-router";
 
 import { UserSettingsView } from "@/components/UserSettingsView";
+const WorkspaceSettingsView = lazy(() => import("@/components/WorkspaceSettingsView").then((module) => ({ default: module.WorkspaceSettingsView })));
 import { PAGE_PATHS } from "@/app/navigation/pagePaths";
 
 import { useFacebookOAuthCallback } from "@/features/connections/facebook/hooks/useFacebookOAuthCallback";
@@ -52,6 +53,8 @@ export default function DashboardPage() {
     workspacesLoading,
     workspaceError,
     selectedWorkspace,
+    replaceWorkspace,
+    removeWorkspace,
 
     // Workspace selector.
     workspaceMenuOpen,
@@ -209,7 +212,11 @@ export default function DashboardPage() {
         )}
 
         <Suspense fallback={<p role="status" className="p-6 text-sm text-slate-500">Loading this view...</p>}>
-        {activePage === "Overview" ? (
+        {activePage === "Workspace settings" ? (
+          selectedWorkspace ? <WorkspaceSettingsView key={selectedWorkspace._id} workspace={selectedWorkspace} onUpdated={replaceWorkspace} onDeleted={removeWorkspace} /> : <p role="status" className="p-6 text-slate-500">{workspacesLoading ? "Loading workspace settings…" : "Create or select a workspace to manage its settings."}</p>
+        ) : selectedWorkspace?.archivedAt && activePage !== "User settings" && activePage !== "Profile" ? (
+          <div className="rounded-2xl border border-amber-200 bg-white p-8"><h1 className="text-xl font-bold">This workspace is archived</h1><p className="mt-2 text-slate-600">Your content is preserved. Restore this workspace in settings to continue.</p><button type="button" className="mt-4 min-h-11 rounded-xl bg-violet-600 px-5 text-white" onClick={() => selectPage("Workspace settings")}>Open workspace settings</button></div>
+        ) : activePage === "Overview" ? (
           <DashboardOverviewView
             posts={posts}
             onCreatePost={handleOpenPostEditor}
@@ -221,6 +228,8 @@ export default function DashboardPage() {
           />
         ) : activePage === "Content studio" ? (
           <DashboardContentStudioView
+            key={selectedWorkspaceId}
+            defaultLanguage={typeof selectedWorkspace?.settings.defaultLanguage === "string" ? selectedWorkspace.settings.defaultLanguage : "en"}
             selectedWorkspaceId={selectedWorkspaceId}
             linkedInConnectionId={linkedInConnectionId}
             linkedInDisplayName={linkedInDisplayName}

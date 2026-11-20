@@ -19,7 +19,8 @@ export async function listUserWorkspaces(authUser: AuthenticatedUser) {
   return Workspace.find({
     ownerUserId: profile._id,
   })
-    .select("_id name ownerUserId settings createdAt updatedAt")
+    .setOptions({ includeArchivedWorkspaces: true })
+    .select("_id name ownerUserId settings archivedAt createdAt updatedAt")
     .sort({ updatedAt: -1 })
     .lean();
 }

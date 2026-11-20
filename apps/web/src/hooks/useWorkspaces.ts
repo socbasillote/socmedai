@@ -68,6 +68,20 @@ export function useWorkspaces() {
     setWorkspaces((current) => [workspace, ...current]);
   }
 
+  function replaceWorkspace(workspace: Workspace) {
+    setWorkspaces((current) => current.map((item) => item._id === workspace._id ? workspace : item));
+  }
+
+  function removeWorkspace(id: string) {
+    setWorkspaces((current) => current.filter((item) => item._id !== id));
+    setSelectedWorkspaceId((currentId) => {
+      if (currentId !== id) return currentId;
+      const nextId = workspaces.find((item) => item._id !== id && !item.archivedAt)?._id ?? "";
+      if (nextId) storeWorkspaceId(nextId); else clearStoredWorkspaceId();
+      return nextId;
+    });
+  }
+
   return {
     workspaces,
     selectedWorkspaceId,
@@ -75,5 +89,7 @@ export function useWorkspaces() {
     workspacesLoading,
     workspaceError,
     addWorkspace,
+    replaceWorkspace,
+    removeWorkspace,
   };
 }

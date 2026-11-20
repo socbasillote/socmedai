@@ -19,6 +19,8 @@ const workspaceSchema = new Schema(
       type: Schema.Types.Mixed,
       default: () => ({}),
     },
+    archivedAt: { type: Date, default: null },
+    deletedAt: { type: Date, default: null },
   },
   {
     timestamps: true,
@@ -27,6 +29,15 @@ const workspaceSchema = new Schema(
 );
 
 workspaceSchema.index({ ownerUserId: 1, updatedAt: -1 });
+
+// Inactive workspaces must never be authorized through ordinary service queries.
+// Settings and lifecycle endpoints explicitly opt into archived records.
+workspaceSchema.pre(/^find/, function () {
+  const query = this as mongoose.Query<unknown, unknown>;
+  const options = query.getOptions();
+  query.where({ deletedAt: null });
+  if (!options.includeArchivedWorkspaces) query.where({ archivedAt: null });
+});
 
 const Workspace =
   mongoose.models.Workspace ?? mongoose.model("Workspace", workspaceSchema);

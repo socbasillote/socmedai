@@ -129,7 +129,8 @@ export function WorkspaceSelector({
       onClick={() => choose(workspace)}
       className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-slate-200 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-400"
     >
-      <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
+      {typeof workspace.settings?.avatar === "string" && workspace.settings.avatar && <img src={workspace.settings.avatar} alt="" className="h-7 w-7 rounded-lg object-cover" />}
+      <span className="min-w-0 flex-1 truncate">{workspace.name}{workspace.archivedAt ? " (Archived)" : ""}</span>
       {workspace._id === selectedWorkspaceId && (
         <Check
           size={18}
@@ -159,7 +160,7 @@ export function WorkspaceSelector({
               aria-hidden="true"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-200 font-bold text-amber-900"
             >
-              {(selectedWorkspace?.name ?? "W").charAt(0).toUpperCase()}
+              {typeof selectedWorkspace?.settings?.avatar === "string" && selectedWorkspace.settings.avatar ? <img src={selectedWorkspace.settings.avatar} alt="" className="h-full w-full rounded-lg object-cover" /> : (selectedWorkspace?.name ?? "W").charAt(0).toUpperCase()}
             </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-semibold text-white">

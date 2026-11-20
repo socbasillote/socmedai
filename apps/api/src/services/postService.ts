@@ -2,6 +2,7 @@ import { validateInstagramSelection, InstagramConnectionError } from "./instagra
 import PublishingAttemptEvidence from "../models/PublishingAttemptEvidence.js";
 import LinkedInConnection from "../models/LinkedInConnection.js";
 import mongoose from "mongoose";
+import { schedulingRuleError } from "../schemas/workspaceSettingsSchema.js";
 
 import Post from "../models/Post.js";
 import FacebookConnection from "../models/FacebookConnection.js";
@@ -76,7 +77,7 @@ async function getAuthorizedWorkspace(
   const workspace = await Workspace.findOne({
     _id: workspaceId,
     ownerUserId: profile._id,
-  }).select("_id");
+  }).select("_id settings");
 
   if (!workspace) {
     return null;
@@ -203,6 +204,8 @@ export async function createWorkspacePost(
   const scheduledAt = isScheduled ? new Date(input.scheduledAt!) : undefined;
 
   if (isScheduled) {
+    const ruleError = schedulingRuleError(authorization.workspace.settings ?? {}, scheduledAt!);
+    if (ruleError) throw new PostServiceError(ruleError, 400);
     const captionLimit = input.platforms.includes("instagram") ? 2200 : input.platforms.includes("linkedin") ? 3000 : 5000;
     if (input.caption.length > captionLimit) throw new PostServiceError(`Caption must not exceed ${captionLimit} characters.`, 400);
     // 1. Require a valid future date.
@@ -778,6 +781,9 @@ export async function changeWorkspaceSchedule(authUser: AuthenticatedUser, postI
   if (!existing) throw new PostServiceError("Post not found.", 404);
   const workspaceId = String(existing.workspaceId);
   if (scheduledAt) {
+    const workspace = await Workspace.findOne({ _id: workspaceId }).select("settings").lean();
+    const ruleError = schedulingRuleError(workspace?.settings ?? {}, scheduledAt);
+    if (ruleError) throw new PostServiceError(ruleError, 400);
     if (existing.platforms.length !== 1 || !["facebook", "linkedin", "instagram"].includes(existing.platforms[0]) ||
         (existing.platforms[0] === "instagram" ? existing.mediaIds.length !== 1 : existing.mediaIds.length !== 0)) {
       throw new PostServiceError("Schedule one Instagram image or one text-only Facebook or LinkedIn destination.", 400);
