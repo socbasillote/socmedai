@@ -1,11 +1,13 @@
+import { createRequire } from "node:module";
 import mongoose from "mongoose";
 import cors from "cors";
 import express, {
   type NextFunction,
   type Request,
+  type RequestHandler,
   type Response,
 } from "express";
-import * as helmet from "helmet";
+import type { HelmetOptions } from "helmet";
 import { rateLimit } from "express-rate-limit";
 
 import { env } from "./config/env.js";
@@ -28,7 +30,11 @@ if (process.env.VERCEL === "1") {
 }
 
 // Security headers.
-app.use(helmet.default());
+// Load Helmet's callable CommonJS export explicitly. This avoids default-export
+// type differences in Vercel while remaining valid in a bundled ESM function.
+const helmet: (options?: HelmetOptions) => RequestHandler =
+  createRequire(import.meta.url)("helmet");
+app.use(helmet());
 
 //Allow requests from the configured frontend origin.
 app.use(
