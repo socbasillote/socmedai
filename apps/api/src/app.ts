@@ -5,8 +5,8 @@ import express, {
   type Request,
   type Response,
 } from "express";
-import rateLimit from "express-rate-limit";
 import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
 
 import { env } from "./config/env.js";
 import { requireAuth } from "./auth/requireAuth.js";
