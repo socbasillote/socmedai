@@ -9,7 +9,7 @@ export const generateCaptionSchema = z
       .min(3, "Enter a topic, product, or campaign brief.")
       .max(3000, "The brief cannot exceed 3,000 characters."),
 
-    goal: z.custom<PostGoal>((value) => typeof value === "string" && Object.hasOwn(postGoalCatalog, value), "Choose a valid post goal.").optional(),
+    goal: z.custom<PostGoal>((value) => typeof value === "string" && Object.prototype.hasOwnProperty.call(postGoalCatalog, value), "Choose a valid post goal.").optional(),
     platform: z.enum(["facebook", "instagram", "linkedin"]),
     language: z.enum(["en", "fil", "es", "fr", "de", "ja", "ko", "pt", "zh"]).optional(),
 

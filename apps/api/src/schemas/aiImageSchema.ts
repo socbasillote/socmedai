@@ -73,7 +73,7 @@ export const imageBrandingSchema = z.discriminatedUnion("type", [
 
 export const generateImageSchema = z
   .object({
-    goal: z.custom<PostGoal>((value) => typeof value === "string" && Object.hasOwn(postGoalCatalog, value), "Choose a valid post goal.").optional(),
+    goal: z.custom<PostGoal>((value) => typeof value === "string" && Object.prototype.hasOwnProperty.call(postGoalCatalog, value), "Choose a valid post goal.").optional(),
     prompt: z
       .string()
       .trim()

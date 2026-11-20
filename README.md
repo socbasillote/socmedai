@@ -3,6 +3,57 @@
 Storm is an AI-powered social media management application for creating
 branded content, managing social accounts, and publishing or scheduling posts.
 
+## API deployment on Vercel
+
+Set the Vercel project Root Directory to `apps/api` (relative to the repository
+containing this package.json), use the Express framework preset, and run
+`npm run build`. Allow the project to access files outside its root directory
+so workspace dependencies and `../../tsconfig.base.json` are available. Use a
+Node.js runtime satisfying the repository's `>=22.14.0` requirement. The API's
+`src/app.ts` default export is the serverless entry; `src/index.ts` remains the
+standalone server entry. No static output directory is needed.
+
+Configure environment variables in Vercel for both Preview and Production;
+the local `.env` file is not a deployment configuration. Set `NODE_ENV=production`,
+`MONGODB_URI` to a reachable hosted database, `WEB_ORIGIN` to the exact frontend
+origin, and `SUPABASE_URL` / `SUPABASE_ANON_KEY` for authentication. Missing
+Supabase settings prevent startup. Leaving MongoDB or WEB_ORIGIN unset falls
+back to localhost, which is unsuitable for deployment. Configure MongoDB network
+access and use a replica set for transaction-backed operations. The serverless
+app reuses its connection within each warm instance and retries failed connects.
+
+For storage, configure `SUPABASE_SERVICE_ROLE_KEY` and the private image bucket
+settings used by the image configuration. Caption generation needs `OPENAI_API_KEY`.
+Social integrations need their client credentials, stable 64-character hexadecimal
+encryption keys, HTTPS callback URLs registered with the provider, and applicable
+feature flags from `.env.example`. Never expose service-role or encryption keys
+in frontend environment variables.
+
+Deployment constraints found during the API audit:
+
+- Scheduled publishing runs a polling loop started only by `src/index.ts`.
+  Run that server on a persistent worker host if schedules are enabled. The
+  Vercel HTTP entry does not start the polling worker.
+- Image generation needs the separate `start:image-worker` process on a
+  persistent host, using the same database and compatible image configuration.
+  Enabling image HTTP admission alone does not process queued jobs.
+- Vercel's request/response payload limit is 4.5 MB. The logo and image upload
+  routes permit 5 MB / 10 MB locally; larger uploads can be rejected by Vercel
+  before Express receives them. Supporting those sizes requires direct storage
+  uploads with server-side validation or a host with a larger request limit.
+- Instagram preparation can wait four minutes plus multiple 30-second network
+  requests. That can exceed the function duration limit. Move long publishing
+  operations to a persistent worker before relying on them in production.
+- Express rate limits use memory local to each instance. They do not provide a
+  deployment-wide quota across scaled instances; use a shared store for that.
+
+After deploying, check `/api/health` for HTTP 200, an authenticated API request
+from the actual frontend, OAuth callbacks, and a small private image upload.
+Check worker logs separately for scheduled and image jobs.
+
+Platform references: [Express on Vercel](https://vercel.com/docs/frameworks/backend/express)
+and [Vercel Function limits](https://vercel.com/docs/functions/limitations).
+
 ## Workspace settings
 
 Open **Workspace settings** from the workspace selector or sidebar. General

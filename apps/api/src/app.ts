@@ -9,6 +9,7 @@ import helmet = require("helmet");
 import { rateLimit } from "express-rate-limit";
 
 import { env } from "./config/env.js";
+import { connectDatabase } from "./config/database.js";
 import { requireAuth } from "./auth/requireAuth.js";
 
 import workspaceRoutes from "./routes/workspaceRoutes.js";
@@ -20,6 +21,11 @@ import aiContentRoutes from "./routes/aiContentRoutes.js";
 import imageGenerationRoutes from "./routes/imageGenerationRoutes.js";
 
 export const app = express();
+
+if (process.env.VERCEL === "1") {
+  // Vercel overwrites X-Forwarded-For with the connecting client's address.
+  app.set("trust proxy", 1);
+}
 
 // Security headers.
 app.use(helmet.default());
@@ -56,6 +62,19 @@ app.use("/api", (req, res, next) => {
   }
   return apiLimiter(req, res, next);
 });
+
+if (process.env.VERCEL === "1") {
+  // The serverless entry does not execute the standalone server's startup.
+  app.use("/api", async (_req, res, next) => {
+    try {
+      await connectDatabase();
+      next();
+    } catch (error) {
+      console.error("API database connection failed:", error);
+      res.status(503).json({ error: "Database temporarily unavailable" });
+    }
+  });
+}
 
 // Health check: confirms the HTTP API is responding.
 app.get("/api/health", (_req: Request, res: Response) => {
@@ -103,3 +122,6 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     error: "Internal server error",
   });
 });
+
+// Recognized by Vercel's Express framework detection.
+export default app;
