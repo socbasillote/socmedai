@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 
 vi.mock("./config/env.js", () => ({ env: {
   NODE_ENV: "test",
-  WEB_ORIGIN: "https://frontend.example.com",
+  WEB_ORIGIN: "https://socmedai-web.vercel.app/",
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_ANON_KEY: "test-key",
 } }));
@@ -40,9 +40,14 @@ describe("Vercel entry point", () => {
   });
   it("handles CORS preflight without a database connection", async () => {
     const response = await request(app).options("/api/workspaces")
-      .set("Origin", "https://frontend.example.com")
-      .set("Access-Control-Request-Method", "GET");
+      .set("Origin", "https://socmedai-web.vercel.app")
+      .set("Access-Control-Request-Method", "GET")
+      .set("Access-Control-Request-Headers", "authorization,content-type");
     expect(response.status).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe("https://socmedai-web.vercel.app");
+    expect(response.headers["access-control-allow-credentials"]).toBe("true");
+    expect(response.headers["access-control-allow-headers"]).toBe("authorization,content-type");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
     expect(connectDatabase).not.toHaveBeenCalled();
   });
 });

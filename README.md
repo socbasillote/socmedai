@@ -51,6 +51,21 @@ After deploying, check `/api/health` for HTTP 200, an authenticated API request
 from the actual frontend, OAuth callbacks, and a small private image upload.
 Check worker logs separately for scheduled and image jobs.
 
+For the current production API, set `WEB_ORIGIN=https://socmedai-web.vercel.app`
+in the **socmedai-api** Vercel project's Production environment and redeploy the
+API after changing it. The web project's environment does not configure API CORS.
+The API normalizes this URL to its origin so a trailing slash does not break CORS.
+
+If the browser reports missing CORS headers, inspect the OPTIONS request in the
+Network panel. A `500` with `FUNCTION_INVOCATION_FAILED` means the function failed
+before the CORS middleware could respond. Check Vercel Runtime Logs for the actual
+exception and verify the required Supabase environment variables above. Keep
+Helmet as a native ESM import; TypeScript's `import = require` can produce a
+dynamic require when bundled as ESM. A healthy OPTIONS request to
+`/api/workspaces` from the web origin returns `204` and
+`Access-Control-Allow-Origin: https://socmedai-web.vercel.app` without connecting
+to MongoDB or authenticating.
+
 Platform references: [Express on Vercel](https://vercel.com/docs/frameworks/backend/express)
 and [Vercel Function limits](https://vercel.com/docs/functions/limitations).
 
