@@ -5,7 +5,7 @@ import express, {
   type Request,
   type Response,
 } from "express";
-import helmet from "helmet";
+import * as helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
 
 import { env } from "./config/env.js";
@@ -28,7 +28,7 @@ if (process.env.VERCEL === "1") {
 }
 
 // Security headers.
-app.use(helmet());
+app.use(helmet.default());
 
 //Allow requests from the configured frontend origin.
 app.use(
