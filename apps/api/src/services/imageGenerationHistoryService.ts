@@ -245,7 +245,7 @@ export async function listWorkspaceImageHistory(
     return item;
   });
 
-  const last = page.at(-1);
+  const last = page[page.length - 1];
 
   const nextCursor =
     hasMore && last ? encodeCursor(last.createdAt, last._id) : null;
