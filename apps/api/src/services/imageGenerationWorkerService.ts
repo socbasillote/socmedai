@@ -267,6 +267,7 @@ async function markProviderRejected(
 export async function executeReservedImageJob(
   job: EligibleJob,
   dependencies: ImageWorkerDependencies = {},
+  shouldStop: () => boolean = () => false,
 ): Promise<ImageWorkerResult> {
   const assetId = String(job._id);
   const workspaceId = String(job.workspaceId);
@@ -347,6 +348,7 @@ export async function executeReservedImageJob(
   let claimToken: string;
 
   try {
+    if (shouldStop()) return { outcome: "idle" };
     const claimed = await claimImageGeneration(context);
 
     claimToken = claimed.claimToken;
@@ -561,7 +563,9 @@ export async function executeReservedImageJob(
 export async function runImageGenerationWorkerOnce(
   dependencies: ImageWorkerDependencies = {},
   limit = 10,
+  shouldStop: () => boolean = () => false,
 ): Promise<ImageWorkerResult[]> {
+  if (shouldStop()) return [];
   const jobs = await discoverReservedImageJobs(limit);
 
   if (jobs.length === 0) {
@@ -571,8 +575,9 @@ export async function runImageGenerationWorkerOnce(
   const results: ImageWorkerResult[] = [];
 
   for (const job of jobs) {
+    if (shouldStop()) break;
     try {
-      results.push(await executeReservedImageJob(job, dependencies));
+      results.push(await executeReservedImageJob(job, dependencies, shouldStop));
     } catch {
       // The job remains durably persisted.
       // Do not automatically repeat it here.

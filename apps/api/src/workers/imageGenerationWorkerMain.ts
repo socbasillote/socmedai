@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 
 import { getImageGenerationConfig } from "../config/imageGenerationConfig.js";
 
-import { startImageGenerationWorker } from "./imageGenerationWorkerRunner.js";
+import { parseImageWorkerRunnerConfig, startImageGenerationWorker } from "./imageGenerationWorkerRunner.js";
 import { parseLiveImageGateConfig } from "../services/imageGenerationLiveGate.js";
 import { LIVE_PAID_WORKER_ARMED } from "../services/imageGenerationWorkerProviderGate.js";
 import { evaluateLiveAdmissionReadiness } from "../services/imageGenerationLiveAdmissionReadiness.js";
@@ -44,61 +44,75 @@ async function main() {
     throw new Error("IMAGE_WORKER_MONGODB_URI is required.");
   }
 
-  await mongoose.connect(mongoUri);
-
-  console.info(
-    liveMode
-      ? "Storm gated OpenAI image worker connected."
-      : "Storm mock image worker connected.",
-  );
-
-  const stop = startImageGenerationWorker({
-    intervalMs: 5000,
-    batchSize: liveMode ? 1 : 5,
-    dependencies: {
-      onFailure: (event) => console.error("[Storm Image Worker] Job interrupted.", event),
-    },
-    onError: (error) => {
-      // No prompts, image bytes, access tokens,
-      // or internal provider responses in logs.
-      console.error("Image worker batch failed.", {
-        errorType: error instanceof Error ? error.name : "UnknownError",
-      });
-    },
-  });
-
+  const runnerConfig = parseImageWorkerRunnerConfig(process.env);
   let shuttingDown = false;
+  let stop: (() => Promise<void>) | undefined;
+  let connecting: Promise<unknown> | undefined;
+  let shutdownPromise: Promise<void> | undefined;
 
-  async function shutdown() {
-    if (shuttingDown) return;
-
+  function shutdown(): Promise<void> {
+    if (shutdownPromise) return shutdownPromise;
     shuttingDown = true;
-
-    await stop();
-    await mongoose.disconnect();
-
-    console.info("Storm image worker stopped.");
+    shutdownPromise = (async () => {
+      // A signal during connection must prevent the runner from starting.
+      await connecting?.catch(() => undefined);
+      try { await stop?.(); } finally { await mongoose.disconnect(); }
+      console.info("Storm image worker stopped.");
+    })();
+    return shutdownPromise;
   }
 
-  process.once("SIGINT", () => {
-    void shutdown()
-      .then(() => {
-        process.exitCode = 0;
-      })
-      .catch(() => {
-        process.exitCode = 1;
-      });
-  });
+  const onSignal = () => {
+    void shutdown().then(() => { process.exitCode = 0; })
+      .catch(() => { process.exitCode = 1; });
+  };
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
 
-  process.once("SIGTERM", () => {
-    void shutdown()
-      .then(() => {
-        process.exitCode = 0;
-      })
-      .catch(() => {
-        process.exitCode = 1;
-      });
-  });
+  try {
+    connecting = mongoose.connect(mongoUri);
+    await connecting;
+    if (shuttingDown) { await shutdown(); return; }
+
+    if (runnerConfig.changeStreamEnabled) {
+      try {
+        const hello = await mongoose.connection.db!.admin().command({ hello: 1 });
+        if (!hello.setName && hello.msg !== "isdbgrid") {
+          console.warn("[Storm Image Worker] MongoDB has no replica set or sharding; fallback polling remains active.");
+        } else {
+          console.info("[Storm Image Worker] MongoDB topology supports Change Streams.");
+        }
+      } catch {
+        console.warn("[Storm Image Worker] MongoDB topology check unavailable; fallback polling remains active.");
+      }
+      if (shuttingDown) { await shutdown(); return; }
+    }
+
+    console.info(
+      liveMode
+        ? "Storm gated OpenAI image worker connected."
+        : "Storm mock image worker connected.",
+    );
+
+    stop = startImageGenerationWorker({
+      ...runnerConfig,
+      batchSize: liveMode ? 1 : 5,
+      dependencies: {
+        onFailure: (event) => console.error("[Storm Image Worker] Job interrupted.", event),
+      },
+      onError: (error) => {
+        // No prompts, image bytes, access tokens,
+        // or internal provider responses in logs.
+        console.error("Image worker batch failed.", {
+          errorType: error instanceof Error ? error.name : "UnknownError",
+        });
+      },
+    });
+
+  } catch (error) {
+    await shutdown();
+    throw error;
+  }
 }
 
 void main().catch((error: unknown) => {
@@ -113,6 +127,7 @@ void main().catch((error: unknown) => {
     "Image generation worker is disabled.",
     "Live image worker is not armed or approved.",
     "Mock worker refuses live-enabled configuration.",
+    "Invalid image worker",
   ];
 
   const message = error instanceof Error ? error.message : "";

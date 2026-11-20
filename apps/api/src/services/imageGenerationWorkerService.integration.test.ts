@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { startImageGenerationWorker, watchImageGenerationJobs } from "../workers/imageGenerationWorkerRunner.js";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 
 import {
@@ -346,6 +347,96 @@ afterAll(async () => {
 });
 
 describe("Background image generation worker", () => {
+  it("filters real stream events and recognizes dotted phase transitions", async () => {
+    const stream = watchImageGenerationJobs();
+    const events: unknown[] = [];
+    let ready = false;
+    stream.on("resumeTokenChanged", () => { ready = true; });
+    stream.on("change", (event) => events.push(event));
+    const errors: unknown[] = [];
+    stream.on("error", (error) => errors.push(error));
+    try {
+      await vi.waitFor(() => expect(ready).toBe(true), { timeout: 5000 });
+      const collection = mongoose.connection.db!.collection(MediaAsset.collection.name);
+      const { insertedId } = await collection.insertOne({
+        status: "failed", generationExecution: { phase: "reserved" },
+        generation: { prompt: "must not be delivered" },
+      });
+      await collection.updateOne({ _id: insertedId }, { $set: { status: "pending" } });
+      await vi.waitFor(() => expect(events).toHaveLength(1), { timeout: 5000 });
+      await collection.updateOne({ _id: insertedId }, { $set: { "generationExecution.phase": "provider_started" } });
+      await collection.updateOne({ _id: insertedId }, { $set: { "generationExecution.phase": "reserved" } });
+      await vi.waitFor(() => expect(events).toHaveLength(2), { timeout: 5000 });
+      await collection.updateOne({ _id: insertedId }, { $set: { "generationExecution.leaseExpiresAt": new Date() } });
+      await collection.insertOne({ status: "ready", generationExecution: { phase: "reserved" } });
+      // An eligible barrier proves earlier irrelevant events were filtered.
+      await collection.insertOne({ status: "pending", generationExecution: { phase: "reserved" } });
+      await vi.waitFor(() => expect(events).toHaveLength(3), { timeout: 5000 });
+      expect(events.every((event) => Object.keys(event as object).sort().join() === "_id,operationType")).toBe(true);
+      expect(errors).toEqual([]);
+    } finally { await stream.close(); }
+  });
+
+  it("recovers an existing admitted job immediately at runner startup", async () => {
+    const queued = await enqueue();
+    const p = fakeProvider();
+    const s = fakeStorage();
+    const stop = startImageGenerationWorker({
+      changeStreamEnabled: false,
+      dependencies: { provider: p.provider, bucket: s.bucket },
+    });
+    try {
+      await vi.waitFor(async () => {
+        expect((await MediaAsset.findById(queued.assetId))?.status).toBe("ready");
+      }, { timeout: 10_000 });
+      expect(p.generate).toHaveBeenCalledOnce();
+    } finally { await stop(); }
+  });
+
+  it("processes a new admitted job via a real Change Stream across two runners", async () => {
+    const p = fakeProvider();
+    const s = fakeStorage();
+    const streams: ReturnType<typeof watchImageGenerationJobs>[] = [];
+    const ready: Promise<void>[] = [];
+    const watch = () => {
+      const stream = watchImageGenerationJobs();
+      streams.push(stream);
+      ready.push(new Promise<void>((resolve) => stream.once("resumeTokenChanged", () => resolve())));
+      return stream;
+    };
+    const options = { watch, dependencies: { provider: p.provider, bucket: s.bucket } };
+    const stops = [startImageGenerationWorker(options), startImageGenerationWorker(options)];
+    try {
+      await Promise.all(ready);
+      const queued = await enqueue();
+      await vi.waitFor(async () => {
+        expect((await MediaAsset.findById(queued.assetId))?.status).toBe("ready");
+      }, { timeout: 10_000 });
+      await Promise.all(stops.map((stop) => stop()));
+      expect(p.generate).toHaveBeenCalledOnce();
+      expect(streams.every((stream) => stream.closed)).toBe(true);
+    } finally { await Promise.all(stops.map((stop) => stop())); }
+  });
+
+  it("recovers missed notifications through fallback polling", async () => {
+    const p = fakeProvider();
+    const s = fakeStorage();
+    const recovered = vi.fn(async () => {});
+    const stop = startImageGenerationWorker({
+      changeStreamEnabled: false, intervalMs: 1000, recover: recovered,
+      dependencies: { provider: p.provider, bucket: s.bucket },
+    });
+    try {
+      await vi.waitFor(() => expect(recovered).toHaveBeenCalledOnce());
+      const queued = await enqueue();
+      await vi.waitFor(async () => {
+        expect((await MediaAsset.findById(queued.assetId))?.status).toBe("ready");
+      }, { timeout: 10_000 });
+      expect(p.generate).toHaveBeenCalledOnce();
+      expect(recovered.mock.calls.length).toBeGreaterThan(1);
+    } finally { await stop(); }
+  });
+
   it("returns idle when no admitted jobs exist", async () => {
     const result = await runImageGenerationWorkerOnce();
 

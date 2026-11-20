@@ -5,6 +5,7 @@
 | Audit backend architecture | Complete | Admission, MongoDB persistence, execution, status, and recovery traced. |
 | Persistent job queue | Implemented | MongoDB admission records and pending assets survive process termination. |
 | Workers independent of HTTP | Implemented | Separate image worker executable. |
+| Event notifications and fallback polling | Implemented; production rollout pending | One MediaAsset Change Stream per worker, serialized atomic-claim execution, 60-second idle fallback, reconnect and cleanup tests. See [worker reliability and deployment](image-worker-reliability.md). |
 | Browser/tab closure does not terminate generation | User verified | User confirmed this works; accepted jobs have no browser dependency. |
 | Persistent job status | Implemented | Status, execution phases, leases, attempts, and timestamps are persisted. |
 | Ownership and user isolation | Implemented | Authenticated workspace ownership; cross-account tests. |
