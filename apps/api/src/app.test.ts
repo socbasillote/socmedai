@@ -2,8 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 
 import mongoose from "mongoose";
-
-import mongoose from "mongoose";
 import { app } from "./app.js";
 import { supabaseAuthClient } from "./auth/supabase.js";
 import * as workspaceService from "./services/workspaceService.js";

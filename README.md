@@ -60,10 +60,10 @@ If the browser reports missing CORS headers, inspect the OPTIONS request in the
 Network panel. A `500` with `FUNCTION_INVOCATION_FAILED` means the function failed
 before the CORS middleware could respond. Check Vercel Runtime Logs for the actual
 exception and verify the required Supabase environment variables above. Keep
-Helmet loaded through Node's explicit `createRequire(import.meta.url)` API;
-TypeScript's `import = require` can produce an unsupported dynamic require when
-bundled as ESM, while default imports can resolve inconsistently in Vercel's
-type checking. A healthy OPTIONS request to
+Helmet as a static ESM dependency so Vercel includes it in the function package.
+The app explicitly types its callable default export to accommodate Vercel's
+type resolution. Dynamic loading can omit Helmet from the deployment package.
+A healthy OPTIONS request to
 `/api/workspaces` from the web origin returns `204` and
 `Access-Control-Allow-Origin: https://socmedai-web.vercel.app` without connecting
 to MongoDB or authenticating.
