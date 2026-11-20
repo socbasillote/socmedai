@@ -43,6 +43,11 @@ export default function DashboardPage() {
     navigate("/posts/new");
   }
 
+  function handleEditDraft(postId: string) {
+    setNotice("");
+    navigate(`/posts/${encodeURIComponent(postId)}/edit`);
+  }
+
   const { notice, setNotice, clearNotice } = useDashboardNotice();
 
   const {
@@ -219,6 +224,7 @@ export default function DashboardPage() {
         ) : activePage === "Overview" ? (
           <DashboardOverviewView
             posts={posts}
+            onEditDraft={handleEditDraft}
             onCreatePost={handleOpenPostEditor}
             onOpenStudio={() => selectPage("Content studio")}
             onViewPublishing={() => selectPage("Publishing")}
@@ -240,9 +246,7 @@ export default function DashboardPage() {
           <DashboardPostsView
             onCreatePost={handleOpenPostEditor}
             posts={posts}
-            onEditDraft={(postId) => {
-              navigate(`/posts/${encodeURIComponent(postId)}/edit`);
-            }}
+            onEditDraft={handleEditDraft}
             onMoreOptions={(postTitle) => {
               setNotice(`Selected post: ${postTitle}`);
             }}

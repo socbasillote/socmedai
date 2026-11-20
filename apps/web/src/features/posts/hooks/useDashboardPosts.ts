@@ -4,7 +4,6 @@ import { usePosts } from "@/hooks/usePosts";
 import { usePostFilters } from "@/hooks/usePostFilters";
 import { usePostPagination } from "@/hooks/usePostPagination";
 import { usePostActions } from "@/hooks/usePostActions";
-import { useDraftEditing } from "@/hooks/useDraftEditing";
 
 import type { Post } from "@/lib/posts";
 
@@ -19,7 +18,7 @@ type NoticeHandler = Parameters<typeof usePostActions>[0]["setNotice"];
  * - Post filters
  * - Workspace-scoped post loading
  * - Pagination coordination
- * - Draft editing and deletion
+ * - Draft deletion
  * - Selected post details
  * - Derived presentation data
  * - Local updates after Content Studio saves
@@ -85,25 +84,6 @@ export function useDashboardPosts(
       setNotice,
     },
   );
-
-  // 5. Draft editing
-  const {
-    editingPostId,
-    editTitle,
-    setEditTitle,
-    editCaption,
-    setEditCaption,
-    editPlatforms,
-    setEditPlatforms,
-    savingEdit,
-    editPostError,
-    handleEditDraft,
-    handleSaveDraftEdit,
-    cancelEdit,
-  } = useDraftEditing({
-    setSavedPosts,
-    setNotice,
-  });
 
   // 6. Post details selection
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
@@ -186,20 +166,6 @@ export function useDashboardPosts(
     deletingPostId,
     deletePostError,
     handleDeleteDraft,
-
-    // Editing
-    editingPostId,
-    editTitle,
-    setEditTitle,
-    editCaption,
-    setEditCaption,
-    editPlatforms,
-    setEditPlatforms,
-    savingEdit,
-    editPostError,
-    handleEditDraft,
-    handleSaveDraftEdit,
-    cancelEdit,
 
     // Details
     selectedPostId,

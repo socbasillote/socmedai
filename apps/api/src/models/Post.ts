@@ -40,6 +40,7 @@ const postSchema = new Schema(
       required: true,
     },
     clientDraftId: { type: String },
+    creationRequestHash: { type: String, select: false },
     autosaveRevision: { type: Number, default: 0 },
     autosaveClosed: { type: Boolean, default: false },
     title: {

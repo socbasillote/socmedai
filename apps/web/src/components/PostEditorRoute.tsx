@@ -1322,6 +1322,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           timezone={scheduleTimezone}
           headerActions={modeToggle}
           scheduleCapabilities={serverCapabilities}
+          publishingRules={selectedWorkspace?.settings?.publishing ? preferences.publishing : undefined}
           onBack={handleCancel}
           disabled={Boolean(selectedWorkspace?.archivedAt)}
           connections={{ facebook: selectedFacebookConnectionId ?? undefined, linkedin: linkedInConnectionId ?? undefined, instagram: selectedInstagramConnectionId ?? undefined }}

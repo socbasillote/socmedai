@@ -25,19 +25,6 @@ type DashboardOverviewProps = {
   onDelete: (postId: string, postTitle: string) => void;
   onMoreOptions: (postTitle: string) => void;
   onLoadMore: () => void;
-  editingPostId: string | null;
-  editTitle: string;
-  editCaption: string;
-  editPlatforms: Parameters<typeof RecentPostsSection>[0]["editPlatforms"];
-  savingEdit: boolean;
-  editPostError: string;
-  onEditTitleChange: (value: string) => void;
-  onEditCaptionChange: (value: string) => void;
-  onEditPlatformsChange: Parameters<
-    typeof RecentPostsSection
-  >[0]["onEditPlatformsChange"];
-  onSaveEdit: () => void;
-  onCancelEdit: () => void;
   onCreatePost: () => void;
   onOpenStudio: () => void;
   onViewPublishing: () => void;
@@ -61,17 +48,6 @@ export function DashboardOverview({
   onDelete,
   onMoreOptions,
   onLoadMore,
-  editingPostId,
-  editTitle,
-  editCaption,
-  editPlatforms,
-  savingEdit,
-  editPostError,
-  onEditTitleChange,
-  onEditCaptionChange,
-  onEditPlatformsChange,
-  onSaveEdit,
-  onCancelEdit,
   onCreatePost,
   onOpenStudio,
   onViewPublishing,
@@ -105,17 +81,6 @@ export function DashboardOverview({
         onDelete={onDelete}
         onMoreOptions={onMoreOptions}
         onLoadMore={onLoadMore}
-        editingPostId={editingPostId}
-        editTitle={editTitle}
-        editCaption={editCaption}
-        editPlatforms={editPlatforms}
-        savingEdit={savingEdit}
-        editPostError={editPostError}
-        onEditTitleChange={onEditTitleChange}
-        onEditCaptionChange={onEditCaptionChange}
-        onEditPlatformsChange={onEditPlatformsChange}
-        onSaveEdit={onSaveEdit}
-        onCancelEdit={onCancelEdit}
       />
 
       <footer className="flex flex-col justify-between gap-2 py-8 text-xs text-slate-400 sm:flex-row">

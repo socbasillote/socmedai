@@ -35,7 +35,7 @@ export const postMediaIdsSchema = z
     },
   );
 
-export const createPostSchema = z
+export const createPostRequestSchema = z
   .object({
     clientDraftId: z.uuid().optional(),
     workspaceId: z.string().regex(/^[a-f\d]{24}$/i, {
@@ -87,17 +87,6 @@ export const createPostSchema = z
     if (data.platformConnections?.instagram && !data.platforms.includes("instagram")) {
       context.addIssue({ code: "custom", path: ["platformConnections", "instagram"], message: "Select Instagram before choosing an Instagram account." });
     }
-    if (data.scheduledAt) {
-      const scheduledTime = new Date(data.scheduledAt).getTime();
-
-      if (scheduledTime <= Date.now()) {
-        context.addIssue({
-          code: "custom",
-          path: ["scheduledAt"],
-          message: "Scheduled time must be in the future.",
-        });
-      }
-    }
     if (data.scheduledAt !== undefined) {
       const limit = data.platforms.includes("instagram") ? 2200 : data.platforms.includes("linkedin") ? 3000 : 5000;
       if (data.caption.length > limit) context.addIssue({ code: "custom", path: ["caption"], message: `Caption must not exceed ${limit} characters for scheduled publishing.` });
@@ -148,6 +137,12 @@ export const createPostSchema = z
       }
     }
   });
+
+export const createPostSchema = createPostRequestSchema.superRefine((data, context) => {
+  if (data.scheduledAt && Date.parse(data.scheduledAt) <= Date.now()) context.addIssue({ code: "custom", path: ["scheduledAt"], message: "Scheduled time must be in the future." });
+});
+
+export const validatePostBatchSchema = z.object({ posts: z.array(createPostRequestSchema).min(1).max(60) }).strict();
 
 export const updateDraftPostSchema = z
   .object({

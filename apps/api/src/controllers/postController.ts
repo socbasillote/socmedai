@@ -4,7 +4,8 @@ import { reconcileWorkspacePublication, changeWorkspaceSchedule } from "../servi
 import type { RequestHandler } from "express";
 
 import {
-  createPostSchema,
+  createPostRequestSchema,
+  validatePostBatchSchema,
   updateDraftPostSchema,
   listWorkspacePostsQuerySchema,
 } from "../schemas/postSchema.js";
@@ -17,6 +18,7 @@ import {
 
 import {
   createWorkspacePost,
+  validateWorkspacePostBatch,
   listWorkspacePosts,
   getWorkspacePostById,
   deleteWorkspaceDraft,
@@ -38,7 +40,7 @@ function getAuthenticatedUser(
 
 export const createPost: RequestHandler = async (req, res, next) => {
   try {
-    const parsed = createPostSchema.safeParse(req.body);
+    const parsed = createPostRequestSchema.safeParse(req.body);
 
     if (!parsed.success) {
       res.status(400).json({
@@ -66,6 +68,15 @@ export const createPost: RequestHandler = async (req, res, next) => {
 
     next(error);
   }
+};
+
+export const validatePostBatch: RequestHandler = async (req, res, next) => {
+  try {
+    const parsed = validatePostBatchSchema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid batch." }); return; }
+    const result = await validateWorkspacePostBatch(getAuthenticatedUser(res), parsed.data.posts);
+    res.set("Cache-Control", "no-store").json(result);
+  } catch (error) { next(error); }
 };
 
 export const listPostsByWorkspace: RequestHandler = async (req, res, next) => {

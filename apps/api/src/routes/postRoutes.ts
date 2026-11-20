@@ -5,6 +5,7 @@ import { getPublishingCapabilities } from "../services/publishing/publishingCapa
 import {
   autosaveDraft,
   createPost,
+  validatePostBatch,
   changePostSchedule,
   reconcilePublication,
   listPostsByWorkspace,
@@ -21,6 +22,7 @@ postRoutes.get("/capabilities", (_req, res) => {
   res.set("Cache-Control", "no-store").json({ capabilities: getPublishingCapabilities() });
 });
 
+postRoutes.post("/validate-batch", validatePostBatch);
 postRoutes.post("/", createPost);
 postRoutes.put("/autosave", autosaveDraft);
 

@@ -10,6 +10,7 @@ import type { Workspace } from "@/lib/workspaces";
 import { PostEditorRoute } from "./PostEditorRoute";
 import type { PostEditorForm } from "./PostEditorForm";
 import type { PublishingControls } from "@/features/publishing/components/PublishingControls";
+import type { AIPostFlow } from "./AIPostFlow";
 
 const state = vi.hoisted(() => ({ workspaces: [] as Workspace[], selected: "507f1f77bcf86cd799439011", search: "", getPost: vi.fn(), create: vi.fn(), facebook: vi.fn() }));
 vi.mock("react-router-dom", () => ({ useNavigate: () => vi.fn(), useLocation: () => ({ search: state.search }) }));
@@ -20,7 +21,8 @@ vi.mock("@/hooks/useInstagramConnections", () => ({ useInstagramConnections: () 
 vi.mock("@/lib/facebookConnections", () => ({ getFacebookPageConnections: (...args: unknown[]) => state.facebook(...args) }));
 vi.mock("@/lib/posts", () => ({ createPost: (...args: unknown[]) => state.create(...args), getPostById: (...args: unknown[]) => state.getPost(...args), publishPostNow: vi.fn(), updateDraftPost: vi.fn() }));
 vi.mock("@/features/posts/hooks/useComposerAutosave", () => ({ useComposerAutosave: () => ({ clientDraftId: "draft", complete: vi.fn() }) }));
-vi.mock("@/components/PostEditorPage", () => ({ PostEditorPage: ({ children, sidebar }: { children: ReactNode; sidebar: ReactNode }) => <>{sidebar}{children}</> }));
+vi.mock("@/components/PostEditorPage", () => ({ PostEditorPage: ({ children, sidebar, headerActions }: { children: ReactNode; sidebar: ReactNode; headerActions: ReactNode }) => <>{headerActions}{sidebar}{children}</> }));
+vi.mock("./AIPostFlow", () => ({ AIPostFlow: (props: ComponentProps<typeof AIPostFlow>) => <output data-testid="ai-publishing-rules">{JSON.stringify(props.publishingRules) ?? "none"}</output> }));
 vi.mock("@/components/PostPreview", () => ({ PostPreview: () => null }));
 vi.mock("@/features/publishing/components/PublishingChecklistPanel", () => ({ PublishingChecklistPanel: () => null }));
 vi.mock("@/features/publishing/components/PublishingControls", () => ({ PublishingControls: (props: ComponentProps<typeof PublishingControls>) => <><output data-testid="mode">{props.postMode}</output><output data-testid="zone">{props.timezone}</output><input aria-label="Schedule" value={props.scheduledAt} onChange={(e) => props.onScheduledAtChange(e.target.value)} /><button onClick={() => props.onPostModeChange("draft")}>Explicit draft</button></> }));
@@ -30,6 +32,22 @@ const pageId = "507f1f77bcf86cd799439088";
 const workspace = (): Workspace => ({ _id: state.selected, name: "Coffee", ownerUserId: "owner", createdAt: "", updatedAt: "", settings: { timezone: "Asia/Manila", defaultLanguage: "fil", defaultDestinations: { facebook: pageId, linkedin: null }, publishing: { defaultPostMode: "scheduled", preferredTimes: ["09:00"], allowedWeekdays: [0, 1, 2, 3, 4, 5, 6], minimumNoticeMinutes: 0, maximumAdvanceDays: 365 } } });
 beforeEach(() => { vi.clearAllMocks(); state.selected = "507f1f77bcf86cd799439011"; state.search = ""; state.workspaces = [workspace()]; state.facebook.mockResolvedValue([{ id: pageId, pageName: "Coffee", status: "connected", canPublish: true }]); });
 afterEach(cleanup);
+
+it.each([undefined, null, {}])("opens AI composition when workspace settings are %s", async (settings) => {
+  // New workspace responses can omit settings before preferences are saved.
+  state.workspaces = [{ ...workspace(), settings } as Workspace];
+  render(<PostEditorRoute mode="create" />);
+  fireEvent.click(screen.getByRole("button", { name: "AI" }));
+  expect(screen.getByTestId("ai-publishing-rules")).toHaveTextContent("none");
+  await act(async () => {});
+});
+
+it("passes saved publishing preferences to AI composition", async () => {
+  render(<PostEditorRoute mode="create" />);
+  fireEvent.click(screen.getByRole("button", { name: "AI" }));
+  expect(JSON.parse(screen.getByTestId("ai-publishing-rules").textContent!)).toEqual(workspace().settings.publishing);
+  await act(async () => {});
+});
 
 it("initializes new posts with saved defaults and preserves explicit choices across rerenders and late connections", async () => {
   let done!: (value: unknown[]) => void;

@@ -3,12 +3,10 @@ import {
   RecentPostsList,
   type RecentPostItem,
 } from "@/components/RecentPostsList";
-import { DraftEditForm } from "@/components/DraftEditForm";
 import type {
   PostStatusFilter,
   PostPlatformFilter,
 } from "@/components/RecentPostsHeader";
-import type { Platform } from "@/components/DraftEditForm";
 
 type RecentPostsSectionProps = {
   statusFilter: PostStatusFilter;
@@ -31,17 +29,6 @@ type RecentPostsSectionProps = {
   onMoreOptions: (postTitle: string) => void;
   onLoadMore: () => void;
 
-  editingPostId: string | null;
-  editTitle: string;
-  editCaption: string;
-  editPlatforms: Platform[];
-  savingEdit: boolean;
-  editPostError: string;
-  onEditTitleChange: (value: string) => void;
-  onEditCaptionChange: (value: string) => void;
-  onEditPlatformsChange: (value: Platform[]) => void;
-  onSaveEdit: () => void;
-  onCancelEdit: () => void;
 };
 
 export function RecentPostsSection({
@@ -62,17 +49,6 @@ export function RecentPostsSection({
   onDelete,
   onMoreOptions,
   onLoadMore,
-  editingPostId,
-  editTitle,
-  editCaption,
-  editPlatforms,
-  savingEdit,
-  editPostError,
-  onEditTitleChange,
-  onEditCaptionChange,
-  onEditPlatformsChange,
-  onSaveEdit,
-  onCancelEdit,
 }: RecentPostsSectionProps) {
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -107,21 +83,6 @@ export function RecentPostsSection({
         onMoreOptions={onMoreOptions}
         onLoadMore={onLoadMore}
       />
-
-      {editingPostId && (
-        <DraftEditForm
-          title={editTitle}
-          caption={editCaption}
-          platforms={editPlatforms}
-          saving={savingEdit}
-          error={editPostError}
-          onTitleChange={onEditTitleChange}
-          onCaptionChange={onEditCaptionChange}
-          onPlatformsChange={onEditPlatformsChange}
-          onSave={onSaveEdit}
-          onCancel={onCancelEdit}
-        />
-      )}
 
       <div className="border-t border-slate-100 px-5 py-4 sm:px-6">
         <p className="text-xs text-slate-400">

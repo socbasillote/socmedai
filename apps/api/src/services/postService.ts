@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { validateInstagramSelection, InstagramConnectionError } from "./instagram/instagramConnectionService.js";
 import PublishingAttemptEvidence from "../models/PublishingAttemptEvidence.js";
 import LinkedInConnection from "../models/LinkedInConnection.js";
@@ -186,7 +187,7 @@ async function validatePostInstagramSelection(workspaceId: string, platforms: re
   catch (error) { if (error instanceof InstagramConnectionError) throw new PostServiceError(error.message, error.statusCode); throw error; }
 }
 
-export async function createWorkspacePost(
+async function prepareWorkspacePost(
   authUser: AuthenticatedUser,
   input: CreatePostInput,
 ) {
@@ -197,6 +198,22 @@ export async function createWorkspacePost(
 
   if (!authorization) {
     throw new PostServiceError("Workspace not found.", 404);
+  }
+
+  const creationRequestHash = createHash("sha256").update(JSON.stringify([
+    input.title?.trim() ?? null, input.caption.trim(),
+    input.mediaIds.map(id => id.toLowerCase()), input.platforms,
+    ["facebook", "instagram", "linkedin"].map(platform => input.platformConnections?.[platform as keyof NonNullable<CreatePostInput["platformConnections"]>]?.toLowerCase() ?? null),
+    input.scheduledAt && Number.isFinite(Date.parse(input.scheduledAt)) ? new Date(input.scheduledAt).toISOString() : input.scheduledAt ?? null,
+  ])).digest("hex");
+  if (input.clientDraftId) {
+    const existing = await Post.findOne({ workspaceId: authorization.workspace._id,
+      createdByUserId: authorization.profile._id, clientDraftId: input.clientDraftId,
+      autosaveClosed: true }).select("+creationRequestHash");
+    if (existing) {
+      if (existing.creationRequestHash !== creationRequestHash) throw new PostServiceError("This save request already belongs to a different post revision. Open it from Posts.", 409);
+      return { authorization, existing, postData: undefined };
+    }
   }
 
   // Validate scheduled publishing separately from drafts.
@@ -317,6 +334,7 @@ export async function createWorkspacePost(
   }
 
   const postData = {
+    ...(input.clientDraftId ? { creationRequestHash } : {}),
     workspaceId: authorization.workspace._id,
     createdByUserId: authorization.profile._id,
 
@@ -343,11 +361,36 @@ export async function createWorkspacePost(
 
     ...(scheduledAt ? { scheduledAt } : {}),
   };
-  const post = input.clientDraftId
-    ? await writeComposerDraft(authorization.workspace._id, authorization.profile._id, input.clientDraftId, postData, true)
-    : await Post.create(postData);
+  return { authorization, postData, existing: undefined };
+}
 
-  return post.toObject();
+export async function createWorkspacePost(authUser: AuthenticatedUser, input: CreatePostInput) {
+  const prepared = await prepareWorkspacePost(authUser, input);
+  if (prepared.existing) {
+    const result = prepared.existing.toObject();
+    delete result.creationRequestHash;
+    return result;
+  }
+  const { authorization, postData } = prepared;
+  const post = input.clientDraftId
+    ? await writeComposerDraft(authorization.workspace._id, authorization.profile._id, input.clientDraftId, postData!, true)
+    : await Post.create(postData!);
+  const result = post.toObject();
+  delete result.creationRequestHash;
+  return result;
+}
+
+/** Validate every selected platform version without creating any posts. */
+export async function validateWorkspacePostBatch(authUser: AuthenticatedUser, inputs: CreatePostInput[]) {
+  const issues: { index: number; message: string }[] = [];
+  for (let index = 0; index < inputs.length; index++) {
+    try { await prepareWorkspacePost(authUser, inputs[index]); }
+    catch (error) {
+      if (!(error instanceof PostServiceError)) throw error;
+      issues.push({ index, message: error.message });
+    }
+  }
+  return { issues };
 }
 
 export async function listWorkspacePosts(
@@ -897,8 +940,9 @@ async function writeComposerDraft(workspaceId: unknown, userId: unknown, clientD
     }, { upsert: true, returnDocument: "after", runValidators: true });
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === 11000)) throw error;
-    const existing = await Post.findOne(identity);
+    const existing = await Post.findOne(identity).select("+creationRequestHash");
     if (!existing) throw error;
+    if (finalize && existing.autosaveClosed && data.creationRequestHash && existing.creationRequestHash === data.creationRequestHash) return existing;
     if (!finalize && (existing.autosaveClosed || existing.status !== "draft" || existing.autosaveRevision >= revision)) return existing;
     throw new PostServiceError("This composer draft was already saved. Open it from Posts.", 409);
   }

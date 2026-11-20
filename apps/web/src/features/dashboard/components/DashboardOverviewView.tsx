@@ -7,6 +7,7 @@ type DashboardPostsState = ReturnType<typeof useDashboardPosts>;
 type DashboardOverviewViewProps = {
   posts: DashboardPostsState;
   onCreatePost: () => void;
+  onEditDraft: (postId: string) => void;
   onOpenStudio: () => void;
   onViewPublishing: () => void;
   onMoreOptions: (postTitle: string) => void;
@@ -17,7 +18,7 @@ type DashboardOverviewViewProps = {
  *
  * Responsibilities:
  * - Connect the Posts feature state to DashboardOverview.
- * - Preserve inline draft editing.
+ * - Forward draft editing to PostEditor.
  * - Forward user interactions to existing handlers.
  *
  * Does not:
@@ -29,6 +30,7 @@ type DashboardOverviewViewProps = {
 export function DashboardOverviewView({
   posts,
   onCreatePost,
+  onEditDraft,
   onOpenStudio,
   onViewPublishing,
   onMoreOptions,
@@ -49,10 +51,12 @@ export function DashboardOverviewView({
       hasMorePosts={posts.hasMorePosts}
       loadingMorePosts={posts.loadingMorePosts}
       onEdit={(postId) => {
-        const draft = posts.savedPosts.find((item) => item._id === postId);
+        const draft = posts.savedPosts.find(
+          (item) => item._id === postId && item.status === "draft",
+        );
 
         if (draft) {
-          posts.handleEditDraft(draft);
+          onEditDraft(draft._id);
         }
       }}
       onDelete={(postId, postTitle) => {
@@ -60,17 +64,6 @@ export function DashboardOverviewView({
       }}
       onMoreOptions={onMoreOptions}
       onLoadMore={posts.handleLoadMorePosts}
-      editingPostId={posts.editingPostId}
-      editTitle={posts.editTitle}
-      editCaption={posts.editCaption}
-      editPlatforms={posts.editPlatforms}
-      savingEdit={posts.savingEdit}
-      editPostError={posts.editPostError}
-      onEditTitleChange={posts.setEditTitle}
-      onEditCaptionChange={posts.setEditCaption}
-      onEditPlatformsChange={posts.setEditPlatforms}
-      onSaveEdit={() => void posts.handleSaveDraftEdit()}
-      onCancelEdit={posts.cancelEdit}
       onCreatePost={onCreatePost}
       onOpenStudio={onOpenStudio}
       onViewPublishing={onViewPublishing}

@@ -226,3 +226,10 @@ export async function changePostSchedule(postId: string, scheduledAt?: string): 
 export async function reconcilePublication(postId: string): Promise<Post> {
   return (await apiFetch<{ post: Post }>(`/api/posts/${encodeURIComponent(postId)}/reconcile`, { method: "POST" })).post;
 }
+
+/** Read-only validation of the entire selection before creating posts. */
+export function validatePostBatch(posts: CreatePostInput[]) {
+  return apiFetch<{ issues: { index: number; message: string }[] }>("/api/posts/validate-batch", {
+    method: "POST", body: JSON.stringify({ posts }),
+  });
+}
