@@ -137,8 +137,10 @@ not run.
 
 1. Use the existing persistent Node.js worker service on Railway, Render or an
    equivalent host, with the repository's supported Node version. Install workspace
-   dependencies and run `npm run start:image-worker --workspace @storm/api`.
-   This script builds the API and starts its existing compiled worker executable.
+   dependencies, run `npm run build --workspace @storm/api`, then run
+   `npm run start:image-worker --workspace @storm/api`. The production start
+   script runs the compiled executable without rebuilding. For Railway use
+   [the worker deployment guide](railway-workers.md) and its Docker configuration.
 2. Keep the worker and API pointed at the same intended database. Use a replica set
    or sharded MongoDB deployment for notifications. A standalone server can poll,
    but cannot provide Change Streams. The example localhost URI does not establish

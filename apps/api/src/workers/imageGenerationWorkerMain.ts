@@ -1,6 +1,7 @@
 import "dotenv/config";
 
 import mongoose from "mongoose";
+import { env } from "../config/env.js";
 
 import { getImageGenerationConfig } from "../config/imageGenerationConfig.js";
 
@@ -13,6 +14,9 @@ async function main() {
   console.info("[Storm Image Worker] Checking worker configuration.");
   if (process.env.IMAGE_GENERATION_WORKER_ENABLED !== "true") {
     throw new Error("Image generation worker is disabled.");
+  }
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY is required for image storage.");
   }
 
   console.info("[Storm Image Worker] Loading image generation config.");
@@ -31,17 +35,12 @@ async function main() {
     throw new Error("Mock worker refuses live-enabled configuration.");
   }
 
-  /**
-   * Use the SAME development MongoDB database
-   * as the API, including replica-set support.
-   *
-   * A separate env name prevents us from
-   * assuming the existing API's DB variable.
-   */
-  const mongoUri = process.env.IMAGE_WORKER_MONGODB_URI;
+  // Share the API's database by default; retain the existing explicit override.
+  const mongoUri = process.env.IMAGE_WORKER_MONGODB_URI?.trim() ||
+    process.env.MONGODB_URI?.trim();
 
   if (!mongoUri) {
-    throw new Error("IMAGE_WORKER_MONGODB_URI is required.");
+    throw new Error("IMAGE_WORKER_MONGODB_URI or MONGODB_URI is required.");
   }
 
   const runnerConfig = parseImageWorkerRunnerConfig(process.env);
@@ -70,7 +69,7 @@ async function main() {
   process.once("SIGTERM", onSignal);
 
   try {
-    connecting = mongoose.connect(mongoUri);
+    connecting = mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 5000 });
     await connecting;
     if (shuttingDown) { await shutdown(); return; }
 
@@ -121,6 +120,7 @@ void main().catch((error: unknown) => {
     "Live image generation is disabled.",
     "IMAGE_GENERATION_WORKER_ENABLED",
     "IMAGE_WORKER_MONGODB_URI",
+    "SUPABASE_SERVICE_ROLE_KEY is required",
     "Invalid image generation provider.",
     "Invalid live image rollout mode.",
     "Live image generation is unavailable.",

@@ -5,6 +5,10 @@ branded content, managing social accounts, and publishing or scheduling posts.
 
 ## API deployment on Vercel
 
+For background processing alongside the Vercel API, see
+[the worker audit and Railway deployment guide](docs/railway-workers.md). It
+includes separate service configs for scheduled publishing and image generation.
+
 Set the Vercel project Root Directory to `apps/api` (relative to the repository
 containing this package.json), use the Express framework preset, and run
 `npm run build`. Allow the project to access files outside its root directory

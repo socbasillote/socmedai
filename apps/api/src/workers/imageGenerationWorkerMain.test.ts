@@ -5,7 +5,9 @@ const mocks = vi.hoisted(() => ({
   command: vi.fn(async () => ({ setName: "rs0" })),
   stop: vi.fn(async () => {}),
   start: vi.fn(),
+  env: { SUPABASE_SERVICE_ROLE_KEY: "test-storage-key" as string | undefined },
 }));
+vi.mock("../config/env.js", () => ({ env: mocks.env }));
 vi.mock("dotenv/config", () => ({}));
 vi.mock("mongoose", () => ({ default: {
   connect: mocks.connect, disconnect: mocks.disconnect,
@@ -22,10 +24,10 @@ vi.mock("./imageGenerationWorkerRunner.js", () => ({
   startImageGenerationWorker: mocks.start,
 }));
 const handlers: Array<{ signal: "SIGINT" | "SIGTERM"; handler: () => void }> = [];
-async function load() {
+async function load(mongoUri = "mongodb://unused/test") {
   vi.resetModules();
   vi.stubEnv("IMAGE_GENERATION_WORKER_ENABLED", "true");
-  vi.stubEnv("IMAGE_WORKER_MONGODB_URI", "mongodb://unused/test");
+  vi.stubEnv("IMAGE_WORKER_MONGODB_URI", mongoUri);
   vi.spyOn(console, "info").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(process, "once").mockImplementation(((signal: "SIGINT" | "SIGTERM", handler: () => void) => {
@@ -41,6 +43,30 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
   process.exitCode = undefined;
+  mocks.env.SUPABASE_SERVICE_ROLE_KEY = "test-storage-key";
+});
+
+it("fails before connecting when image storage is not configured", async () => {
+  mocks.env.SUPABASE_SERVICE_ROLE_KEY = undefined;
+  await load();
+  await vi.waitFor(() => expect(process.exitCode).toBe(1));
+  expect(mocks.connect).not.toHaveBeenCalled();
+  expect(mocks.start).not.toHaveBeenCalled();
+  expect(console.error).toHaveBeenCalledWith("[Storm Image Worker]", "SUPABASE_SERVICE_ROLE_KEY is required for image storage.");
+});
+
+it("uses the shared MongoDB URI when no image override is set", async () => {
+  vi.stubEnv("MONGODB_URI", "mongodb://unused/shared");
+  await load("");
+  await vi.waitFor(() => expect(mocks.start).toHaveBeenCalledOnce());
+  expect(mocks.connect).toHaveBeenCalledWith("mongodb://unused/shared", { serverSelectionTimeoutMS: 5000 });
+});
+
+it("fails before connecting when neither MongoDB URI is configured", async () => {
+  vi.stubEnv("MONGODB_URI", "");
+  await load("");
+  await vi.waitFor(() => expect(process.exitCode).toBe(1));
+  expect(mocks.connect).not.toHaveBeenCalled();
 });
 
 it.each(["SIGINT", "SIGTERM"] as const)("%s waits for active work before disconnecting", async (signal) => {
