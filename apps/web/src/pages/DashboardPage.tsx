@@ -1,3 +1,4 @@
+import { AIReviewResume } from "@/features/posts/components/AIReviewResume";
 import { lazy, Suspense } from "react";
 import { useNavigate } from "react-router";
 
@@ -243,7 +244,7 @@ export default function DashboardPage() {
             onPostSaved={handleStudioPostSaved}
           />
         ) : activePage === "Posts" ? (
-          <DashboardPostsView
+          <><AIReviewResume workspaceId={selectedWorkspaceId} onResume={handleOpenPostEditor} /><DashboardPostsView
             onCreatePost={handleOpenPostEditor}
             posts={posts}
             onEditDraft={handleEditDraft}
@@ -251,6 +252,7 @@ export default function DashboardPage() {
               setNotice(`Selected post: ${postTitle}`);
             }}
           />
+          </>
         ) : activePage === "Content calendar" ? (
           <ContentPlannerPage workspaceId={selectedWorkspaceId} />
         ) : activePage === "Media library" ? (

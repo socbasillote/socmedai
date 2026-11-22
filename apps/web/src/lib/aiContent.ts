@@ -12,6 +12,8 @@ export type CaptionTone =
 export type CaptionLength = "short" | "medium" | "long";
 
 export type GenerateCaptionInput = {
+  sourceCaption?: string;
+  referenceImages?: string[];
   language?: "en" | "fil" | "es" | "fr" | "de" | "ja" | "ko" | "pt" | "zh";
   goal?: import("./postGoals").PostGoal;
   brief: string;

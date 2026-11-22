@@ -20,28 +20,30 @@ export function PostEditorPage({
 }: PostEditorPageProps) {
   return (
     <div className="space-y-6">
-      <header>
-        <button
-          type="button"
-          onClick={onBack}
-          className="mb-4 inline-flex items-center gap-2 text-sm font-normal text-slate-500 transition hover:text-violet-700"
-        >
-          <ArrowLeft size={17} />
-          Back to Posts
-        </button>
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-3 flex items-center gap-2 text-sm text-slate-500"
+          >
+            <ArrowLeft size={17} />
+            Back to Posts
+          </button>
 
-        <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold text-slate-900">
-          {mode === "create" ? "Create Post" : "Edit Post"}
-        </h1>
-        {headerActions}
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">
+              {mode === "create" ? "Create Post" : "Edit Post"}
+            </h1>
+          </div>
+
+          <p className="mt-1 text-sm text-slate-500">
+            {mode === "create"
+              ? "Turn an idea into your next post. Write, preview, and publish in one place."
+              : "Update your draft and review its publishing requirements."}
+          </p>
         </div>
-
-        <p className="mt-1 text-sm text-slate-500">
-          {mode === "create"
-            ? "Turn an idea into your next post. Write, preview, and publish in one place."
-            : "Update your draft and review its publishing requirements."}
-        </p>
+        {headerActions}
       </header>
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px]">

@@ -87,6 +87,23 @@ describe("POST /api/ai/generate-caption", () => {
     expect(generateSpy).toHaveBeenCalledWith(validInput);
   });
 
+  it("passes the shared caption and included photos to generation", async () => {
+    mockAuthenticatedUser();
+    const input = { ...validInput, sourceCaption: "Water basil at the roots.", referenceImages: ["data:image/jpeg;base64,YQ=="] };
+    const generateSpy = vi.spyOn(aiContentService, "generateCaption").mockResolvedValue("Keep your basil hydrated.");
+    const response = await request(app).post("/api/ai/generate-caption").set("Authorization", "Bearer valid-test-token").send(input);
+    expect(response.status).toBe(200);
+    expect(generateSpy).toHaveBeenCalledWith(input);
+  });
+
+  it("rejects remote photo URLs before generation", async () => {
+    mockAuthenticatedUser();
+    const generateSpy = vi.spyOn(aiContentService, "generateCaption");
+    const response = await request(app).post("/api/ai/generate-caption").set("Authorization", "Bearer valid-test-token").send({ ...validInput, referenceImages: ["https://example.com/image.jpg"] });
+    expect(response.status).toBe(400);
+    expect(generateSpy).not.toHaveBeenCalled();
+  });
+
   it("returns a safe error when AI configuration is missing", async () => {
     mockAuthenticatedUser();
 

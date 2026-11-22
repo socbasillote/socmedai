@@ -4,15 +4,36 @@ import { apiFetch } from "@/lib/api";
 import { useComposerAutosave } from "./useComposerAutosave";
 import { syncComposerDrafts } from "../lib/composerDraftRecovery";
 vi.mock("@/lib/api", () => ({ apiFetch: vi.fn() }));
-const content = { workspaceId: "507f1f77bcf86cd799439011", title: "", caption: "", platforms: ["linkedin"] as ["linkedin"], mediaIds: [] };
+const content = { workspaceId: "507f1f77bcf86cd799439011", title: "", caption: "", platforms: ["linkedin"] as ["linkedin"], mediaIds: [] as string[] };
 beforeEach(() => { localStorage.clear(); vi.useFakeTimers(); vi.mocked(apiFetch).mockReset().mockResolvedValue({ post: { _id: "saved" } }); });
 afterEach(async () => { cleanup(); await vi.advanceTimersByTimeAsync(0); vi.useRealTimers(); });
-it("saves Untitled drafts before browser closure and reuses the same identity for edits", async () => {
-  const hook = renderHook(({ caption }) => useComposerAutosave({ ownerId: "owner", enabled: true, content: { ...content, caption } }), { initialProps: { caption: "" } });
+it.each([
+  { title: "", caption: "" },
+  { title: "  ", caption: "\n\t " },
+])("does not save an empty form with defaults: %j", async (fields) => {
+  const hook = renderHook(() => useComposerAutosave({ ownerId: "owner", enabled: true, content: { ...content, ...fields, scheduledAt: "2027-01-06T06:15:00.000Z" } }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); window.dispatchEvent(new Event("pagehide")); });
+  hook.unmount();
+  await syncComposerDrafts("owner");
+  expect(apiFetch).not.toHaveBeenCalled();
+  expect(Object.keys(localStorage)).toHaveLength(0);
+});
+it.each([{ title: "A title" }, { caption: "A caption" }, { mediaIds: ["image-id"] }])("starts saving when content is added: %j", async (fields) => {
+  const hook = renderHook(({ value }) => useComposerAutosave({ ownerId: "owner", enabled: true, content: value }), { initialProps: { value: content } });
+  hook.rerender({ value: { ...content, ...fields } });
+  await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+  expect(apiFetch).toHaveBeenCalledOnce();
+  hook.rerender({ value: content });
+  await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+  expect(JSON.parse(vi.mocked(apiFetch).mock.calls.at(-1)![1]!.body as string).caption).toBe("");
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+});
+it("saves Untitled drafts with content before browser closure and reuses the same identity for edits", async () => {
+  const hook = renderHook(({ caption }) => useComposerAutosave({ ownerId: "owner", enabled: true, content: { ...content, caption } }), { initialProps: { caption: "Initial caption" } });
   await act(async () => { await vi.advanceTimersByTimeAsync(600); });
   const first = JSON.parse(vi.mocked(apiFetch).mock.calls[0][1]!.body as string);
   expect(first.title).toBe("Untitled");
-  expect(first.caption).toBe("");
+  expect(first.caption).toBe("Initial caption");
   hook.rerender({ caption: "Latest caption" });
   await act(async () => { window.dispatchEvent(new Event("pagehide")); await vi.advanceTimersByTimeAsync(0); });
   const last = JSON.parse(vi.mocked(apiFetch).mock.calls.at(-1)![1]!.body as string);

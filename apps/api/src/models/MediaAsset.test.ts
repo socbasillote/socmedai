@@ -35,6 +35,22 @@ function createReadyAsset() {
 }
 
 describe("MediaAsset model", () => {
+  it("hydrates uploaded images without reapplying immutable identity defaults", async () => {
+    const raw = createPendingAsset().toObject();
+    const asset = MediaAsset.hydrate({ ...raw, source: "uploaded" });
+    await expect(asset.validate()).resolves.toBeUndefined();
+    expect(asset.type).toBe("image");
+    expect(asset.source).toBe("uploaded");
+  });
+
+  it("still prevents changing an existing image's source", async () => {
+    const raw = createPendingAsset().toObject();
+    const asset = MediaAsset.hydrate({ ...raw, source: "uploaded" });
+    asset.set("source", "ai-generated");
+    await expect(asset.validate()).rejects.toThrow(/immutable/);
+    expect(asset.source).toBe("uploaded");
+  });
+
   it("creates a pending image by default", async () => {
     const asset = createPendingAsset();
 

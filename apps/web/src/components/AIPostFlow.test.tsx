@@ -1,3 +1,5 @@
+import { createAutomaticCrop } from "@/features/publishing/automaticImageCrop";
+import { defaultCrop } from "@/features/publishing/imageCrop";
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -7,24 +9,27 @@ import { AIPostFlow } from "./AIPostFlow";
 import { generateCaption } from "@/lib/aiContent";
 import { createPost, validatePostBatch } from "@/lib/posts";
 import { generateWorkspaceImage, getWorkspaceImageStatus, getWorkspaceImageUrl } from "@/lib/imageGeneration";
+vi.mock("@/features/publishing/automaticImageCrop", () => ({ createAutomaticCrop: vi.fn() }));
 vi.mock("@/lib/aiContent", () => ({ generateCaption: vi.fn() }));
 vi.mock("@/lib/posts", () => ({ createPost: vi.fn(), validatePostBatch: vi.fn() }));
 vi.mock("@/lib/imageGeneration", () => ({ generateWorkspaceImage: vi.fn(), getWorkspaceImageStatus: vi.fn(), getWorkspaceImageUrl: vi.fn(), uploadWorkspaceImageReference: vi.fn() }));
 vi.mock("@/features/publishing/components/MediaLibraryPicker", () => ({ MediaLibraryPicker: () => null }));
-beforeEach(() => { vi.mocked(validatePostBatch).mockResolvedValue({ issues: [] }); vi.mocked(generateCaption).mockResolvedValue("A useful caption"); vi.mocked(createPost).mockResolvedValue({} as Awaited<ReturnType<typeof createPost>>); });
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+beforeEach(() => {
+  vi.mocked(createAutomaticCrop).mockImplementation(async (_workspace, originalAssetId, platform) => ({ assetId: originalAssetId, originalAssetId, crop: defaultCrop(platform) })); vi.mocked(validatePostBatch).mockResolvedValue({ issues: [] }); vi.mocked(generateCaption).mockResolvedValue("A useful caption"); vi.mocked(createPost).mockResolvedValue({} as Awaited<ReturnType<typeof createPost>>); });
+afterEach(() => { cleanup(); localStorage.clear(); vi.clearAllMocks(); });
 function setup(overrides: Partial<ComponentProps<typeof AIPostFlow>> = {}) { render(<AIPostFlow workspaceId="507f1f77bcf86cd799439011" timezone="Asia/Manila" onBack={vi.fn()} connections={{ facebook: "page" }} destinations={null} {...overrides} />); fireEvent.change(screen.getByRole("textbox", { name: "Post brief" }), { target: { value: "Share our new coffee menu" } }); }
-it("defaults to Engagement and single mode; generation does not persist posts", async () => {
-  setup(); expect(screen.getByRole("button", { name: "Engagement" })).toHaveAttribute("aria-pressed", "true");
+it("defaults to no goal or call to action and single mode; generation does not persist posts", async () => {
+  setup(); expect(screen.getByRole("button", { name: "No goal" })).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(screen.getByRole("switch", { name: "Images" }));
   fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
   await screen.findByDisplayValue("A useful caption");
   expect(createPost).not.toHaveBeenCalled();
-  expect(generateCaption).toHaveBeenCalledWith(expect.objectContaining({ goal: "engagement", platform: "facebook" }));
+  expect(generateCaption).toHaveBeenCalledWith(expect.objectContaining({ goal: undefined, platform: "facebook", callToAction: "Do not include a call to action or add an engagement question." }));
   expect(screen.getByText("1 of 1 selected")).toBeTruthy();
 });
 it("mixes goals and saves only selected posts", async () => {
   setup(); fireEvent.click(screen.getByRole("button", { name: "Bulk" }));
+  fireEvent.click(screen.getByRole("button", { name: "Engagement" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Mix different goals across the batch" }));
   fireEvent.click(screen.getByRole("switch", { name: "Images" }));
   fireEvent.click(screen.getByRole("button", { name: "Generate 3 posts" }));
@@ -97,18 +102,29 @@ it("bulk creates three separate image assets from one entered brief", async () =
   expect(new Set(displayed.map(img => img.getAttribute("src"))).size).toBe(3);
   expect(createPost).not.toHaveBeenCalled();
 });
-it("bulk creates an image per post per platform with the appropriate dimensions", async () => {
+it("bulk generates one square image and caption per post shared across platforms", async () => {
   mockSuccessfulImages();
   setup();
   fireEvent.click(screen.getByRole("button", { name: "Bulk" }));
   fireEvent.click(screen.getByRole("button", { name: "linkedin" }));
   fireEvent.click(screen.getByRole("button", { name: "Generate 3 posts" }));
   await waitFor(() => expect(screen.getByText("3 of 3 selected")).toBeTruthy());
-  expect(generateWorkspaceImage).toHaveBeenCalledTimes(6);
+  expect(generateWorkspaceImage).toHaveBeenCalledTimes(3);
+  expect(generateCaption).toHaveBeenCalledTimes(3);
   const commands = vi.mocked(generateWorkspaceImage).mock.calls.map(call => call[1]);
-  expect(commands.map(command => command.image.aspectRatio)).toEqual(["square", "landscape", "square", "landscape", "square", "landscape"]);
-  expect(new Set(commands.map(command => command.idempotencyKey)).size).toBe(6);
-  expect(screen.getAllByRole("img")).toHaveLength(6);
+  expect(commands.map(command => command.image.aspectRatio)).toEqual(["square", "square", "square"]);
+  expect(new Set(commands.map(command => command.idempotencyKey)).size).toBe(3);
+  const images = screen.getAllByRole("img");
+  expect(images).toHaveLength(6);
+  expect(new Set(images.map(img => img.getAttribute("src"))).size).toBe(3);
+  fireEvent.click(screen.getByRole("button", { name: "Save as drafts" }));
+  await waitFor(() => expect(createPost).toHaveBeenCalledTimes(6));
+  const saved = vi.mocked(createPost).mock.calls.map(call => call[0]);
+  for (let i = 0; i < 6; i += 2) {
+    expect(saved[i].caption).toBe(saved[i + 1].caption);
+    expect(saved[i].mediaIds).toEqual(saved[i + 1].mediaIds);
+    expect(saved[i].clientDraftId).not.toBe(saved[i + 1].clientDraftId);
+  }
 });
 it("continues the bulk batch when one image fails and selects only successful posts", async () => {
   mockSuccessfulImages();
@@ -268,4 +284,213 @@ it("spreads every platform version weekly in workspace time across a year bounda
   ]);
   expect(new Set(requests.map(request => request.clientDraftId)).size).toBe(6);
   expect(validatePostBatch).toHaveBeenCalledWith(requests);
+});
+
+it("pairs each bulk image with its own caption", async () => {
+  mockSuccessfulImages();
+  const captions = ["Water indoor herbs at the roots.", "Harvest basil leaves for dinner.", "Place mint beside a sunny window."];
+  for (const caption of captions) vi.mocked(generateCaption).mockResolvedValueOnce(caption);
+  setup();
+  fireEvent.click(screen.getByRole("button", { name: "Bulk" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate 3 posts" }));
+  await waitFor(() => expect(screen.getByText("3 of 3 selected")).toBeTruthy());
+  const prompts = vi.mocked(generateWorkspaceImage).mock.calls.map(c => c[1].image.prompt);
+  captions.forEach((caption, i) => {
+    expect(prompts[i]).toContain(caption);
+    captions.filter(other => other !== caption).forEach(other => expect(prompts[i]).not.toContain(other));
+  });
+});
+it("regenerates one shared image using the chosen edited caption and preserves other caption edits", async () => {
+  mockSuccessfulImages();
+  setup();
+  fireEvent.click(screen.getByRole("button", { name: "linkedin" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+  expect(generateCaption).toHaveBeenCalledTimes(1);
+  fireEvent.change(screen.getByRole("textbox", { name: "linkedin caption" }), { target: { value: "Pouring cold brew over ice." } });
+  fireEvent.click(screen.getAllByRole("button", { name: "Regenerate shared image" })[1]);
+  await waitFor(() => expect(generateWorkspaceImage).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[1][1].image.prompt).toContain("Pouring cold brew over ice.");
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[1][1].image.aspectRatio).toBe("square");
+  await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+  expect(generateCaption).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("textbox", { name: "facebook caption" })).toHaveValue("A useful caption");
+  expect(screen.getByRole("textbox", { name: "linkedin caption" })).toHaveValue("Pouring cold brew over ice.");
+  expect(new Set(screen.getAllByRole("img").map(img => img.getAttribute("src"))).size).toBe(1);
+});
+it("does not spend an image request when caption generation fails", async () => {
+  mockSuccessfulImages();
+  vi.mocked(generateCaption).mockRejectedValueOnce(new Error("Caption unavailable"));
+  setup();
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await screen.findByText(/Caption unavailable/);
+  expect(generateWorkspaceImage).not.toHaveBeenCalled();
+  expect(screen.getByRole("checkbox", { name: "Select post" })).toBeDisabled();
+});
+
+const reviewOwner = "review-owner";
+function reopenReview(ownerId = reviewOwner) {
+  render(<AIPostFlow ownerId={ownerId} workspaceId="507f1f77bcf86cd799439011" timezone="Asia/Manila" onBack={vi.fn()} connections={{ facebook: "page" }} destinations={null} />);
+}
+it("returns from setup to the existing review without spending another generation", async () => {
+  setup({ ownerId: reviewOwner });
+  fireEvent.click(screen.getByRole("switch", { name: "Images" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await screen.findByDisplayValue("A useful caption");
+  fireEvent.change(screen.getByRole("textbox", { name: "facebook caption" }), { target: { value: "My edited caption" } });
+  fireEvent.click(screen.getByRole("button", { name: "Back to AI setup" }));
+  fireEvent.click(screen.getByRole("button", { name: "Return to review (1)" }));
+  expect(screen.getByDisplayValue("My edited caption")).toBeTruthy();
+  expect(generateCaption).toHaveBeenCalledTimes(1);
+});
+it("restores edited captions and selection after leaving and reopening", async () => {
+  setup({ ownerId: reviewOwner });
+  fireEvent.click(screen.getByRole("switch", { name: "Images" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+  fireEvent.change(screen.getByRole("textbox", { name: "facebook caption" }), { target: { value: "Keep this edited caption" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select post" }));
+  cleanup(); reopenReview();
+  await screen.findByDisplayValue("Keep this edited caption");
+  expect(screen.getByRole("checkbox", { name: "Select post" })).not.toBeChecked();
+  expect(generateCaption).toHaveBeenCalledTimes(1);
+  expect(createPost).not.toHaveBeenCalled();
+});
+it("keeps another account's review private", async () => {
+  setup({ ownerId: reviewOwner });
+  fireEvent.click(screen.getByRole("switch", { name: "Images" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await screen.findByDisplayValue("A useful caption");
+  cleanup(); reopenReview("another-owner");
+  expect(screen.queryByText("Review generated posts")).toBeNull();
+  expect(screen.queryByDisplayValue("A useful caption")).toBeNull();
+});
+it("reopens an uncertain post save with its original request payload and key", async () => {
+  vi.mocked(createPost).mockRejectedValueOnce(new Error("Connection lost"));
+  setup({ ownerId: reviewOwner });
+  fireEvent.click(screen.getByRole("switch", { name: "Images" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+  fireEvent.click(screen.getByRole("button", { name: "Save as drafts" }));
+  await screen.findByText("Connection lost");
+  const original = vi.mocked(createPost).mock.calls[0][0];
+  cleanup(); reopenReview();
+  await screen.findByText(/A save could not be confirmed/);
+  fireEvent.click(screen.getByRole("button", { name: "Save as drafts" }));
+  await waitFor(() => expect(createPost).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(createPost).mock.calls[1][0]).toEqual(original);
+  cleanup(); reopenReview();
+  expect(screen.queryByText("Review generated posts")).toBeNull();
+});
+it("resumes an accepted image job with GET requests after reopening", async () => {
+  mockSuccessfulImages();
+  let releaseStatus!: (result: Awaited<ReturnType<typeof getWorkspaceImageStatus>>) => void;
+  vi.mocked(getWorkspaceImageStatus).mockImplementationOnce(() => new Promise(resolve => { releaseStatus = resolve; }));
+  setup({ ownerId: reviewOwner });
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(getWorkspaceImageStatus).toHaveBeenCalledTimes(1));
+  const assetId = vi.mocked(getWorkspaceImageStatus).mock.calls[0][1];
+  cleanup(); reopenReview();
+  await screen.findByRole("img", { name: "facebook post visual" });
+  expect(screen.getByDisplayValue("A useful caption")).toBeTruthy();
+  expect(generateWorkspaceImage).toHaveBeenCalledTimes(1);
+  expect(generateCaption).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(getWorkspaceImageStatus).mock.calls[1][1]).toBe(assetId);
+  expect(JSON.stringify(localStorage)).not.toContain("https://images.example.com");
+  releaseStatus({ assetId, status: "ready", state: "ready", createdAt: "2026-11-22", updatedAt: "2026-11-22" });
+});
+it("requires explicit discard before replacing an unfinished review batch", async () => {
+  setup({ ownerId: reviewOwner });
+  fireEvent.click(screen.getByRole("switch", { name: "Images" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await screen.findByDisplayValue("A useful caption");
+  fireEvent.click(screen.getByRole("button", { name: "Back to AI setup" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await screen.findByText(/Finish reviewing this batch/);
+  expect(generateCaption).toHaveBeenCalledTimes(1);
+});
+
+it("resumes an unconfirmed image submission with its original idempotency key", async () => {
+  mockSuccessfulImages();
+  vi.mocked(generateWorkspaceImage).mockRejectedValueOnce(new Error("Connection dropped"));
+  setup({ ownerId: reviewOwner });
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await screen.findByText("Image: Connection dropped");
+  const original = vi.mocked(generateWorkspaceImage).mock.calls[0][1];
+  cleanup(); reopenReview();
+  fireEvent.click(await screen.findByRole("button", { name: "Resume image request" }));
+  await screen.findByRole("img", { name: "facebook post visual" });
+  expect(generateWorkspaceImage).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[1][1]).toEqual(original);
+  expect(generateCaption).toHaveBeenCalledTimes(1);
+});
+
+it("shares one caption and square image across Facebook, Instagram, and LinkedIn", async () => {
+  mockSuccessfulImages();
+  setup();
+  fireEvent.click(screen.getByRole("button", { name: "instagram" }));
+  fireEvent.click(screen.getByRole("button", { name: "linkedin" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+  expect(generateCaption).toHaveBeenCalledTimes(1);
+  expect(generateCaption).toHaveBeenCalledWith(expect.objectContaining({ platform: "instagram", length: "short", brief: expect.stringContaining("facebook, instagram, linkedin") }));
+  expect(generateWorkspaceImage).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[0][1].image.aspectRatio).toBe("square");
+  expect(screen.getAllByDisplayValue("A useful caption")).toHaveLength(3);
+  expect(new Set(screen.getAllByRole("img").map(img => img.getAttribute("src"))).size).toBe(1);
+});
+it("reopens a shared pending image with one status check and no extra generation", async () => {
+  mockSuccessfulImages();
+  let releaseStatus!: (result: Awaited<ReturnType<typeof getWorkspaceImageStatus>>) => void;
+  vi.mocked(getWorkspaceImageStatus).mockImplementationOnce(() => new Promise(resolve => { releaseStatus = resolve; }));
+  setup({ ownerId: reviewOwner });
+  fireEvent.click(screen.getByRole("button", { name: "linkedin" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(getWorkspaceImageStatus).toHaveBeenCalledTimes(1));
+  const assetId = vi.mocked(getWorkspaceImageStatus).mock.calls[0][1];
+  cleanup(); reopenReview();
+  await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(2));
+  expect(getWorkspaceImageStatus).toHaveBeenCalledTimes(2);
+  expect(generateWorkspaceImage).toHaveBeenCalledTimes(1);
+  expect(generateCaption).toHaveBeenCalledTimes(1);
+  expect(screen.getAllByDisplayValue("A useful caption")).toHaveLength(2);
+  releaseStatus({ assetId, status: "ready", state: "ready", createdAt: "2026-11-22", updatedAt: "2026-11-22" });
+});
+it("resumes one unconfirmed shared image submission across platforms", async () => {
+  mockSuccessfulImages();
+  vi.mocked(generateWorkspaceImage).mockRejectedValueOnce(new Error("Connection dropped"));
+  setup({ ownerId: reviewOwner });
+  fireEvent.click(screen.getByRole("button", { name: "linkedin" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(screen.getAllByText("Image: Connection dropped")).toHaveLength(2));
+  const original = vi.mocked(generateWorkspaceImage).mock.calls[0][1];
+  cleanup(); reopenReview();
+  fireEvent.click((await screen.findAllByRole("button", { name: "Resume image request" }))[0]);
+  await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(2));
+  expect(generateWorkspaceImage).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[1][1]).toEqual(original);
+  expect(generateCaption).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("button", { name: "Resume image request" })).toBeNull();
+});
+
+it("keeps caption questions out of the image prompt even when a goal and CTA are selected", async () => {
+  mockSuccessfulImages();
+  setup();
+  fireEvent.click(screen.getByRole("button", { name: "Engagement" }));
+  fireEvent.click(screen.getByRole("button", { name: "Ask a question" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+  expect(generateCaption).toHaveBeenCalledWith(expect.objectContaining({ goal: "engagement", callToAction: "Ask a question" }));
+  const image = vi.mocked(generateWorkspaceImage).mock.calls[0][1].image;
+  expect(image.goal).toBeUndefined();
+  expect(image.prompt).toContain("Do not render the caption, questions, engagement prompts, calls to action, or hashtags as text in the image.");
+});
+it("allows clearing a selected goal before generating", async () => {
+  setup();
+  fireEvent.click(screen.getByRole("button", { name: "Engagement" }));
+  fireEvent.click(screen.getByRole("button", { name: "No goal" }));
+  fireEvent.click(screen.getByRole("switch", { name: "Images" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await screen.findByDisplayValue("A useful caption");
+  expect(generateCaption).toHaveBeenCalledWith(expect.objectContaining({ goal: undefined }));
 });

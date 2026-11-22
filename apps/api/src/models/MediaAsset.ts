@@ -285,7 +285,9 @@ const mediaAssetSchema = new Schema(
     type: {
       type: String,
       enum: ["image"],
-      default: "image",
+      // Only new documents receive identity defaults. Hydrating an existing
+      // document must not run defaults through immutable setters before init.
+      default: function (this: mongoose.Document) { return this.isNew ? "image" : undefined; },
       required: true,
       immutable: true,
     },
@@ -293,7 +295,7 @@ const mediaAssetSchema = new Schema(
     source: {
       type: String,
       enum: MEDIA_ASSET_SOURCES,
-      default: "ai-generated",
+      default: function (this: mongoose.Document) { return this.isNew ? "ai-generated" : undefined; },
       required: true,
       immutable: true,
     },

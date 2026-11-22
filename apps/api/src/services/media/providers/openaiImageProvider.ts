@@ -268,6 +268,11 @@ export class OpenAIImageProvider implements ImageProvider {
 
       await response.body?.cancel().catch(() => undefined);
 
+      // A structured moderation rejection is definitive: no image was created.
+      // Keep ambiguous errors conservative so they cannot trigger paid retries.
+      if (response.status === 400 && ["moderation_blocked", "content_policy_violation"].includes(diagnostics.providerCode ?? "")) {
+        throw providerError("The image provider rejected this generation under its content policy.", "rejected");
+      }
       throw classifyHttpError(response.status);
     }
 

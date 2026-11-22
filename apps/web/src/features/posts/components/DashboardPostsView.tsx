@@ -1,5 +1,6 @@
 import { PostsPage } from "@/components/PostsPage";
 import { RecentPostsList } from "@/components/RecentPostsList";
+import { DraftDeleteConfirmation } from "./DraftDeleteConfirmation";
 
 import type { useDashboardPosts } from "@/features/posts/hooks/useDashboardPosts";
 
@@ -33,7 +34,7 @@ export function DashboardPostsView({
   onMoreOptions,
 }: DashboardPostsViewProps) {
   return (
-    <PostsPage
+    <DraftDeleteConfirmation posts={posts}>{(requestDelete) => <PostsPage
       onCreatePost={onCreatePost}
       sort={posts.sort}
       onSortChange={posts.setSort}
@@ -66,12 +67,11 @@ export function DashboardPostsView({
 
           onEditDraft(draft._id);
         }}
-        onDelete={(postId, postTitle) => {
-          void posts.handleDeleteDraft(postId, postTitle);
-        }}
+        onDelete={requestDelete}
         onMoreOptions={onMoreOptions}
         onLoadMore={posts.handleLoadMorePosts}
       />
-    </PostsPage>
+
+    </PostsPage>}</DraftDeleteConfirmation>
   );
 }

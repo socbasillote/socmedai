@@ -50,6 +50,7 @@ export function useDashboardPosts(
     savedPosts,
     statusCounts,
     setSavedPosts,
+    refreshPosts,
     draftCount,
     setDraftCount,
     postsLoading,
@@ -82,6 +83,7 @@ export function useDashboardPosts(
     {
       setSavedPosts,
       setNotice,
+      onDeleted: refreshPosts,
     },
   );
 

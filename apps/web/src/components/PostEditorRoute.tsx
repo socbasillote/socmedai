@@ -1,6 +1,12 @@
 import { AIPostFlow } from "./AIPostFlow";
 import { useComposerAutosave } from "@/features/posts/hooks/useComposerAutosave";
-import { readWorkspacePreferences, nextPreferredSchedule, parseZonedInput, zonedInputValue, canApplyWorkspaceDefaults } from "@/lib/workspaceSettings";
+import {
+  readWorkspacePreferences,
+  nextPreferredSchedule,
+  parseZonedInput,
+  zonedInputValue,
+  canApplyWorkspaceDefaults,
+} from "@/lib/workspaceSettings";
 import { useInstagramConnections } from "@/hooks/useInstagramConnections";
 import { usePublishingCapabilities } from "@/hooks/usePublishingCapabilities";
 import { useEffect, useLayoutEffect, useState, useRef } from "react";
@@ -29,9 +35,7 @@ import {
   type PostPlatform,
 } from "@/lib/posts";
 
-import {
-  toScheduledAtISOString,
-} from "@/shared/utils/schedulingDate";
+import { toScheduledAtISOString } from "@/shared/utils/schedulingDate";
 
 import { getPlannerReturnUrl } from "@/features/content-planner/utils/plannerNavigation";
 
@@ -73,9 +77,8 @@ type PostEditorRouteProps = {
   postId?: string;
 };
 
-
 export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
-  const [composeMode, setComposeMode] = useState<"Manual" | "AI">("Manual");
+  const [composeMode, setComposeMode] = useState<"AI" | "Manual">("AI");
   const serverCapabilities = usePublishingCapabilities();
   const navigate = useNavigate();
 
@@ -179,18 +182,36 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   const preferences = readWorkspacePreferences(selectedWorkspace);
   const scheduleTimezone = preferences.timezone;
   const [defaultsScope, setDefaultsScope] = useState("");
-  const [explicitChoices, setExplicitChoices] = useState<Record<string, string>>({});
+  const [explicitChoices, setExplicitChoices] = useState<
+    Record<string, string>
+  >({});
   function markExplicit(choice: string) {
     setExplicitChoices((current) => ({ ...current, [choice]: contentScope }));
   }
-  if (selectedWorkspace && canApplyWorkspaceDefaults(mode, false, defaultsScope === contentScope)) {
+  if (
+    selectedWorkspace &&
+    canApplyWorkspaceDefaults(mode, false, defaultsScope === contentScope)
+  ) {
     setDefaultsScope(contentScope);
-    if (explicitChoices.mode !== contentScope) setPostMode(plannerScheduledAt ? "scheduled" : preferences.publishing.defaultPostMode);
+    if (explicitChoices.mode !== contentScope)
+      setPostMode(
+        plannerScheduledAt
+          ? "scheduled"
+          : preferences.publishing.defaultPostMode,
+      );
     if (explicitChoices.schedule !== contentScope) {
       setScheduledAt(plannerScheduledAt ?? nextPreferredSchedule(preferences));
     }
-    if (explicitChoices.platforms !== contentScope) setSelectedPlatforms([preferences.defaultDestinations.facebook ? "facebook" : preferences.defaultDestinations.linkedin ? "linkedin" : "facebook"]);
-    if (explicitChoices.facebook !== contentScope) setSelectedFacebookConnectionId(preferences.defaultDestinations.facebook);
+    if (explicitChoices.platforms !== contentScope)
+      setSelectedPlatforms([
+        preferences.defaultDestinations.facebook
+          ? "facebook"
+          : preferences.defaultDestinations.linkedin
+            ? "linkedin"
+            : "facebook",
+      ]);
+    if (explicitChoices.facebook !== contentScope)
+      setSelectedFacebookConnectionId(preferences.defaultDestinations.facebook);
   }
 
   // Existing post loading
@@ -259,7 +280,11 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   const composerAutosave = useComposerAutosave({
     ownerId: recoveryOwnerUserId,
     enabled:
-      mode === "create" && !selectedWorkspace?.archivedAt && !saving && !publishing && !savedPublishingPostId,
+      mode === "create" &&
+      !selectedWorkspace?.archivedAt &&
+      !saving &&
+      !publishing &&
+      !savedPublishingPostId,
     content: {
       workspaceId: selectedWorkspaceId ?? "",
       title,
@@ -454,9 +479,14 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
 
   function checkServerAvailability(action: "now" | "schedule") {
     const available = selectedPlatforms.every((platform) =>
-      action === "now" ? serverCapabilities[platform]?.publishNow : serverCapabilities[platform]?.schedule,
+      action === "now"
+        ? serverCapabilities[platform]?.publishNow
+        : serverCapabilities[platform]?.schedule,
     );
-    if (!available) setError("Publishing availability could not be verified or this action is disabled on the server. Refresh and try again.");
+    if (!available)
+      setError(
+        "Publishing availability could not be verified or this action is disabled on the server. Refresh and try again.",
+      );
     return available;
   }
 
@@ -479,7 +509,8 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       return;
     }
 
-    if (postMode === "scheduled" && !checkServerAvailability("schedule")) return;
+    if (postMode === "scheduled" && !checkServerAvailability("schedule"))
+      return;
 
     const trimmedTitle = title.trim();
     const trimmedCaption = caption.trim();
@@ -548,9 +579,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         !selectedPlatforms.includes("instagram") &&
         mediaState.selectedMediaIds.length > 1
       ) {
-        setError(
-          "Scheduled publishing supports at most one image per post.",
-        );
+        setError("Scheduled publishing supports at most one image per post.");
         return;
       }
 
@@ -718,7 +747,10 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   }
 
   async function handleConfirmPublish() {
-    if (!checkServerAvailability("now")) { setShowPublishConfirmation(false); return; }
+    if (!checkServerAvailability("now")) {
+      setShowPublishConfirmation(false);
+      return;
+    }
     if (publishingLockRef.current || publishing || saving) {
       return;
     }
@@ -1199,7 +1231,10 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   }
 
   const editorContent = selectedWorkspace?.archivedAt ? (
-    <p role="alert" className="rounded-xl bg-amber-50 p-6 text-amber-900">This workspace is archived. Restore it in workspace settings before creating or editing posts.</p>
+    <p role="alert" className="rounded-xl bg-amber-50 p-6 text-amber-900">
+      This workspace is archived. Restore it in workspace settings before
+      creating or editing posts.
+    </p>
   ) : loadingPost ? (
     <div
       role="status"
@@ -1310,217 +1345,295 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     />
   );
 
-  const modeToggle = (mode === "create" ? <div className="mb-5 flex justify-end gap-1" role="group" aria-label="Composition mode">{(["Manual", "AI"] as const).map(value => <button type="button" key={value} aria-pressed={composeMode === value} onClick={() => setComposeMode(value)} className={`rounded-xl px-5 py-2 text-sm font-semibold ${composeMode === value ? "bg-violet-600 text-white" : "bg-white text-slate-500"}`}>{value}</button>)}</div> : null);
+  const modeToggle =
+    mode === "create" ? (
+      <div
+        className="mb-5 flex justify-end gap-1"
+        role="group"
+        aria-label="Composition mode"
+      >
+        {(["AI", "Manual"] as const).map((value) => (
+          <button
+            type="button"
+            key={value}
+            aria-pressed={composeMode === value}
+            onClick={() => setComposeMode(value)}
+            className={`rounded-xl px-5 py-2 text-sm font-semibold ${composeMode === value ? "bg-violet-600 text-white" : "bg-white text-slate-500"}`}
+          >
+            {value}
+          </button>
+        ))}
+      </div>
+    ) : null;
 
   return (
     <main className="min-h-screen bg-slate-50 p-6 text-slate-900">
       <div className="mx-auto max-w-7xl">
-
-        {mode === "create" && composeMode === "AI" ? selectedWorkspaceId ? <AIPostFlow
-          key={contentScope}
-          workspaceId={selectedWorkspaceId}
-          timezone={scheduleTimezone}
-          headerActions={modeToggle}
-          scheduleCapabilities={serverCapabilities}
-          publishingRules={selectedWorkspace?.settings?.publishing ? preferences.publishing : undefined}
-          onBack={handleCancel}
-          disabled={Boolean(selectedWorkspace?.archivedAt)}
-          connections={{ facebook: selectedFacebookConnectionId ?? undefined, linkedin: linkedInConnectionId ?? undefined, instagram: selectedInstagramConnectionId ?? undefined }}
-          destinations={<div className="space-y-3">
-            <label className="block text-sm">Facebook Page<select aria-label="AI Facebook Page" className="mt-1 block w-full rounded-xl border border-slate-200 p-2" value={selectedFacebookConnectionId ?? ""} onChange={e => setSelectedFacebookConnectionId(e.target.value || null)}><option value="">Choose a connected Page</option>{facebookConnections.map(c => <option key={c.id} value={c.id}>{c.pageName}</option>)}</select></label>
-            <p className="text-sm text-slate-500">LinkedIn: {linkedInDisplayName || "Connect an account in workspace settings"}</p>
-            <label className="block text-sm">Instagram account<select aria-label="AI Instagram account" className="mt-1 block w-full rounded-xl border border-slate-200 p-2" value={selectedInstagramConnectionId ?? ""} onChange={e => setSelectedInstagram({ workspaceId: selectedWorkspaceId, id: e.target.value || null })}><option value="">Choose an account</option>{instagram.connections.map(c => <option key={c.id} value={c.id}>{c.username}</option>)}</select></label>
-          </div>}
-        /> : <p role="status">Select a workspace to create AI posts.</p> : <PostEditorPage
-          headerActions={modeToggle}
-          mode={mode}
-          onBack={handleCancel}
-          sidebar={
-            !loadingPost && !loadError && !selectedWorkspace?.archivedAt ? (
-              <div className="space-y-5">
-                <PublishingControls
-                  editorMode={mode}
-                  postMode={postMode}
-                  scheduledAt={scheduledAt}
-                  minScheduledAt={minScheduledAt}
-                  timezone={scheduleTimezone}
-                  saving={saving || publishing}
-                  locked={savedPublishingPostId !== null}
-                  readiness={readiness}
-                  blockers={checklistBlockers}
-                  formId="storm-post-editor-form"
-                  onPostModeChange={(value) => {
-                    markExplicit("mode");
-                    setPostMode(value);
-                    setError("");
-                  }}
-                  onScheduledAtChange={(value) => {
-                    markExplicit("schedule");
-                    setScheduledAt(value);
-                    setError("");
-                  }}
-                  onCancel={handleCancel}
-                />
-                <details className="group border-t border-slate-100 pt-4">
-                  <summary className="cursor-pointer text-sm font-semibold text-slate-700 focus-visible:outline-violet-500">
-                    View publishing checklist{" "}
-                    <span className="ml-1 text-xs font-normal text-slate-400">
-                      {readiness.readyCount}/{readiness.totalCount} ready
-                    </span>
-                  </summary>
-                  <div className="mt-4">
-                    <PublishingChecklistPanel
-                      readiness={readiness}
-                      blockers={checklistBlockers}
-                    />
-                  </div>
-                </details>
-              </div>
-            ) : undefined
-          }
-          preview={
-            !loadingPost && !loadError && !selectedWorkspace?.archivedAt ? (
-              <PostPreview
-                title={title}
-                selectedMediaAssetId={selectedMediaAssetId}
-                accountName={
-                  selectedPlatforms[0] === "facebook"
-                    ? facebookConnections.find(
-                        (connection) =>
-                          connection.id === selectedFacebookConnectionId,
-                      )?.pageName || "Your Facebook Page"
-                    : selectedPlatforms[0] === "linkedin"
-                      ? linkedInDisplayName || "Your LinkedIn account"
-                      : `@${instagram.connections.find((item) => item.id === selectedInstagramConnectionId)?.username ?? "Instagram account"}`
-                }
-                caption={caption}
-                platforms={selectedPlatforms}
-              />
-            ) : undefined
-          }
-        >
-          <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-normal uppercase tracking-wide text-slate-500">
-              Active Workspace
-            </p>
-
-            {workspacesLoading ? (
-              <p className="mt-2 text-sm text-slate-600">
-                Loading workspace...
-              </p>
-            ) : workspaceError ? (
-              <p role="alert" className="mt-2 text-sm text-rose-600">
-                {workspaceError}
-              </p>
-            ) : selectedWorkspace ? (
-              <p className="mt-2 text-sm font-semibold text-slate-900">
-                {selectedWorkspace.name}
-              </p>
-            ) : (
-              <p className="mt-2 text-sm text-amber-700">
-                No workspace available. Create a workspace before creating
-                posts.
-              </p>
-            )}
-          </div>
-          {linkedInStatusError && (
-            <div
-              role="alert"
-              className="mb-6 rounded-xl border border-rose-200 bg-rose-50 p-4"
-            >
-              <p className="text-sm text-rose-700">
-                LinkedIn: {linkedInStatusError}
-              </p>
-            </div>
-          )}
-
-          {publishing && (
-            <div
-              role="status"
-              aria-live="polite"
-              className="mb-6 rounded-xl border border-violet-200 bg-violet-50 p-4"
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  aria-hidden="true"
-                  className="h-5 w-5 animate-spin rounded-full border-2 border-violet-200 border-t-violet-600"
-                />
-
-                <div>
-                  <p className="text-sm font-semibold text-violet-900">
-                    Publishing to {publishingPlatformLabel}...
+        {mode === "create" && composeMode === "AI" ? (
+          selectedWorkspaceId ? (
+            <AIPostFlow
+              ownerId={recoveryOwnerUserId ?? undefined}
+              key={contentScope}
+              workspaceId={selectedWorkspaceId}
+              timezone={scheduleTimezone}
+              headerActions={modeToggle}
+              scheduleCapabilities={serverCapabilities}
+              publishingRules={
+                selectedWorkspace?.settings?.publishing
+                  ? preferences.publishing
+                  : undefined
+              }
+              onBack={handleCancel}
+              disabled={Boolean(selectedWorkspace?.archivedAt)}
+              connections={{
+                facebook: selectedFacebookConnectionId ?? undefined,
+                linkedin: linkedInConnectionId ?? undefined,
+                instagram: selectedInstagramConnectionId ?? undefined,
+              }}
+              destinations={
+                <div className="space-y-3">
+                  <label className="block text-sm">
+                    Facebook Page
+                    <select
+                      aria-label="AI Facebook Page"
+                      className="mt-1 block w-full rounded-xl border border-slate-200 p-2"
+                      value={selectedFacebookConnectionId ?? ""}
+                      onChange={(e) =>
+                        setSelectedFacebookConnectionId(e.target.value || null)
+                      }
+                    >
+                      <option value="">Choose a connected Page</option>
+                      {facebookConnections.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.pageName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="text-sm text-slate-500">
+                    LinkedIn:{" "}
+                    {linkedInDisplayName ||
+                      "Connect an account in workspace settings"}
                   </p>
-
-                  <p className="mt-1 text-xs text-violet-700">
-                    Please keep this page open while Storm submits your post. Do
-                    not refresh or submit another publishing request.
-                  </p>
+                  <label className="block text-sm">
+                    Instagram account
+                    <select
+                      aria-label="AI Instagram account"
+                      className="mt-1 block w-full rounded-xl border border-slate-200 p-2"
+                      value={selectedInstagramConnectionId ?? ""}
+                      onChange={(e) =>
+                        setSelectedInstagram({
+                          workspaceId: selectedWorkspaceId,
+                          id: e.target.value || null,
+                        })
+                      }
+                    >
+                      <option value="">Choose an account</option>
+                      {instagram.connections.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.username}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
-              </div>
-            </div>
-          )}
-
-          {publishingMessage && (
-            <div
-              role="status"
-              className={`mb-6 rounded-xl border p-4 ${
-                publishingOutcome === "published"
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                  : publishingOutcome === "failed"
-                    ? "border-rose-200 bg-rose-50 text-rose-800"
-                    : "border-amber-200 bg-amber-50 text-amber-800"
-              }`}
-            >
-              <p className="text-sm font-semibold">
-                {publishingOutcome === "published"
-                  ? "Published Successfully"
-                  : publishingOutcome === "failed"
-                    ? "Publishing Failed"
-                    : "Publishing Status Unknown"}
+              }
+            />
+          ) : (
+            <p role="status">Select a workspace to create AI posts.</p>
+          )
+        ) : (
+          <PostEditorPage
+            headerActions={modeToggle}
+            mode={mode}
+            onBack={handleCancel}
+            sidebar={
+              !loadingPost && !loadError && !selectedWorkspace?.archivedAt ? (
+                <div className="space-y-5">
+                  <PublishingControls
+                    editorMode={mode}
+                    postMode={postMode}
+                    scheduledAt={scheduledAt}
+                    minScheduledAt={minScheduledAt}
+                    timezone={scheduleTimezone}
+                    saving={saving || publishing}
+                    locked={savedPublishingPostId !== null}
+                    readiness={readiness}
+                    blockers={checklistBlockers}
+                    formId="storm-post-editor-form"
+                    onPostModeChange={(value) => {
+                      markExplicit("mode");
+                      setPostMode(value);
+                      setError("");
+                    }}
+                    onScheduledAtChange={(value) => {
+                      markExplicit("schedule");
+                      setScheduledAt(value);
+                      setError("");
+                    }}
+                    onCancel={handleCancel}
+                  />
+                  <details className="group border-t border-slate-100 pt-4">
+                    <summary className="cursor-pointer text-sm font-semibold text-slate-700 focus-visible:outline-violet-500">
+                      View publishing checklist{" "}
+                      <span className="ml-1 text-xs font-normal text-slate-400">
+                        {readiness.readyCount}/{readiness.totalCount} ready
+                      </span>
+                    </summary>
+                    <div className="mt-4">
+                      <PublishingChecklistPanel
+                        readiness={readiness}
+                        blockers={checklistBlockers}
+                      />
+                    </div>
+                  </details>
+                </div>
+              ) : undefined
+            }
+            preview={
+              !loadingPost && !loadError && !selectedWorkspace?.archivedAt ? (
+                <PostPreview
+                  title={title}
+                  selectedMediaAssetId={selectedMediaAssetId}
+                  accountName={
+                    selectedPlatforms[0] === "facebook"
+                      ? facebookConnections.find(
+                          (connection) =>
+                            connection.id === selectedFacebookConnectionId,
+                        )?.pageName || "Your Facebook Page"
+                      : selectedPlatforms[0] === "linkedin"
+                        ? linkedInDisplayName || "Your LinkedIn account"
+                        : `@${instagram.connections.find((item) => item.id === selectedInstagramConnectionId)?.username ?? "Instagram account"}`
+                  }
+                  caption={caption}
+                  platforms={selectedPlatforms}
+                />
+              ) : undefined
+            }
+          >
+            <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-normal uppercase tracking-wide text-slate-500">
+                Active Workspace
               </p>
 
-              <p className="mt-2 text-sm">{publishingMessage}</p>
-
-              {savedPublishingPostId && (
-                <button
-                  type="button"
-                  onClick={() => navigate("/posts")}
-                  className="mt-4 rounded-lg border border-current px-4 py-2 text-sm font-semibold"
-                >
-                  View Posts
-                </button>
+              {workspacesLoading ? (
+                <p className="mt-2 text-sm text-slate-600">
+                  Loading workspace...
+                </p>
+              ) : workspaceError ? (
+                <p role="alert" className="mt-2 text-sm text-rose-600">
+                  {workspaceError}
+                </p>
+              ) : selectedWorkspace ? (
+                <p className="mt-2 text-sm font-semibold text-slate-900">
+                  {selectedWorkspace.name}
+                </p>
+              ) : (
+                <p className="mt-2 text-sm text-amber-700">
+                  No workspace available. Create a workspace before creating
+                  posts.
+                </p>
               )}
             </div>
-          )}
-          {!loadingPost && !loadError && !workspaceContext.valid && (
-            <div
-              role="alert"
-              className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4"
-            >
-              <p className="text-sm font-semibold text-amber-900">
-                Workspace verification required
-              </p>
+            {linkedInStatusError && (
+              <div
+                role="alert"
+                className="mb-6 rounded-xl border border-rose-200 bg-rose-50 p-4"
+              >
+                <p className="text-sm text-rose-700">
+                  LinkedIn: {linkedInStatusError}
+                </p>
+              </div>
+            )}
 
-              <p className="mt-1 text-sm text-amber-800">
-                {workspaceContext.message}
+            {publishing && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="mb-6 rounded-xl border border-violet-200 bg-violet-50 p-4"
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    aria-hidden="true"
+                    className="h-5 w-5 animate-spin rounded-full border-2 border-violet-200 border-t-violet-600"
+                  />
+
+                  <div>
+                    <p className="text-sm font-semibold text-violet-900">
+                      Publishing to {publishingPlatformLabel}...
+                    </p>
+
+                    <p className="mt-1 text-xs text-violet-700">
+                      Please keep this page open while Storm submits your post.
+                      Do not refresh or submit another publishing request.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {publishingMessage && (
+              <div
+                role="status"
+                className={`mb-6 rounded-xl border p-4 ${
+                  publishingOutcome === "published"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : publishingOutcome === "failed"
+                      ? "border-rose-200 bg-rose-50 text-rose-800"
+                      : "border-amber-200 bg-amber-50 text-amber-800"
+                }`}
+              >
+                <p className="text-sm font-semibold">
+                  {publishingOutcome === "published"
+                    ? "Published Successfully"
+                    : publishingOutcome === "failed"
+                      ? "Publishing Failed"
+                      : "Publishing Status Unknown"}
+                </p>
+
+                <p className="mt-2 text-sm">{publishingMessage}</p>
+
+                {savedPublishingPostId && (
+                  <button
+                    type="button"
+                    onClick={() => navigate("/posts")}
+                    className="mt-4 rounded-lg border border-current px-4 py-2 text-sm font-semibold"
+                  >
+                    View Posts
+                  </button>
+                )}
+              </div>
+            )}
+            {!loadingPost && !loadError && !workspaceContext.valid && (
+              <div
+                role="alert"
+                className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4"
+              >
+                <p className="text-sm font-semibold text-amber-900">
+                  Workspace verification required
+                </p>
+
+                <p className="mt-1 text-sm text-amber-800">
+                  {workspaceContext.message}
+                </p>
+              </div>
+            )}
+            {mode === "create" && (
+              <p role="status" className="mb-4 text-xs text-slate-600">
+                {composerAutosave.status === "saving"
+                  ? "Saving draft..."
+                  : composerAutosave.status === "saved"
+                    ? "Draft saved automatically"
+                    : composerAutosave.status === "pending"
+                      ? "Draft saved on this device; waiting to sync"
+                      : composerAutosave.status === "unavailable"
+                        ? "Autosave unavailable. Save your draft before leaving."
+                        : "Your work saves automatically as a draft"}
               </p>
-            </div>
-          )}
-          {mode === "create" && (
-            <p role="status" className="mb-4 text-xs text-slate-600">
-              {composerAutosave.status === "saving"
-                ? "Saving draft..."
-                : composerAutosave.status === "saved"
-                  ? "Draft saved automatically"
-                  : composerAutosave.status === "pending"
-                    ? "Draft saved on this device; waiting to sync"
-                    : composerAutosave.status === "unavailable"
-                      ? "Autosave unavailable. Save your draft before leaving."
-                      : "Your work saves automatically as a draft"}
-            </p>
-          )}
-          {editorContent}
-        </PostEditorPage>}
+            )}
+            {editorContent}
+          </PostEditorPage>
+        )}
       </div>
 
       {showPublishConfirmation && (

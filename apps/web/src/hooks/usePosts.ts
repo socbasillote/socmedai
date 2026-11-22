@@ -104,6 +104,7 @@ export function usePosts(
     savedPosts,
     statusCounts,
     setSavedPosts,
+    refreshPosts: () => setRefreshVersion((version) => version + 1),
     draftCount,
     setDraftCount,
     postsLoading: enabled && (postsLoading || search !== debouncedSearch),

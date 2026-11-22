@@ -60,6 +60,15 @@ function request(aspectRatio: "square" | "portrait" | "landscape" = "square") {
 }
 
 describe("OpenAIImageProvider", () => {
+  it.each(["moderation_blocked", "content_policy_violation"])("treats explicit %s HTTP 400 responses as definitive rejections", async code => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const fetchMock = vi.fn(async () => jsonResponse({ error: { code, type: "image_generation_user_error" } }, 400));
+      await expect(makeProvider(fetchMock as typeof fetch).generate(request())).rejects.toMatchObject({ outcome: "rejected" });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally { log.mockRestore(); }
+  });
+
   it("logs recognized rejection metadata without provider messages or secrets", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {

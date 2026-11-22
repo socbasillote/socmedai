@@ -19,6 +19,10 @@ export function useComposerAutosave({ ownerId, enabled, content }: Options) {
   useLayoutEffect(() => {
     if (!enabled || !ownerId || !content.workspaceId) return;
     const snapshot = JSON.parse(serialized) as Options["content"];
+    // Defaults alone must not create a draft. Once editing has started, keep
+    // saving subsequent changes, including clearing previously entered content.
+    const hasContent = Boolean(snapshot.title.trim() || snapshot.caption.trim() || snapshot.mediaIds.length);
+    if (!hasContent && !snapshots.current.has(id)) return;
     const current = { ...snapshot, clientDraftId: id, revision: ++revision.current };
     snapshots.current.set(id, current);
     const stored = storeComposerDraft(ownerId, current);

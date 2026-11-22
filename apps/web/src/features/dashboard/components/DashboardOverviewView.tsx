@@ -1,3 +1,4 @@
+import { DraftDeleteConfirmation } from "@/features/posts/components/DraftDeleteConfirmation";
 import { DashboardOverview } from "@/components/DashboardOverview";
 
 import type { useDashboardPosts } from "@/features/posts/hooks/useDashboardPosts";
@@ -36,7 +37,7 @@ export function DashboardOverviewView({
   onMoreOptions,
 }: DashboardOverviewViewProps) {
   return (
-    <DashboardOverview
+    <DraftDeleteConfirmation posts={posts}>{(requestDelete) => <DashboardOverview
       draftCount={posts.draftCount}
       statusFilter={posts.statusFilter}
       setStatusFilter={posts.setStatusFilter}
@@ -59,14 +60,12 @@ export function DashboardOverviewView({
           onEditDraft(draft._id);
         }
       }}
-      onDelete={(postId, postTitle) => {
-        void posts.handleDeleteDraft(postId, postTitle);
-      }}
+      onDelete={requestDelete}
       onMoreOptions={onMoreOptions}
       onLoadMore={posts.handleLoadMorePosts}
       onCreatePost={onCreatePost}
       onOpenStudio={onOpenStudio}
       onViewPublishing={onViewPublishing}
-    />
+    />}</DraftDeleteConfirmation>
   );
 }

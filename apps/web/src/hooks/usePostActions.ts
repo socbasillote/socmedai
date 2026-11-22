@@ -4,24 +4,18 @@ import { deleteDraftPost, type Post } from "@/lib/posts";
 type UsePostActionsOptions = {
   setSavedPosts: React.Dispatch<React.SetStateAction<Post[]>>;
   setNotice: (value: string) => void;
+  onDeleted: () => void;
 };
 
 export function usePostActions({
   setSavedPosts,
   setNotice,
+  onDeleted,
 }: UsePostActionsOptions) {
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
   const [deletePostError, setDeletePostError] = useState("");
 
-  async function handleDeleteDraft(postId: string, postTitle: string) {
-    const confirmed = window.confirm(
-      `Delete this draft?\n\n${postTitle}\n\nThis action cannot be undone.`,
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
+  async function handleDeleteDraft(postId: string) {
     setDeletingPostId(postId);
     setDeletePostError("");
 
@@ -30,12 +24,14 @@ export function usePostActions({
 
       setSavedPosts((current) => current.filter((post) => post._id !== postId));
 
-      window.dispatchEvent(new Event("storm:posts-changed"));
+      onDeleted();
       setNotice("Draft deleted successfully.");
+      return true;
     } catch (error) {
       setDeletePostError(
         error instanceof Error ? error.message : "Unable to delete the draft.",
       );
+      return false;
     } finally {
       setDeletingPostId(null);
     }

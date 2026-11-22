@@ -189,6 +189,16 @@ afterAll(async () => {
 });
 
 describe("MediaAsset storage lifecycle", () => {
+  it("completes an uploaded crop and persists its verified content hash", async () => {
+    const asset = await createPendingMediaAsset(userA, workspaceA, { prompt: "User uploaded post image", aspectRatio: "square" }, { provider: "upload", model: "original", source: "uploaded" });
+    const storage = fakeBucket();
+    const result = await completePendingMediaAsset({ authUser: userA, workspaceId: workspaceA, assetId: String(asset._id), bytes: await sampleImage() }, storage.bucket);
+    expect(result.status).toBe("ready");
+    expect(result.contentSha256).toMatch(/^[a-f0-9]{64}$/);
+    const saved = await MediaAsset.findById(asset._id);
+    expect(saved?.contentSha256).toBe(result.contentSha256);
+  });
+
   it("uploads, verifies, and marks an asset ready", async () => {
     const asset = await createPending();
     const storage = fakeBucket();
