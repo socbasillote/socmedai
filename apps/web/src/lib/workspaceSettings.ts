@@ -1,3 +1,4 @@
+import { readBrandKit, type BrandKit } from "./brandKit";
 import { apiFetch } from "./api";
 import type { Workspace } from "./workspaces";
 
@@ -13,6 +14,7 @@ export type WorkspacePreferences = {
   timezone: string;
   defaultLanguage: string;
   avatar: string;
+  brandKit: BrandKit;
   defaultDestinations: { facebook: string | null; linkedin: string | null };
   publishing: PublishingPreferences;
 };
@@ -22,6 +24,7 @@ export function readWorkspacePreferences(workspace?: Pick<Workspace, "settings">
   const publishing = settings.publishing as Partial<PublishingPreferences> | undefined;
   const destinations = settings.defaultDestinations as WorkspacePreferences["defaultDestinations"] | undefined;
   return {
+    brandKit: readBrandKit(settings.brandKit),
     description: typeof settings.description === "string" ? settings.description : "",
     timezone: typeof settings.timezone === "string" ? settings.timezone : Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
     defaultLanguage: typeof settings.defaultLanguage === "string" ? settings.defaultLanguage : "en",

@@ -254,6 +254,8 @@ export async function completeClaimedImageGeneration(
         workspaceId: input.workspaceId,
 
         bytes: input.bytes,
+        brandKitSnapshot: current.brandKitSnapshot,
+        postDesign: current.generation.postDesign,
 
         // Preserve compatibility with assets
         // created before brandingSnapshot.

@@ -1,6 +1,12 @@
+import type { ClientSession } from "mongoose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UpdateDraftPostInput } from "../schemas/postSchema.js";
 import { LinkedInConnectionSelectionError } from "./linkedin/linkedinConnectionSelectionService.js";
+
+vi.mock("./workspaceMutationService.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./workspaceMutationService.js")>(),
+  withActiveWorkspaceMutation: (_id: unknown, mutate: (session?: ClientSession) => Promise<unknown>) => mutate(),
+}));
 
 const mocks = vi.hoisted(() => ({
   profileFindOne: vi.fn(),

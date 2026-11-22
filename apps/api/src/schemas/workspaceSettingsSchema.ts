@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { brandKitSchema } from "./brandKitSchema.js";
 
 export const timezoneSchema = z.string().max(100).refine((value) => {
   try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; }
@@ -24,6 +25,7 @@ export const workspaceSettingsPatchSchema = z.object({
   avatar: z.string().max(180000).refine((value) => value === "" || /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value), "Upload a PNG, JPG, or WebP avatar.").optional(),
   defaultDestinations: z.object({ facebook: destination, linkedin: destination }).strict().optional(),
   publishing: publishingPreferencesSchema.optional(),
+  brandKit: brandKitSchema.optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, "No settings were provided.");
 
 export type WorkspaceSettingsPatch = z.infer<typeof workspaceSettingsPatchSchema>;

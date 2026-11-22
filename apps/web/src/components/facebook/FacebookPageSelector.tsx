@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   connectSelectedFacebookPages,
@@ -38,7 +38,12 @@ export default function FacebookPageSelector({
       selectedPageIds.includes(page.facebookPageId),
     );
 
-  const sessionExpired = Date.now() >= new Date(expiresAt).getTime();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const sessionExpired = now >= new Date(expiresAt).getTime();
 
   const canSubmit =
     !isSubmitting &&

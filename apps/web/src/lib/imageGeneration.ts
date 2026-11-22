@@ -1,3 +1,4 @@
+import { hasControlCharacters } from "@/lib/textValidation";
 import { apiFetch } from "@/lib/api";
 
 export type ImageAspectRatio = "square" | "portrait" | "landscape";
@@ -104,6 +105,8 @@ export function uploadWorkspaceImageReference(workspaceId: string, file: File, s
 export type GenerateImageCommand = {
   idempotencyKey: string;
   image: {
+    postDesign?: import("./visualStyles").PostImageDesign;
+    useBrandKit?: boolean;
     goal?: import("./postGoals").PostGoal;
     prompt: string;
     aspectRatio: ImageAspectRatio;
@@ -211,7 +214,7 @@ export function validateImageBranding(branding: ImageBranding): ImageBranding {
   if (
     text.length < 1 ||
     text.length > 80 ||
-    /[\u0000-\u001f\u007f]/u.test(text)
+    hasControlCharacters(text)
   ) {
     throw new Error(
       "Enter a text label containing 1–80 characters without control characters.",

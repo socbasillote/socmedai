@@ -1,17 +1,19 @@
 import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { beforeAll, afterAll, beforeEach, expect, it, vi } from "vitest";
 vi.mock("./publishingAuthorizationService.js", () => ({ authorizePublishing: vi.fn(), PublishingAuthorizationError: class extends Error {} }));
 vi.mock("../workspaceService.js", () => ({ getUserWorkspaceById: async (_user: unknown, id: string) => ({ _id: id }), isValidWorkspaceId: (id: string) => mongoose.isValidObjectId(id) }));
+import Workspace from "../../models/Workspace.js";
 import Post from "../../models/Post.js";
 import { claimImmediatePost } from "./immediatePublishingService.js";
 import { claimImmediateFacebookPost } from "./facebookImmediatePublishingService.js";
-let mongo: MongoMemoryServer;
+let mongo: MongoMemoryReplSet;
 const workspaceId = new mongoose.Types.ObjectId();
 const authUser = { id: "test", email: null };
 beforeAll(async () => {
-  mongo = await MongoMemoryServer.create({ instance: { launchTimeout: 60_000 } });
+  mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 }, instanceOpts: [{ launchTimeout: 60_000 }] });
   await mongoose.connect(mongo.getUri());
+  await Workspace.collection.insertOne({ _id: workspaceId, ownerUserId: new mongoose.Types.ObjectId(), name: "Claims" });
 }, 70_000);
 beforeEach(async () => { await Post.deleteMany({}); });
 afterAll(async () => { await mongoose.disconnect(); await mongo?.stop(); });

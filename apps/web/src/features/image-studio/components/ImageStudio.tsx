@@ -1,8 +1,9 @@
+import { hasControlCharacters } from "@/lib/textValidation";
 import { ImageReferenceInput } from "./ImageReferenceInput";
 import { useImageReference } from "../hooks/useImageReference";
 import { ImageGenerationProgress } from "./ImageGenerationProgress";
 import { ApiError } from "@/lib/api";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type FormEvent } from "react";
 
 import {
   createImageRequestKey,
@@ -78,14 +79,22 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
   const {
     status: logoAvailabilityStatus,
     logoAvailable,
+    brandKit,
     refresh: refreshLogoAvailability,
   } = useWorkspaceLogoAvailability(selectedWorkspaceId);
+
+  const [brandDefaultsApplied, setBrandDefaultsApplied] = useState(false);
+  const [brandingPositionEdited, setBrandingPositionEdited] = useState(false);
+  if (brandKit && !brandDefaultsApplied) {
+    setBrandDefaultsApplied(true);
+    if (!brandingPositionEdited) setBrandingPosition(brandKit.layout.logoPosition);
+  }
 
   const logoSelectionBlocked = brandingMode === "logo" && !logoAvailable;
 
   const [credits, setCredits] = useState<ImageGenerationCredits | null>(null);
 
-  const [loadingCredits, setLoadingCredits] = useState(false);
+  const [loadingCredits, setLoadingCredits] = useState(Boolean(selectedWorkspaceId));
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -110,15 +119,9 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
   // Remount when the selected workspace changes
   // (the parent supplies a workspace-specific key).
   useEffect(() => {
-    if (!selectedWorkspaceId) {
-      setCredits(null);
-      return;
-    }
+    if (!selectedWorkspaceId) return;
 
     let active = true;
-
-    setLoadingCredits(true);
-    setCreditsError("");
 
     void getImageGenerationCredits(selectedWorkspaceId)
       .then((value) => {
@@ -177,6 +180,8 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
     return next;
   }
 
+  const pollStatus = useEffectEvent(refreshStatus);
+
   // Poll only an already-known pending operation.
   // Never repeat the generation POST while polling.
   useEffect(() => {
@@ -194,7 +199,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
 
       inFlight = true;
 
-      void refreshStatus(assetId)
+      void pollStatus(assetId)
         .then(() => {
           retryDelay = 4000;
         })
@@ -380,7 +385,7 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
     (brandingMode === "text" &&
       (brandingText.trim().length === 0 ||
         brandingText.length > 80 ||
-        /[\u0000-\u001f\u007f]/u.test(brandingText))) ||
+        hasControlCharacters(brandingText))) ||
     logoSelectionBlocked;
 
   return (
@@ -652,11 +657,10 @@ export function ImageStudio({ selectedWorkspaceId }: ImageStudioProps) {
                   <select
                     id="image-studio-branding-position"
                     value={brandingPosition}
-                    onChange={(event) =>
-                      setBrandingPosition(
-                        event.target.value as ImageBrandingPosition,
-                      )
-                    }
+                    onChange={(event) => {
+                      setBrandingPositionEdited(true);
+                      setBrandingPosition(event.target.value as ImageBrandingPosition);
+                    }}
                     className="w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-violet-500"
                   >
                     <option value="top-left">Top left</option>

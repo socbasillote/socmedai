@@ -1,3 +1,4 @@
+import { withActiveWorkspaceMutation, WorkspaceInactiveError } from "../workspaceMutationService.js";
 import Post from "../../models/Post.js";
 
 import type { AuthenticatedUser } from "../userProfileService.js";
@@ -79,72 +80,81 @@ export async function claimImmediateFacebookPost({
   //
   // Keep the platform restriction separate from
   // LinkedIn's existing immediate publishing service.
-  const post = await Post.findOneAndUpdate(
-    {
-      _id: postId,
-      workspaceId: workspace._id,
-
-      // A previous publishing attempt must never
-      // become eligible again merely because its
-      // status was reset to draft.
-      status: "draft",
-      attemptCount: 0,
-
-      // A persisted claim timestamp is additional
-      // evidence that this post was already claimed.
-      claimedAt: { $exists: false },
-
-      platforms: ["facebook"],
-
-      // A Facebook Page must have been selected.
-      "platformConnections.facebook": {
-        $exists: true,
-        $ne: null,
-      },
-
-      // Text or one image with a caption.
-      "mediaIds.1": { $exists: false },
-
-      // Prevent claiming a platform with a completed
-      // or uncertain previous publishing result.
-      $or: [
+  let post;
+  try {
+    post = await withActiveWorkspaceMutation(workspaceId, async (session) =>
+      Post.findOneAndUpdate(
         {
-          platformResults: {
-            $size: 0,
+          _id: postId,
+          workspaceId: workspace._id,
+
+          // A previous publishing attempt must never
+          // become eligible again merely because its
+          // status was reset to draft.
+          status: "draft",
+          attemptCount: 0,
+
+          // A persisted claim timestamp is additional
+          // evidence that this post was already claimed.
+          claimedAt: { $exists: false },
+
+          platforms: ["facebook"],
+
+          // A Facebook Page must have been selected.
+          "platformConnections.facebook": {
+            $exists: true,
+            $ne: null,
           },
-        },
-        {
-          platformResults: {
-            $elemMatch: {
-              platform: "facebook",
-              status: "pending",
+
+          // Text or one image with a caption.
+          "mediaIds.1": { $exists: false },
+
+          // Prevent claiming a platform with a completed
+          // or uncertain previous publishing result.
+          $or: [
+            {
+              platformResults: {
+                $size: 0,
+              },
             },
+            {
+              platformResults: {
+                $elemMatch: {
+                  platform: "facebook",
+                  status: "pending",
+                },
+              },
+            },
+          ],
+        },
+        {
+          $set: {
+            status: "publishing",
+            claimedAt: now,
+          },
+
+          $inc: {
+            attemptCount: 1,
           },
         },
-      ],
-    },
-    {
-      $set: {
-        status: "publishing",
-        claimedAt: now,
-      },
-
-      $inc: {
-        attemptCount: 1,
-      },
-    },
-    {
-      returnDocument: "after",
-      runValidators: true,
-    },
-  )
-    .select(
-      "_id workspaceId createdByUserId title caption " +
-        "mediaIds platforms platformConnections status " +
-        "scheduledAt publishedAt claimedAt attemptCount " +
-        "lastError platformResults createdAt updatedAt",
-    )
-    .lean();
+        {
+          returnDocument: "after",
+          runValidators: true,
+          session,
+        },
+      )
+        .select(
+          "_id workspaceId createdByUserId title caption " +
+            "mediaIds platforms platformConnections status " +
+            "scheduledAt publishedAt claimedAt attemptCount " +
+            "lastError platformResults createdAt updatedAt",
+        )
+        .lean(),
+    );
+  } catch (error) {
+    if (error instanceof WorkspaceInactiveError) throw new FacebookImmediatePublishingError(error.message, error.statusCode);
+    throw error;
+  }
 
   // 5. A failed atomic claim must not invoke publishing.
   if (!post) {

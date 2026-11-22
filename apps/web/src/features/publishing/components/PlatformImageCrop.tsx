@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { PostPlatform } from "@/lib/posts";
 import { getMediaLibraryItem } from "@/lib/mediaLibrary";
 import { getWorkspaceImageUrl } from "@/lib/imageGeneration";
@@ -24,12 +24,19 @@ export function PlatformImageCrop({ platform, sourceAssetId, appliedCrop, disabl
   const [previewReady, setPreviewReady] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null);
   const requestLock = useRef(false);
+  const [sourceScope, setSourceScope] = useState(sourceAssetId);
+  if (sourceScope !== sourceAssetId) {
+    setSourceScope(sourceAssetId);
+    setBitmap(null);
+    setPreviewReady(false);
+    setLoading(open);
+    setError("");
+  }
   useEffect(() => {
     if (!open) return;
     let active = true;
     let loaded: ImageBitmap | undefined;
     const controller = new AbortController();
-    setLoading(true); setError(""); setBitmap(null); setPreviewReady(false);
     void (async () => {
       try {
         const item = await getMediaLibraryItem(sourceAssetId);
@@ -43,9 +50,10 @@ export function PlatformImageCrop({ platform, sourceAssetId, appliedCrop, disabl
     })();
     return () => { active = false; controller.abort(); loaded?.close(); };
   }, [open, sourceAssetId]);
-  useEffect(() => {
-    if (!bitmap || !canvas.current || !open) return;
-    try { drawImageCrop(canvas.current, bitmap, settings); setPreviewReady(true); }
+  const drawPreview = useCallback((node: HTMLCanvasElement | null) => {
+    canvas.current = node;
+    if (!bitmap || !node || !open) return;
+    try { drawImageCrop(node, bitmap, settings); setPreviewReady(true); }
     catch (e) { setPreviewReady(false); setError(e instanceof Error ? e.message : "Could not prepare crop."); }
   }, [bitmap, settings, open]);
   const target = cropFormats[settings.format];
@@ -70,7 +78,7 @@ export function PlatformImageCrop({ platform, sourceAssetId, appliedCrop, disabl
   }
   return <div className="space-y-3">
     <div className="flex flex-wrap items-center gap-2">
-      <button type="button" className={button} disabled={disabled || saving} aria-expanded={open} aria-controls={id} onClick={() => { setSettings(appliedCrop ?? defaultCrop(platform)); setError(""); setBitmap(null); setPreviewReady(false); setOpen(value => !value); }}>{open ? "Cancel crop" : "Adjust crop"}</button>
+      <button type="button" className={button} disabled={disabled || saving} aria-expanded={open} aria-controls={id} onClick={() => { setSettings(appliedCrop ?? defaultCrop(platform)); setLoading(!open); setError(""); setBitmap(null); setPreviewReady(false); setOpen(value => !value); }}>{open ? "Cancel crop" : "Adjust crop"}</button>
       {onRestore && <button type="button" className={button} disabled={disabled || saving} onClick={() => void restore()}>Use original image</button>}
       {appliedCrop && <span className="text-xs text-slate-500">{cropFormats[appliedCrop.format].label} crop applied</span>}
     </div>
@@ -80,7 +88,7 @@ export function PlatformImageCrop({ platform, sourceAssetId, appliedCrop, disabl
       <fieldset disabled={disabled || saving || loading} className="space-y-3">
         <label className="block text-sm">Crop format<select className="mt-1 block w-full rounded-lg border border-slate-200 bg-white p-2" value={settings.format} onChange={e => setSettings(s => ({ ...s, format: e.target.value as CropSettings["format"] }))}>{Object.entries(cropFormats).map(([value, format]) => <option key={value} value={value}>{format.label}</option>)}</select></label>
         {loading && <p role="status">Loading original image...</p>}
-        <canvas ref={canvas} aria-label={`${platform} cropped image preview`} role="img" className="mx-auto w-full max-w-sm rounded-lg bg-slate-100" style={{ aspectRatio: `${target.width} / ${target.height}`, display: previewReady ? "block" : "none" }} />
+        <canvas ref={drawPreview} aria-label={`${platform} cropped image preview`} role="img" className="mx-auto w-full max-w-sm rounded-lg bg-slate-100" style={{ aspectRatio: `${target.width} / ${target.height}`, display: previewReady ? "block" : "none" }} />
         <p className="text-xs text-slate-500">Output: {target.width} x {target.height} pixels</p>
         {([ ["Horizontal position", "x", 0, 100, 1], ["Vertical position", "y", 0, 100, 1], ["Zoom", "zoom", 1, 3, 0.05] ] as const).map(([label, field, min, max, step]) => <label key={field} className="block text-sm"><span>{label}</span><input className="mt-1 block w-full" type="range" aria-label={label} min={min} max={max} step={step} value={settings[field]} onChange={e => setSettings(s => ({ ...s, [field]: Number(e.target.value) }))} /></label>)}
       </fieldset>

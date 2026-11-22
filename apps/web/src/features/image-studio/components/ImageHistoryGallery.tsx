@@ -1,5 +1,5 @@
 import { ImageGenerationProgress } from "./ImageGenerationProgress";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   getWorkspaceImageHistory,
@@ -70,13 +70,13 @@ export function ImageHistoryGallery({
   // Always expose the latest rendered list to
   // the polling timer without restarting it
   // whenever a status changes.
-  itemsRef.current = items;
+  useLayoutEffect(() => { itemsRef.current = items; }, [items]);
 
   const [cursor, setCursor] = useState<string | null>(null);
 
   const [hasMore, setHasMore] = useState(false);
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(Boolean(selectedWorkspaceId));
 
   const [loadingMore, setLoadingMore] = useState(false);
 
@@ -96,14 +96,14 @@ export function ImageHistoryGallery({
   const previewVersion = useRef(0);
   const currentWorkspace = useRef(selectedWorkspaceId);
 
-  currentWorkspace.current = selectedWorkspaceId;
+  useLayoutEffect(() => { currentWorkspace.current = selectedWorkspaceId; }, [selectedWorkspaceId]);
 
   const [manualRefresh, setManualRefresh] = useState(0);
 
-  useEffect(() => {
-    const version = ++listVersion.current;
-    ++previewVersion.current;
-
+  const requestScope = JSON.stringify([selectedWorkspaceId, refreshKey, manualRefresh]);
+  const [renderedScope, setRenderedScope] = useState(requestScope);
+  if (renderedScope !== requestScope) {
+    setRenderedScope(requestScope);
     setItems([]);
     setCursor(null);
     setHasMore(false);
@@ -113,19 +113,24 @@ export function ImageHistoryGallery({
     setPreviewError("");
     setPreviewLoading(false);
     setLoadingMore(false);
+    setLoading(Boolean(selectedWorkspaceId));
+  }
+  function invalidateRequests() {
+    ++listVersion.current;
+    ++previewVersion.current;
+  }
+
+  useEffect(() => {
+    const version = ++listVersion.current;
+    ++previewVersion.current;
 
     if (!selectedWorkspaceId) {
-      setLoading(false);
-
       return () => {
-        ++listVersion.current;
-        ++previewVersion.current;
+        invalidateRequests();
       };
     }
 
     let active = true;
-
-    setLoading(true);
 
     void getWorkspaceImageHistory(selectedWorkspaceId, { limit: PAGE_SIZE })
       .then((page) => {
@@ -152,8 +157,7 @@ export function ImageHistoryGallery({
 
     return () => {
       active = false;
-      ++listVersion.current;
-      ++previewVersion.current;
+      invalidateRequests();
     };
   }, [selectedWorkspaceId, refreshKey, manualRefresh]);
 

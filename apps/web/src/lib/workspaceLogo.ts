@@ -1,3 +1,5 @@
+export type LogoVariant = "primary" | "light" | "dark";
+
 import { apiFetch } from "@/lib/api";
 
 export type WorkspaceLogoSettings = {
@@ -31,9 +33,10 @@ export function validateWorkspaceLogoFile(file: File): void {
 
 export async function getWorkspaceLogo(
   workspaceId: string,
+  variant?: LogoVariant,
 ): Promise<WorkspaceLogoSettings> {
   const response = await apiFetch<WorkspaceLogoResponse>(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/logo`,
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/logo${variant && variant !== "primary" ? `?variant=${variant}` : ""}`,
   );
 
   return response.logoOverlay;
@@ -42,13 +45,14 @@ export async function getWorkspaceLogo(
 export async function uploadWorkspaceLogo(
   workspaceId: string,
   file: File,
+  variant?: LogoVariant,
 ): Promise<WorkspaceLogoSettings> {
   validateWorkspaceLogoFile(file);
 
   // This endpoint expects raw file bytes.
   // Do NOT use FormData or JSON.stringify().
   const response = await apiFetch<WorkspaceLogoResponse>(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/logo`,
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/logo${variant && variant !== "primary" ? `?variant=${variant}` : ""}`,
     {
       method: "POST",
       headers: {
@@ -63,9 +67,10 @@ export async function uploadWorkspaceLogo(
 
 export async function enableWorkspaceLogo(
   workspaceId: string,
+  variant?: LogoVariant,
 ): Promise<WorkspaceLogoSettings> {
   const response = await apiFetch<WorkspaceLogoResponse>(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/logo`,
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/logo${variant && variant !== "primary" ? `?variant=${variant}` : ""}`,
     {
       method: "PATCH",
       body: JSON.stringify({
@@ -84,9 +89,10 @@ export type WorkspaceLogoPreview = {
 
 export async function getWorkspaceLogoPreview(
   workspaceId: string,
+  variant?: LogoVariant,
 ): Promise<WorkspaceLogoPreview> {
   return apiFetch<WorkspaceLogoPreview>(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/logo/preview`,
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/logo/preview${variant && variant !== "primary" ? `?variant=${variant}` : ""}`,
     {
       method: "GET",
       cache: "no-store",

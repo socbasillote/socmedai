@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import Post from "../models/Post.js";
 import UserProfile from "../models/UserProfile.js";
@@ -9,7 +9,7 @@ import { claimImmediatePost } from "./publishing/immediatePublishingService.js";
 import { PublishingOrchestrator } from "./publishing/publishingOrchestrator.js";
 import { autosaveDraftSchema } from "../schemas/postSchema.js";
 
-let mongo: MongoMemoryServer;
+let mongo: MongoMemoryReplSet;
 const userId = new mongoose.Types.ObjectId();
 const workspaceId = new mongoose.Types.ObjectId();
 const auth = { id: "autosave-user", email: "autosave@example.test" };
@@ -18,7 +18,7 @@ function input(revision = 1, caption = "") {
   return { workspaceId: String(workspaceId), clientDraftId, revision, title: "", caption, mediaIds: [], platforms: [] };
 }
 beforeAll(async () => {
-  mongo = await MongoMemoryServer.create();
+  mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
   await mongoose.connect(mongo.getUri());
   await Post.createIndexes();
   await UserProfile.collection.insertOne({ _id: userId, supabaseUserId: auth.id });

@@ -1,3 +1,4 @@
+import { brandKitSchema, type BrandKit } from "@/lib/brandKit";
 import { useCallback, useEffect, useState } from "react";
 
 import { getWorkspaces } from "@/lib/workspaces";
@@ -11,6 +12,7 @@ export function useWorkspaceLogoAvailability(workspaceId: string | null) {
   const [result, setResult] = useState<{
     workspaceId: string | null;
     status: LogoAvailability;
+    brandKit?: BrandKit;
   }>({
     workspaceId: null,
     status: "unavailable",
@@ -20,17 +22,19 @@ export function useWorkspaceLogoAvailability(workspaceId: string | null) {
     setRefreshVersion((current) => current + 1);
   }, []);
 
+  const requestScope = `${workspaceId}:${refreshVersion}`;
+  const [renderedScope, setRenderedScope] = useState(requestScope);
+  if (renderedScope !== requestScope) {
+    setRenderedScope(requestScope);
+    setResult({ workspaceId, status: workspaceId ? "loading" : "unavailable" });
+  }
+
   useEffect(() => {
     if (!workspaceId) {
       return;
     }
 
     let active = true;
-
-    setResult({
-      workspaceId,
-      status: "loading",
-    });
 
     void getWorkspaces()
       .then((workspaces) => {
@@ -40,8 +44,10 @@ export function useWorkspaceLogoAvailability(workspaceId: string | null) {
           (workspace) => workspace._id === workspaceId,
         );
 
+        const kit = brandKitSchema.safeParse(selected?.settings?.brandKit);
         setResult({
           workspaceId,
+          ...(kit.success && kit.data.enabled ? { brandKit: kit.data } : {}),
           status:
             selected && hasWorkspaceLogo(selected)
               ? "available"
@@ -72,5 +78,6 @@ export function useWorkspaceLogoAvailability(workspaceId: string | null) {
     status,
     logoAvailable: status === "available",
     refresh,
+    brandKit: result.workspaceId === workspaceId ? result.brandKit : undefined,
   };
 }

@@ -1,3 +1,4 @@
+import { logoVariantSchema } from "../schemas/brandKitSchema.js";
 import type { RequestHandler } from "express";
 
 import type { AuthenticatedUser } from "../services/userProfileService.js";
@@ -19,6 +20,9 @@ import { createWorkspaceLogoPreview } from "../services/workspaceLogoPreviewServ
 
 export const getWorkspaceLogo: RequestHandler = async (req, res, next) => {
   try {
+    const parsedVariant = logoVariantSchema.safeParse(req.query.variant ?? "primary");
+    if (!parsedVariant.success) { res.status(400).json({ error: "Choose a primary, light, or dark logo." }); return; }
+    const variant = parsedVariant.data;
     const workspaceId = req.params.workspaceId;
 
     if (typeof workspaceId !== "string") {
@@ -30,7 +34,7 @@ export const getWorkspaceLogo: RequestHandler = async (req, res, next) => {
 
     const authUser = res.locals.authUser as AuthenticatedUser;
 
-    const logoOverlay = await getWorkspaceLogoSettings(authUser, workspaceId);
+    const logoOverlay = await getWorkspaceLogoSettings(authUser, workspaceId, variant);
 
     res.status(200).json({
       logoOverlay,
@@ -49,6 +53,9 @@ export const getWorkspaceLogo: RequestHandler = async (req, res, next) => {
 
 export const uploadWorkspaceLogo: RequestHandler = async (req, res, next) => {
   try {
+    const parsedVariant = logoVariantSchema.safeParse(req.query.variant ?? "primary");
+    if (!parsedVariant.success) { res.status(400).json({ error: "Choose a primary, light, or dark logo." }); return; }
+    const variant = parsedVariant.data;
     const workspaceId = req.params.workspaceId;
 
     if (typeof workspaceId !== "string") {
@@ -85,6 +92,8 @@ export const uploadWorkspaceLogo: RequestHandler = async (req, res, next) => {
       res.locals.authUser as AuthenticatedUser,
       workspaceId,
       req.body,
+      undefined,
+      variant,
     );
 
     res.status(201).json({
@@ -111,6 +120,9 @@ export const uploadWorkspaceLogo: RequestHandler = async (req, res, next) => {
 
 export const updateWorkspaceLogo: RequestHandler = async (req, res, next) => {
   try {
+    const parsedVariant = logoVariantSchema.safeParse(req.query.variant ?? "primary");
+    if (!parsedVariant.success) { res.status(400).json({ error: "Choose a primary, light, or dark logo." }); return; }
+    const variant = parsedVariant.data;
     const workspaceId = req.params.workspaceId;
 
     if (typeof workspaceId !== "string") {
@@ -134,6 +146,7 @@ export const updateWorkspaceLogo: RequestHandler = async (req, res, next) => {
       res.locals.authUser as AuthenticatedUser,
       workspaceId,
       parsed.data,
+      variant,
     );
 
     res.status(200).json({
@@ -157,6 +170,9 @@ export const getWorkspaceLogoPreview: RequestHandler = async (
   next,
 ) => {
   try {
+    const parsedVariant = logoVariantSchema.safeParse(req.query.variant ?? "primary");
+    if (!parsedVariant.success) { res.status(400).json({ error: "Choose a primary, light, or dark logo." }); return; }
+    const variant = parsedVariant.data;
     const workspaceId = req.params.workspaceId;
 
     if (typeof workspaceId !== "string") {
@@ -169,6 +185,8 @@ export const getWorkspaceLogoPreview: RequestHandler = async (
     const result = await createWorkspaceLogoPreview(
       res.locals.authUser as AuthenticatedUser,
       workspaceId,
+      undefined,
+      variant,
     );
 
     res.setHeader("Cache-Control", "no-store");

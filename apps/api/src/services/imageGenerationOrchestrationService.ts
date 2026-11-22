@@ -186,7 +186,9 @@ async function executeNewGeneration(
     generated = await withGenerationLeaseHeartbeat(ownedContext, () =>
       input.provider.generate({
         prompt: input.command.image.prompt,
+        ...(input.command.image.postDesign ? { postDesign: input.command.image.postDesign } : {}),
         aspectRatio: input.command.image.aspectRatio,
+        ...(claimed.asset.brandKitSnapshot ? { brandKit: claimed.asset.brandKitSnapshot } : {}),
         ...(referenceImage ? { referenceImage } : {}),
       }),
     );

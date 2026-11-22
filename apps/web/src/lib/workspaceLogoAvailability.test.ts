@@ -1,3 +1,4 @@
+import { defaultBrandKit } from "./brandKit";
 import { describe, expect, it } from "vitest";
 
 import type { Workspace } from "./workspaces";
@@ -80,4 +81,15 @@ describe("Workspace logo availability", () => {
       ),
     ).toBe(false);
   });
+});
+
+it("recognizes the brand kit's preferred variant and falls back to the primary", () => {
+  const value = workspace(undefined);
+  value.settings.brandKit = { ...structuredClone(defaultBrandKit), layout: { ...defaultBrandKit.layout, logoVariant: "light" } };
+  value.settings.brandKitLogoVariants = { light: validLogoSettings() };
+  expect(hasWorkspaceLogo(value)).toBe(true);
+  value.settings.brandKitLogoVariants = {};
+  expect(hasWorkspaceLogo(value)).toBe(false);
+  value.settings.logoOverlay = validLogoSettings();
+  expect(hasWorkspaceLogo(value)).toBe(true);
 });

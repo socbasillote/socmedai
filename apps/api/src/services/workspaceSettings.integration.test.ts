@@ -1,5 +1,8 @@
+import { brandKitSchema } from "../schemas/brandKitSchema.js";
+import { getWorkspaceLogoSettings, uploadUserWorkspaceLogo, updateUserWorkspaceLogoSettings } from "./workspaceLogoService.js";
+import type { ImageStorageBucket } from "./media/supabaseImageStorage.js";
 import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { MongoMemoryReplSet } from "mongodb-memory-server";
 import sharp from "sharp";
 import { beforeAll, beforeEach, afterAll, describe, it, expect, vi } from "vitest";
 import request from "supertest";
@@ -27,13 +30,13 @@ const otherId = new mongoose.Types.ObjectId();
 const facebook = new mongoose.Types.ObjectId();
 const linkedin = new mongoose.Types.ObjectId();
 const preferences = { defaultPostMode: "scheduled" as const, preferredTimes: ["09:00", "17:30"], allowedWeekdays: [1, 2, 3, 4, 5], minimumNoticeMinutes: 60, maximumAdvanceDays: 30 };
-let mongo: MongoMemoryServer;
+let mongo: MongoMemoryReplSet;
 const endpoint = `/api/workspaces/${id}/settings`;
 const patch = (data: object, auth = user.id) => request(app).patch(endpoint).set("Authorization", auth).send(data);
 const lifecycle = (action: string, confirmation = "Original") => request(app).post(`/api/workspaces/${id}/lifecycle`).set("Authorization", user.id).send({ action, confirmation });
 
 describe("Workspace settings API and persistence", () => {
-  beforeAll(async () => { mongo = await MongoMemoryServer.create(); await mongoose.connect(mongo.getUri()); }, 60000);
+  beforeAll(async () => { mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 } }); await mongoose.connect(mongo.getUri()); }, 60000);
   afterAll(async () => { await mongoose.disconnect(); await mongo?.stop(); });
   beforeEach(async () => {
     await Promise.all([Workspace.deleteMany({}), UserProfile.deleteMany({}), Post.deleteMany({}), MediaAsset.deleteMany({}), FacebookConnection.deleteMany({}), LinkedInConnection.deleteMany({})]);
@@ -58,6 +61,44 @@ describe("Workspace settings API and persistence", () => {
   });
 
   it.each([{ timezone: "Mars/Olympus" }, { name: " " }, { defaultLanguage: "invalid" }, { ownerUserId: "hijack" }, { "settings.logoOverlay": {} }, {}, { publishing: { ...preferences, preferredTimes: ["25:00"] } }, { publishing: { ...preferences, allowedWeekdays: [] } }, { publishing: { ...preferences, minimumNoticeMinutes: -1 } }, { publishing: { ...preferences, preferredTimes: ["09:00", "09:00"] } }])("rejects invalid or unsafe settings %j", async (data) => { expect((await patch(data)).status).toBe(400); });
+
+  it("saves a validated brand kit independently and keeps existing branding", async () => {
+    const brandKit = brandKitSchema.parse({
+    enabled: true,
+    colors: { primary: "#7C3AED", accent: "#F59E0B", background: "#FFFFFF", text: "#0F172A" },
+    typography: { headingFont: "Georgia", bodyFont: "Arial" },
+    imageStyle: "Warm natural light, muted earth tones, and soft paper texture.",
+    layout: { textAlignment: "center", logoPosition: "top-left", spacing: "spacious", logoVariant: "light" },
+  });
+    expect((await patch({ brandKit })).status).toBe(200);
+    const reload = await request(app).get(endpoint).set("Authorization", user.id);
+    expect(reload.body.workspace.settings).toMatchObject({ brandKit, logoOverlay: { enabled: true } });
+    await patch({ description: "Still my brand" });
+    expect((await Workspace.findById(id).lean())?.settings.brandKit).toEqual(brandKit);
+    expect((await patch({ brandKit: { ...brandKit, colors: { ...brandKit.colors, accent: "invalid" } } })).status).toBe(400);
+    expect((await patch({ brandKitLogoVariants: {} })).status).toBe(400);
+    expect((await patch({ brandKit }, "not-the-owner")).status).toBe(404);
+  });
+
+  it("reuses private immutable logo uploads for optional variants without replacing the primary", async () => {
+    const objects = new Map<string, Uint8Array>();
+    const bucket = {
+      upload: async (path: string, bytes: ArrayBuffer) => { objects.set(path, new Uint8Array(bytes)); return { data: { path }, error: null }; },
+      download: async (path: string) => ({ data: new Blob([Uint8Array.from(objects.get(path)!).buffer]), error: null }),
+    } as unknown as ImageStorageBucket;
+    // Replace the deliberately minimal branding fixture with real logo settings.
+    await Workspace.updateOne({ _id: id }, { $unset: { "settings.logoOverlay": "" } });
+    const bytes = await sharp({ create: { width: 80, height: 40, channels: 4, background: "white" } }).png().toBuffer();
+    const primary = await uploadUserWorkspaceLogo(user, String(id), bytes, bucket);
+    const light = await uploadUserWorkspaceLogo(user, String(id), bytes, bucket, "light");
+    expect(light.logo?.storageKey).not.toBe(primary.logo?.storageKey);
+    await updateUserWorkspaceLogoSettings(user, String(id), { enabled: true }, "light");
+    expect(await getWorkspaceLogoSettings(user, String(id))).toEqual(primary);
+    expect((await getWorkspaceLogoSettings(user, String(id), "light")).enabled).toBe(true);
+    expect((await getWorkspaceLogoSettings(user, String(id), "dark")).logo).toBeNull();
+    expect((await request(app).get(`/api/workspaces/${id}/logo?variant=other`).set("Authorization", user.id)).status).toBe(400);
+    expect((await request(app).get(`/api/workspaces/${id}/logo?variant=light`).set("Authorization", "other-user")).status).toBe(404);
+  });
 
   it("normalizes uploaded avatars, strips metadata, and supports removal", async () => {
     const bytes = await sharp({ create: { width: 200, height: 150, channels: 3, background: "red" } }).png().toBuffer();

@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import sharp from "sharp";
 
 import { generateImageSchema } from "../../../schemas/aiImageSchema.js";
+import { brandKitImagePrompt } from "../brandKitImageStyle.js";
+import { postImagePrompt } from "../postImagePrompt.js";
 
 import type {
   ImageProvider,
@@ -35,13 +37,13 @@ export class MockImageProvider implements ImageProvider {
   readonly model = "storm-mock-image-v1";
 
   async generate(request: ImageProviderRequest): Promise<ImageProviderResult> {
-    const { referenceImage, ...parameters } = request;
+    const { referenceImage, brandKit, ...parameters } = request;
     const input = generateImageSchema.parse(parameters);
 
     const { width, height } = DIMENSIONS[input.aspectRatio];
 
     const hash = createHash("sha256")
-      .update(JSON.stringify([input.prompt, input.aspectRatio, ...(referenceImage ? [referenceImage.usage, createHash("sha256").update(referenceImage.bytes).digest("hex")] : [])]))
+      .update(JSON.stringify([brandKitImagePrompt(postImagePrompt(input.prompt, input.aspectRatio, input.postDesign), brandKit, input.postDesign?.style), input.aspectRatio, ...(referenceImage ? [referenceImage.usage, createHash("sha256").update(referenceImage.bytes).digest("hex")] : [])]))
       .digest("hex");
 
     const background = `#${hash.slice(0, 6)}`;

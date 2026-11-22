@@ -1,4 +1,6 @@
 import mongoose, { Schema } from "mongoose";
+import { brandKitSchema } from "../schemas/brandKitSchema.js";
+import { postImageDesignSchema } from "../schemas/postImageDesignSchema.js";
 
 export const MEDIA_ASSET_STATUSES = ["pending", "ready", "failed"] as const;
 
@@ -36,6 +38,7 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
 const generationSchema = new Schema(
   {
+    postDesign: { type: Schema.Types.Mixed, default: undefined, validate: { validator: (value: unknown) => value == null || postImageDesignSchema.safeParse(value).success, message: "Invalid post image design." } },
     provider: {
       type: String,
       required: true,
@@ -422,6 +425,12 @@ const mediaAssetSchema = new Schema(
      * Optional so existing assets remain valid.
      * Created at admission, never intentionally updated.
      */
+    brandKitSnapshot: {
+      type: Schema.Types.Mixed,
+      default: undefined,
+      immutable: true,
+      validate: { validator: (value: unknown) => value == null || brandKitSchema.safeParse(value).success, message: "Invalid brand kit snapshot." },
+    },
     brandingSnapshot: {
       type: brandingSnapshotSchema,
       default: undefined,

@@ -290,3 +290,14 @@ describe("WorkspaceLogoUploader", () => {
     expect(image.getAttribute("src")).toBe("https://example.test/newer.png");
   });
 });
+
+it("uploads and enables a light logo through the existing logo pipeline", async () => {
+  const user = userEvent.setup();
+  const onReady = vi.fn();
+  render(<WorkspaceLogoUploader workspaceId={WORKSPACE_ID} variant="light" onReady={onReady} />);
+  const input = await screen.findByLabelText("Upload light logo");
+  await user.upload(input, createFile());
+  await waitFor(() => expect(onReady).toHaveBeenCalledOnce());
+  expect(uploadWorkspaceLogo).toHaveBeenCalledWith(WORKSPACE_ID, expect.any(File), "light");
+  expect(enableWorkspaceLogo).toHaveBeenCalledWith(WORKSPACE_ID, "light");
+});

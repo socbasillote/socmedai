@@ -1,4 +1,10 @@
+import type { ClientSession } from "mongoose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../workspaceMutationService.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../workspaceMutationService.js")>(),
+  withActiveWorkspaceMutation: (_id: unknown, mutate: (session?: ClientSession) => Promise<unknown>) => mutate(),
+}));
 
 const mocks = vi.hoisted(() => ({
   getUserWorkspaceById: vi.fn(),

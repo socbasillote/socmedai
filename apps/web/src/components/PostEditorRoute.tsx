@@ -1,4 +1,6 @@
 import { AIPostFlow } from "./AIPostFlow";
+import { PostTemplateFlow } from "@/features/post-templates/PostTemplateFlow";
+import { brandKitSchema } from "@/lib/brandKit";
 import { useComposerAutosave } from "@/features/posts/hooks/useComposerAutosave";
 import {
   readWorkspacePreferences,
@@ -9,7 +11,7 @@ import {
 } from "@/lib/workspaceSettings";
 import { useInstagramConnections } from "@/hooks/useInstagramConnections";
 import { usePublishingCapabilities } from "@/hooks/usePublishingCapabilities";
-import { useEffect, useLayoutEffect, useState, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useRef, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "@/auth/useAuth";
@@ -78,7 +80,7 @@ type PostEditorRouteProps = {
 };
 
 export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
-  const [composeMode, setComposeMode] = useState<"AI" | "Manual">("AI");
+  const [composeMode, setComposeMode] = useState<"Templates" | "AI" | "Manual">("AI");
   const serverCapabilities = usePublishingCapabilities();
   const navigate = useNavigate();
 
@@ -104,6 +106,8 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   const selectedWorkspace = workspaces.find(
     (workspace) => workspace._id === selectedWorkspaceId,
   );
+  const parsedBrandKit = brandKitSchema.safeParse(selectedWorkspace?.settings?.brandKit);
+  const workspaceBrandKit = parsedBrandKit.success && parsedBrandKit.data.enabled ? parsedBrandKit.data : undefined;
   const {
     status: linkedInStatus,
     displayName: linkedInDisplayName,
@@ -236,13 +240,14 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   useLayoutEffect(() => {
     const previous = editorSessionRef.current;
 
-    const result = validatePostEditorSession(previous, editorSession);
+    const next = createPostEditorSession(mode, selectedWorkspaceId ?? "", mode === "edit" ? (postId ?? null) : null);
+    const result = validatePostEditorSession(previous, next);
 
     if (!result.valid) {
       editorSessionRevisionRef.current += 1;
     }
 
-    editorSessionRef.current = editorSession;
+    editorSessionRef.current = next;
   }, [mode, selectedWorkspaceId, postId]);
 
   // Save state (API integration comes later)
@@ -264,17 +269,22 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     string | null
   >(null);
 
-  // Operation state belongs to the current editor session. Late responses are
-  // guarded below so they cannot lock or unlock another post's editor.
-  useLayoutEffect(() => {
+  // Reset operation state before rendering a different editor session.
+  const operationScope = `${contentScope}:${mode}:${postId ?? "new"}`;
+  const [operationStateScope, setOperationStateScope] = useState(operationScope);
+  if (operationStateScope !== operationScope) {
+    setOperationStateScope(operationScope);
     setSaving(false);
     setPublishing(false);
-    publishingLockRef.current = false;
     setSavedPublishingPostId(null);
     setPublishingMessage("");
     setPublishingOutcome(null);
     setError("");
-  }, [mode, selectedWorkspaceId, postId]);
+    setShowPublishConfirmation(false);
+  }
+  useLayoutEffect(() => {
+    publishingLockRef.current = false;
+  }, [operationScope]);
 
   const autosaveDate = parseZonedInput(scheduledAt, scheduleTimezone);
   const composerAutosave = useComposerAutosave({
@@ -296,6 +306,28 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   });
 
   const minScheduledAt = zonedInputValue(new Date(), scheduleTimezone);
+
+  const checkEditorSession = useCallback(function checkEditorSession(
+    captured: ReturnType<typeof captureEditorSession>,
+  ): string | null {
+    const result = validatePostEditorSession(
+      captured.session,
+      editorSessionRef.current,
+    );
+
+    if (
+      !result.valid ||
+      captured.revision !== editorSessionRevisionRef.current
+    ) {
+      return (
+        getPostEditorSessionError(result) ??
+        "The editor workspace or post changed during this operation. " +
+          "Check your Posts page before retrying."
+      );
+    }
+
+    return null;
+  }, []);
 
   useEffect(() => {
     if (mode !== "edit" || !postId) {
@@ -365,20 +397,19 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     return () => {
       cancelled = true;
     };
-  }, [mode, postId, selectedWorkspaceId]);
+  }, [mode, postId, selectedWorkspaceId, checkEditorSession]);
 
+  const [facebookScope, setFacebookScope] = useState(selectedWorkspaceId);
+  if (facebookScope !== selectedWorkspaceId) {
+    setFacebookScope(selectedWorkspaceId);
+    setFacebookConnections([]);
+    setFacebookConnectionsError(null);
+    setFacebookConnectionsLoading(Boolean(selectedWorkspaceId));
+  }
   useEffect(() => {
     let cancelled = false;
 
-    setFacebookConnections([]);
-    setFacebookConnectionsError(null);
-
-    if (!selectedWorkspaceId) {
-      setFacebookConnectionsLoading(false);
-      return;
-    }
-
-    setFacebookConnectionsLoading(true);
+    if (!selectedWorkspaceId) return;
 
     async function loadConnections() {
       try {
@@ -411,27 +442,6 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
     };
   }, [selectedWorkspaceId]);
 
-  useEffect(() => {
-    // Creating a post uses the active workspace.
-    // Clear temporary media when that workspace changes.
-    //
-    // In edit mode, the post-loading effect owns
-    // restoration of the saved media state.
-    if (mode !== "create") {
-      return;
-    }
-
-    setMediaState(createPostMediaState());
-  }, [mode, selectedWorkspaceId]);
-
-  useEffect(() => {
-    // A pending confirmation is tied to the workspace
-    // and post from which it was opened.
-    //
-    // Dismiss it when that context changes.
-    setShowPublishConfirmation(false);
-  }, [mode, postId, selectedWorkspaceId]);
-
   function handleMediaSelect(assetId: string) {
     setMediaState((current) => selectPostImage(current, assetId));
     setError("");
@@ -453,28 +463,6 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
       session: editorSessionRef.current,
       revision: editorSessionRevisionRef.current,
     };
-  }
-
-  function checkEditorSession(
-    captured: ReturnType<typeof captureEditorSession>,
-  ): string | null {
-    const result = validatePostEditorSession(
-      captured.session,
-      editorSessionRef.current,
-    );
-
-    if (
-      !result.valid ||
-      captured.revision !== editorSessionRevisionRef.current
-    ) {
-      return (
-        getPostEditorSessionError(result) ??
-        "The editor workspace or post changed during this operation. " +
-          "Check your Posts page before retrying."
-      );
-    }
-
-    return null;
   }
 
   function checkServerAvailability(action: "now" | "schedule") {
@@ -1352,7 +1340,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
         role="group"
         aria-label="Composition mode"
       >
-        {(["AI", "Manual"] as const).map((value) => (
+        {(["Templates", "AI", "Manual"] as const).map((value) => (
           <button
             type="button"
             key={value}
@@ -1369,13 +1357,34 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
   return (
     <main className="min-h-screen bg-slate-50 p-6 text-slate-900">
       <div className="mx-auto max-w-7xl">
-        {mode === "create" && composeMode === "AI" ? (
+        {mode === "create" && selectedWorkspace && recoveryOwnerUserId && (
+          <div hidden={composeMode !== "Templates"}>
+            <PostTemplateFlow
+              key={contentScope}
+              ownerId={recoveryOwnerUserId}
+              workspace={selectedWorkspace}
+              headerActions={modeToggle}
+              onComposer={(image) => {
+                setTitle(image.title);
+                setCaption(image.caption);
+                setMediaState(createPostMediaState([image.assetId]));
+                setComposeMode("Manual");
+                setError("");
+              }}
+            />
+          </div>
+        )}
+        {mode === "create" && composeMode === "Templates" ? (
+          !selectedWorkspace ? <div>{modeToggle}<p>Select a workspace to use post templates.</p></div> : null
+        ) : mode === "create" && composeMode === "AI" ? (
           selectedWorkspaceId ? (
             <AIPostFlow
+              brandKit={workspaceBrandKit}
               ownerId={recoveryOwnerUserId ?? undefined}
               key={contentScope}
               workspaceId={selectedWorkspaceId}
               timezone={scheduleTimezone}
+              defaultLanguage={preferences.defaultLanguage}
               headerActions={modeToggle}
               scheduleCapabilities={serverCapabilities}
               publishingRules={

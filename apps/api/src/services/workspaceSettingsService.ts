@@ -26,7 +26,7 @@ export async function saveWorkspaceSettings(user: AuthenticatedUser, id: string,
   if (workspace.archivedAt) throw new WorkspaceSettingsError("Restore this workspace before editing settings.", 409);
   const changes: Record<string, unknown> = {};
   if (input.name !== undefined) changes.name = input.name;
-  for (const key of ["description", "timezone", "defaultLanguage", "publishing", "defaultDestinations"] as const) {
+  for (const key of ["description", "timezone", "defaultLanguage", "publishing", "defaultDestinations", "brandKit"] as const) {
     if (input[key] !== undefined) changes[`settings.${key}`] = input[key];
   }
   if (input.avatar !== undefined) {
@@ -60,16 +60,26 @@ export async function saveWorkspaceSettings(user: AuthenticatedUser, id: string,
 export async function changeWorkspaceLifecycle(user: AuthenticatedUser, id: string, action: "archive" | "restore" | "delete", confirmation: string) {
   const workspace = await ownedSettingsWorkspace(user, id);
   if (confirmation !== workspace.name) throw new WorkspaceSettingsError("Type the workspace name exactly to confirm.", 400);
-  if (action !== "restore") {
-    const [post, generation] = await Promise.all([
-      Post.exists({ workspaceId: id, status: { $in: ["scheduled", "publishing"] } }),
-      MediaAsset.exists({ workspaceId: id, status: "pending" }),
-    ]);
-    if (post || generation) throw new WorkspaceSettingsError("Cancel scheduled posts and wait for publishing and image generation to finish first.", 409);
-  }
-  const updated = await Workspace.findOneAndUpdate({ _id: id, ownerUserId: workspace.ownerUserId }, {
-    $set: action === "delete" ? { deletedAt: new Date(), archivedAt: new Date() } : { archivedAt: action === "archive" ? new Date() : null },
-  }, { returnDocument: "after", includeArchivedWorkspaces: true }).lean();
-  if (!updated) throw new WorkspaceSettingsError("Workspace changed. Reload and try again.", 409);
-  return updated;
+  return mongoose.connection.transaction(async (session) => {
+    // This write conflicts with every work admission before dependent reads.
+    // If work already exists, throwing rolls back the lifecycle transition.
+    const updated = await Workspace.findOneAndUpdate(
+      { _id: id, ownerUserId: workspace.ownerUserId, name: confirmation },
+      {
+        $inc: { mutationVersion: 1 },
+        $set: action === "delete"
+          ? { deletedAt: new Date(), archivedAt: new Date() }
+          : { archivedAt: action === "archive" ? new Date() : null },
+      },
+      { session, returnDocument: "after", includeArchivedWorkspaces: true, runValidators: true },
+    ).lean();
+    if (!updated) throw new WorkspaceSettingsError("Workspace changed. Reload and try again.", 409);
+    if (action !== "restore") {
+      // Operations on one transaction session must run sequentially.
+      const post = await Post.exists({ workspaceId: id, status: { $in: ["scheduled", "publishing"] } }).session(session);
+      const generation = await MediaAsset.exists({ workspaceId: id, status: "pending" }).session(session);
+      if (post || generation) throw new WorkspaceSettingsError("Cancel scheduled posts and wait for publishing and image generation to finish first.", 409);
+    }
+    return updated;
+  });
 }

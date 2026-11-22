@@ -28,16 +28,17 @@ export function SelectedMediaPreview({
   const [error, setError] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
 
-  useEffect(() => {
-    let active = true;
-
-    setPreview({
-      metadata: null,
-      url: null,
-    });
-
+  const requestScope = `${assetId}:${refreshVersion}`;
+  const [renderedScope, setRenderedScope] = useState(requestScope);
+  if (renderedScope !== requestScope) {
+    setRenderedScope(requestScope);
+    setPreview({ metadata: null, url: null });
     setLoading(true);
     setError("");
+  }
+
+  useEffect(() => {
+    let active = true;
 
     async function loadPreview() {
       try {

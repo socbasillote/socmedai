@@ -26,32 +26,19 @@ export function useFacebookConnections(selectedWorkspaceId: string) {
 
   const [refreshKey, setRefreshKey] = useState(0);
 
+  const requestScope = `${selectedWorkspaceId.trim()}:${refreshKey}`;
+  const [renderedScope, setRenderedScope] = useState("");
+  if (renderedScope !== requestScope) {
+    setRenderedScope(requestScope);
+    setState({ workspaceId: selectedWorkspaceId.trim(), connections: [], loading: Boolean(selectedWorkspaceId.trim()), error: "" });
+  }
+
   useEffect(() => {
     let active = true;
 
     const workspaceId = selectedWorkspaceId.trim();
 
-    // No workspace selected.
-    if (!workspaceId) {
-      setState({
-        workspaceId: "",
-        connections: [],
-        loading: false,
-        error: "",
-      });
-
-      return () => {
-        active = false;
-      };
-    }
-
-    // Begin loading the selected workspace.
-    setState({
-      workspaceId,
-      connections: [],
-      loading: true,
-      error: "",
-    });
+    if (!workspaceId) return;
 
     async function loadConnections() {
       try {

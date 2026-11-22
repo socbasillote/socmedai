@@ -21,6 +21,7 @@ const workspaceSchema = new Schema(
     },
     archivedAt: { type: Date, default: null },
     deletedAt: { type: Date, default: null },
+    mutationVersion: { type: Number, default: 0, select: false },
   },
   {
     timestamps: true,

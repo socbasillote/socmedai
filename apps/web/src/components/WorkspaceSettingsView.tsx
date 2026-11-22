@@ -1,5 +1,6 @@
+import { BrandKitFields } from "@/features/workspaces/components/BrandKitFields";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Settings2, Globe2, CalendarClock, ShieldAlert, Camera, Check } from "lucide-react";
+import { Settings2, Globe2, CalendarClock, Palette, ShieldAlert, Camera, Check } from "lucide-react";
 import type { Workspace } from "@/lib/workspaces";
 import { readWorkspacePreferences, saveWorkspacePreferences, setWorkspaceLifecycle, type WorkspacePreferences } from "@/lib/workspaceSettings";
 import { useFacebookConnections } from "@/hooks/useFacebookConnections";
@@ -11,7 +12,7 @@ const buttonClass = "inline-flex min-h-11 items-center justify-center gap-2 roun
 const outlineClass = "min-h-11 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50";
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const languages = { en: "English", fil: "Filipino", es: "Spanish", fr: "French", de: "German", ja: "Japanese", ko: "Korean", pt: "Portuguese", zh: "Chinese" };
-const tabs = ["General Settings", "Social Accounts", "Publishing Preferences"] as const;
+const tabs = ["General Settings", "Brand kit", "Social Accounts", "Publishing Preferences"] as const;
 type Tab = typeof tabs[number];
 
 function Field({ label, children, help }: { label: string; children: ReactNode; help?: string }) {
@@ -57,6 +58,7 @@ export function WorkspaceSettingsView({ workspace, onUpdated, onDeleted }: { wor
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true); setMessage(""); setError("");
     const patch = tab === "General Settings" ? { name, description: preferences.description, timezone: preferences.timezone, defaultLanguage: preferences.defaultLanguage, avatar: preferences.avatar }
+      : tab === "Brand kit" ? { brandKit: preferences.brandKit }
       : tab === "Social Accounts" ? { defaultDestinations: preferences.defaultDestinations }
       : { timezone: preferences.timezone, publishing: preferences.publishing };
     try {
@@ -96,7 +98,7 @@ export function WorkspaceSettingsView({ workspace, onUpdated, onDeleted }: { wor
       <span className={`rounded-full px-3 py-1 text-sm font-medium ${archived ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}>{archived ? "Archived" : "Active workspace"}</span>
     </header>
     <nav aria-label="Workspace settings sections" className="flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5">
-      {tabs.map((item, index) => { const Icon = [Settings2, Globe2, CalendarClock][index]; return <button key={item} type="button" aria-pressed={tab === item} onClick={() => { setTab(item); setMessage(""); }} className={`flex min-h-12 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold ${tab === item ? "bg-violet-50 text-violet-700" : "text-slate-500 hover:bg-slate-50"}`}><Icon size={18} aria-hidden="true" />{item}</button>; })}
+      {tabs.map((item, index) => { const Icon = [Settings2, Palette, Globe2, CalendarClock][index]; return <button key={item} type="button" aria-pressed={tab === item} onClick={() => { setTab(item); setMessage(""); }} className={`flex min-h-12 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold ${tab === item ? "bg-violet-50 text-violet-700" : "text-slate-500 hover:bg-slate-50"}`}><Icon size={18} aria-hidden="true" />{item}</button>; })}
     </nav>
     {statusError && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{statusError}</p>}
     {message && <p role="status" className="flex items-center gap-2 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800"><Check size={18} />{message}</p>}
@@ -104,13 +106,14 @@ export function WorkspaceSettingsView({ workspace, onUpdated, onDeleted }: { wor
     <form onSubmit={save} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
       <fieldset disabled={busy || archived} className="space-y-6 p-5 sm:p-8">
         <legend className="sr-only">{tab}</legend>
-        <div><h2 className="text-lg font-bold">{tab}</h2><p className="mt-1 text-sm text-slate-500">{tab === "General Settings" ? "Your workspace identity and regional defaults." : tab === "Social Accounts" ? "Choose the accounts suggested when you start a new post." : "Set a starting point for new posts. Your explicit choices always take priority."}</p></div>
+        <div><h2 className="text-lg font-bold">{tab}</h2><p className="mt-1 text-sm text-slate-500">{tab === "General Settings" ? "Your workspace identity and regional defaults." : tab === "Brand kit" ? "Build a consistent look for your workspace content." : tab === "Social Accounts" ? "Choose the accounts suggested when you start a new post." : "Set a starting point for new posts. Your explicit choices always take priority."}</p></div>
         {tab === "General Settings" && <>
           <div className="flex flex-wrap items-center gap-5"><div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-violet-100 text-2xl font-bold text-violet-700">{preferences.avatar ? <img src={preferences.avatar} alt="Workspace avatar" className="h-full w-full object-cover" /> : name.slice(0, 2).toUpperCase()}</div><div><label className={`${outlineClass} inline-flex cursor-pointer items-center gap-2`}><Camera size={16} />Upload avatar<input aria-label="Upload workspace avatar" type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => void uploadAvatar(event.target.files?.[0])} /></label>{preferences.avatar && <button type="button" className="ml-3 min-h-11 text-sm text-slate-600" onClick={() => update("avatar", "")}>Remove avatar</button>}<p className="mt-2 text-sm text-slate-500">PNG, JPG, or WebP. Maximum 120 KB. Separate from your branding logo.</p></div></div>
           <Field label="Workspace name"><input className={fieldClass} value={name} required maxLength={100} onChange={(e) => setName(e.target.value)} /></Field>
           <Field label="Description"><textarea className={fieldClass} rows={3} value={preferences.description} maxLength={1000} onChange={(e) => update("description", e.target.value)} /></Field>
           <div className="grid gap-6 sm:grid-cols-2"><Field label="Timezone" help="Also used by publishing preferences."><select className={fieldClass} value={preferences.timezone} onChange={(e) => update("timezone", e.target.value)}>{timezoneList.map((zone) => <option key={zone}>{zone}</option>)}</select></Field><Field label="Default language" help="Suggested content language; saved posts are never translated."><select className={fieldClass} value={preferences.defaultLanguage} onChange={(e) => update("defaultLanguage", e.target.value)}>{Object.entries(languages).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field></div>
         </>}
+        {tab === "Brand kit" && <BrandKitFields workspaceId={workspace._id} name={name} value={preferences.brandKit} onChange={(value) => update("brandKit", value)} disabled={busy || archived} archived={archived} />}
         {tab === "Social Accounts" && <>
           <p className="text-sm text-slate-500">If both defaults are set, new posts start with Facebook. Change the platform or account in the composer at any time.</p>
           <article className="space-y-4 rounded-xl border border-slate-200 p-5"><div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-semibold">Facebook Pages</h3><p className="mt-1 text-sm text-slate-500">{facebook.loading ? "Loading Pages…" : `${facebook.connections.length} connected Page${facebook.connections.length === 1 ? "" : "s"}`}</p></div><button type="button" className={outlineClass} disabled={facebookConnect.connecting} onClick={() => void facebookConnect.connect()}>{facebookConnect.connecting ? "Connecting…" : facebook.connections.length ? "Reconnect Facebook" : "Connect Facebook"}</button></div>
@@ -131,7 +134,7 @@ export function WorkspaceSettingsView({ workspace, onUpdated, onDeleted }: { wor
           <div className="rounded-xl bg-slate-50 p-4"><label className="flex items-center gap-3 text-sm font-medium text-slate-500"><input type="checkbox" disabled />Require approval before publishing <span className="rounded-full bg-slate-200 px-2 py-1 text-xs">Coming later</span></label><p className="mt-2 text-sm text-slate-500">Approval workflows are not enforced yet. Publishing now always requires review and confirmation.</p></div>
         </>}
       </fieldset>
-      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-4 sm:px-8"><p className="text-sm text-slate-500">Changes apply to this workspace only.</p><button className={buttonClass} disabled={busy || archived} type="submit">{busy ? "Saving…" : `Save ${tab === "General Settings" ? "general settings" : tab === "Social Accounts" ? "publishing destinations" : "publishing preferences"}`}</button></footer>
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-4 sm:px-8"><p className="text-sm text-slate-500">Changes apply to this workspace only.</p><button className={buttonClass} disabled={busy || archived} type="submit">{busy ? "Saving…" : `Save ${tab === "General Settings" ? "general settings" : tab === "Brand kit" ? "brand kit" : tab === "Social Accounts" ? "publishing destinations" : "publishing preferences"}`}</button></footer>
     </form>
     <section aria-label="Danger zone" className="rounded-2xl border border-rose-200 bg-white p-5 sm:p-8"><h2 className="flex items-center gap-2 text-lg font-bold text-rose-800"><ShieldAlert size={20} />Danger zone</h2><div className="mt-5 flex flex-wrap items-center justify-between gap-4"><div><h3 className="font-semibold">{archived ? "Restore workspace" : "Archive workspace"}</h3><p className="mt-1 max-w-xl text-sm text-slate-500">Archive to pause work without losing content. Restore it here at any time.</p></div><button className={outlineClass} type="button" disabled={busy} onClick={() => { setAction(archived ? "restore" : "archive"); setConfirmation(""); }}>{archived ? "Restore workspace" : "Archive workspace"}</button></div><div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-rose-100 pt-5"><div><h3 className="font-semibold">Delete workspace</h3><p className="mt-1 max-w-xl text-sm text-slate-500">Remove this workspace from the app. This cannot be undone here. Stored records and media are retained; this does not erase published social posts or revoke provider access.</p></div><button className="min-h-11 rounded-xl border border-rose-200 px-4 text-sm font-semibold text-rose-700 hover:bg-rose-50" type="button" disabled={busy} onClick={() => { setAction("delete"); setConfirmation(""); }}>Delete workspace</button></div><p className="mt-4 text-sm text-slate-500">Cancel scheduled posts and let publishing or image generation finish before archiving or deleting.</p></section>
     {action && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"><form ref={dialogRef} onKeyDown={(event) => {

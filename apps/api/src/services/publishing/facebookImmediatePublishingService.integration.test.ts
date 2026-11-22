@@ -12,6 +12,7 @@ import {
 } from "vitest";
 
 import { env } from "../../config/env.js";
+import Workspace from "../../models/Workspace.js";
 import Post from "../../models/Post.js";
 
 // Authorization is mocked so these tests focus on
@@ -67,12 +68,13 @@ describe.skipIf(!integrationEnabled)(
       }
     });
 
-    beforeEach(() => {
+    beforeEach(async () => {
       vi.clearAllMocks();
 
       workspaceId = new mongoose.Types.ObjectId();
       createdByUserId = new mongoose.Types.ObjectId();
       facebookConnectionId = new mongoose.Types.ObjectId();
+      await Workspace.collection.insertOne({ _id: workspaceId, ownerUserId: createdByUserId, name: "Claims" });
       linkedinConnectionId = new mongoose.Types.ObjectId();
 
       mocks.isValidWorkspaceId.mockImplementation((value: string) =>
@@ -91,6 +93,7 @@ describe.skipIf(!integrationEnabled)(
         await Post.deleteMany({
           workspaceId,
         });
+        await Workspace.deleteOne({ _id: workspaceId });
       }
     });
 

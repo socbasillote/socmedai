@@ -12,6 +12,7 @@ export type CaptionTone =
 export type CaptionLength = "short" | "medium" | "long";
 
 export type GenerateCaptionInput = {
+  format?: "caption" | "quote";
   sourceCaption?: string;
   referenceImages?: string[];
   language?: "en" | "fil" | "es" | "fr" | "de" | "ja" | "ko" | "pt" | "zh";

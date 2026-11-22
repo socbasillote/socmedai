@@ -2,13 +2,17 @@ import { createAutomaticCrop } from "@/features/publishing/automaticImageCrop";
 import { defaultCrop } from "@/features/publishing/imageCrop";
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { ApiError } from "@/lib/api";
+import * as apiModule from "@/lib/api";
+import * as mediaModule from "@/lib/mediaLibrary";
+import { defaultBrandKit } from "@/lib/brandKit";
+import { readAIReviewBatch } from "@/features/posts/lib/aiReviewBatch";
 import { AIPostFlow } from "./AIPostFlow";
 import { generateCaption } from "@/lib/aiContent";
 import { createPost, validatePostBatch } from "@/lib/posts";
-import { generateWorkspaceImage, getWorkspaceImageStatus, getWorkspaceImageUrl } from "@/lib/imageGeneration";
+import { generateWorkspaceImage, getWorkspaceImageStatus, getWorkspaceImageUrl, uploadWorkspaceImageReference } from "@/lib/imageGeneration";
 vi.mock("@/features/publishing/automaticImageCrop", () => ({ createAutomaticCrop: vi.fn() }));
 vi.mock("@/lib/aiContent", () => ({ generateCaption: vi.fn() }));
 vi.mock("@/lib/posts", () => ({ createPost: vi.fn(), validatePostBatch: vi.fn() }));
@@ -17,7 +21,44 @@ vi.mock("@/features/publishing/components/MediaLibraryPicker", () => ({ MediaLib
 beforeEach(() => {
   vi.mocked(createAutomaticCrop).mockImplementation(async (_workspace, originalAssetId, platform) => ({ assetId: originalAssetId, originalAssetId, crop: defaultCrop(platform) })); vi.mocked(validatePostBatch).mockResolvedValue({ issues: [] }); vi.mocked(generateCaption).mockResolvedValue("A useful caption"); vi.mocked(createPost).mockResolvedValue({} as Awaited<ReturnType<typeof createPost>>); });
 afterEach(() => { cleanup(); localStorage.clear(); vi.clearAllMocks(); });
-function setup(overrides: Partial<ComponentProps<typeof AIPostFlow>> = {}) { render(<AIPostFlow workspaceId="507f1f77bcf86cd799439011" timezone="Asia/Manila" onBack={vi.fn()} connections={{ facebook: "page" }} destinations={null} {...overrides} />); fireEvent.change(screen.getByRole("textbox", { name: "Post brief" }), { target: { value: "Share our new coffee menu" } }); }
+function setup(overrides: Partial<ComponentProps<typeof AIPostFlow>> = {}) {
+  render(<AIPostFlow workspaceId="507f1f77bcf86cd799439011" timezone="Asia/Manila" onBack={vi.fn()} connections={{ facebook: "page" }} destinations={null} {...overrides} />);
+  fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+  fireEvent.click(screen.getByText("Tone, goal, and call to action (optional)"));
+  fireEvent.change(screen.getByRole("textbox", { name: "Post brief" }), { target: { value: "Share our new coffee menu" } });
+}
+it("offers photo style presets in Describe your post and defaults to Auto without branding", () => {
+  setup();
+  expect(screen.getByRole("button", { name: "Auto" })).toHaveAttribute("aria-pressed", "true");
+  for (const name of ["Cinematic", "Editorial", "Product Studio", "Lifestyle", "Minimal", "Illustration"]) expect(screen.getByRole("button", { name })).toBeTruthy();
+  expect(screen.getByRole("radio", { name: "No, use style defaults" })).toBeChecked();
+  expect(screen.getByRole("radio", { name: "Yes, apply my brand kit" })).not.toBeDisabled();
+  expect(screen.getByText("Optional image details").closest("details")).not.toHaveAttribute("open");
+  expect(screen.queryByText("Image style", { exact: true })).toBeNull();
+});
+it("combines the selected aesthetic, brand kit, image details, and exact wording without printing the caption", async () => {
+  mockSuccessfulImages();
+  setup({ brandKit: defaultBrandKit, ownerId: "style-owner" });
+  fireEvent.click(screen.getByRole("button", { name: "Cinematic" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Yes, apply my brand kit" }));
+  fireEvent.change(screen.getByLabelText("Image details"), { target: { value: "Use bright morning light." } });
+  fireEvent.change(screen.getByLabelText("Exact text on image"), { target: { value: "Make every day count." } });
+  fireEvent.change(screen.getByLabelText("Author credit"), { target: { value: "Ana" } });
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[0][1].image).toMatchObject({ prompt: "Share our new coffee menu", useBrandKit: true, postDesign: { style: "cinematic", details: "Use bright morning light.", captionContext: "A useful caption", text: "Make every day count.", author: "Ana" } });
+  expect(readAIReviewBatch("style-owner", "507f1f77bcf86cd799439011")?.setup).toMatchObject({ style: "cinematic", useBrandKit: true, imageText: "Make every day count.", imageAuthor: "Ana" });
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate shared image" }));
+  await waitFor(() => expect(generateWorkspaceImage).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[1][1].image.postDesign?.style).toBe("cinematic");
+});
+it("explicitly opts out of an available brand kit", async () => {
+  mockSuccessfulImages(); setup({ brandKit: defaultBrandKit });
+  fireEvent.click(screen.getByRole("button", { name: "Editorial" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[0][1].image).toMatchObject({ useBrandKit: false, postDesign: { style: "editorial" } });
+});
 it("defaults to no goal or call to action and single mode; generation does not persist posts", async () => {
   setup(); expect(screen.getByRole("button", { name: "No goal" })).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(screen.getByRole("switch", { name: "Images" }));
@@ -26,6 +67,16 @@ it("defaults to no goal or call to action and single mode; generation does not p
   expect(createPost).not.toHaveBeenCalled();
   expect(generateCaption).toHaveBeenCalledWith(expect.objectContaining({ goal: undefined, platform: "facebook", callToAction: "Do not include a call to action or add an engagement question." }));
   expect(screen.getByText("1 of 1 selected")).toBeTruthy();
+});
+it("uses the workspace language for initial captions and regeneration", async () => {
+  setup({ defaultLanguage: "fil" });
+  fireEvent.click(screen.getByRole("switch", { name: "Images" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await screen.findByDisplayValue("A useful caption");
+  expect(generateCaption).toHaveBeenLastCalledWith(expect.objectContaining({ language: "fil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  await waitFor(() => expect(generateCaption).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(generateCaption).mock.calls.every(([input]) => input.language === "fil")).toBe(true);
 });
 it("mixes goals and saves only selected posts", async () => {
   setup(); fireEvent.click(screen.getByRole("button", { name: "Bulk" }));
@@ -294,7 +345,7 @@ it("pairs each bulk image with its own caption", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Bulk" }));
   fireEvent.click(screen.getByRole("button", { name: "Generate 3 posts" }));
   await waitFor(() => expect(screen.getByText("3 of 3 selected")).toBeTruthy());
-  const prompts = vi.mocked(generateWorkspaceImage).mock.calls.map(c => c[1].image.prompt);
+  const prompts = vi.mocked(generateWorkspaceImage).mock.calls.map(c => c[1].image.postDesign?.captionContext);
   captions.forEach((caption, i) => {
     expect(prompts[i]).toContain(caption);
     captions.filter(other => other !== caption).forEach(other => expect(prompts[i]).not.toContain(other));
@@ -310,7 +361,7 @@ it("regenerates one shared image using the chosen edited caption and preserves o
   fireEvent.change(screen.getByRole("textbox", { name: "linkedin caption" }), { target: { value: "Pouring cold brew over ice." } });
   fireEvent.click(screen.getAllByRole("button", { name: "Regenerate shared image" })[1]);
   await waitFor(() => expect(generateWorkspaceImage).toHaveBeenCalledTimes(2));
-  expect(vi.mocked(generateWorkspaceImage).mock.calls[1][1].image.prompt).toContain("Pouring cold brew over ice.");
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[1][1].image.postDesign?.captionContext).toContain("Pouring cold brew over ice.");
   expect(vi.mocked(generateWorkspaceImage).mock.calls[1][1].image.aspectRatio).toBe("square");
   await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
   expect(generateCaption).toHaveBeenCalledTimes(1);
@@ -483,7 +534,8 @@ it("keeps caption questions out of the image prompt even when a goal and CTA are
   expect(generateCaption).toHaveBeenCalledWith(expect.objectContaining({ goal: "engagement", callToAction: "Ask a question" }));
   const image = vi.mocked(generateWorkspaceImage).mock.calls[0][1].image;
   expect(image.goal).toBeUndefined();
-  expect(image.prompt).toContain("Do not render the caption, questions, engagement prompts, calls to action, or hashtags as text in the image.");
+  expect(image.postDesign).toMatchObject({ style: "auto", captionContext: "A useful caption", text: "" });
+  expect(image.prompt).toBe("Share our new coffee menu");
 });
 it("allows clearing a selected goal before generating", async () => {
   setup();
@@ -493,4 +545,132 @@ it("allows clearing a selected goal before generating", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
   await screen.findByDisplayValue("A useful caption");
   expect(generateCaption).toHaveBeenCalledWith(expect.objectContaining({ goal: undefined }));
+});
+
+function openTypeFlow(ownerId?: string) {
+  render(<AIPostFlow ownerId={ownerId} workspaceId="507f1f77bcf86cd799439011" timezone="Asia/Manila" onBack={vi.fn()} connections={{ facebook: "page" }} destinations={null} />);
+}
+it("provides eight ordered sections with a navigable progress bar", () => {
+  openTypeFlow();
+  expect(screen.getAllByRole("heading", { level: 2 }).slice(0, 8).map(item => item.textContent)).toEqual([
+    "1Choose platforms", "2Choose single or bulk", "3Post goal (optional)", "4Select post type", "5Brand identity", "6Choose visual style", "7Add photo reference (optional)", "8Choose when to publish",
+  ]);
+  expect(screen.getByRole("progressbar", { name: "Create Post progress" })).toHaveAttribute("aria-valuenow", "1");
+  fireEvent.click(screen.getByRole("link", { name: "6. Visual style" }));
+  expect(screen.getByRole("progressbar", { name: "Create Post progress" })).toHaveAttribute("aria-valuenow", "6");
+});
+it("lets users select brand identity and explains missing configuration instead of disabling Yes", () => {
+  setup();
+  fireEvent.click(screen.getByRole("radio", { name: "Yes, apply my brand kit" }));
+  expect(screen.getByText(/This workspace has no enabled brand identity/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Generate post" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("radio", { name: "No, use style defaults" }));
+  expect(screen.getByRole("button", { name: "Generate post" })).not.toBeDisabled();
+});
+it("requires and forwards the user's custom visual direction", async () => {
+  mockSuccessfulImages(); setup();
+  fireEvent.click(screen.getByRole("button", { name: "Custom style" }));
+  expect(screen.getByRole("button", { name: "Generate post" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Custom visual style"), { target: { value: "Nostalgic film with soft grain and warm sunset colors" } });
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[0][1].image.postDesign).toMatchObject({ style: "custom", details: "Nostalgic film with soft grain and warm sunset colors" });
+});
+it("starts with post type, then content, visuals, and brand kit; refinements stay collapsed", () => {
+  openTypeFlow();
+  for (const name of ["Quotes", "Products", "Promos", "Announcements", "Events", "Tips & Education", "Custom"]) expect(screen.getByRole("button", { name })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Cinematic" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Generate post" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Products" }));
+  const headings = screen.getAllByRole("heading", { level: 2 }).map(heading => heading.textContent);
+  expect(headings.slice(0, 4)).toEqual(["1Choose platforms", "2Choose single or bulk", "3Post goal (optional)", "4Select post type"]);
+  expect(screen.getByText("Tone, goal, and call to action (optional)").closest("details")).not.toHaveAttribute("open");
+  expect(screen.getByText("Optional content details").closest("details")).not.toHaveAttribute("open");
+  const styles = within(screen.getByRole("group", { name: "Choose a visual style" })).getAllByRole("button");
+  expect(styles.slice(0, 3).map(button => button.getAttribute("aria-label"))).toEqual(["Auto", "Product Studio", "Lifestyle"]);
+  expect(styles).toHaveLength(8);
+});
+it("preserves each type's fields when switching and sends the structured product content to AI", async () => {
+  mockSuccessfulImages(); openTypeFlow("product-owner");
+  fireEvent.click(screen.getByRole("button", { name: "Products" }));
+  fireEvent.change(screen.getByLabelText("Product name"), { target: { value: "Cold brew" } });
+  expect(screen.getByRole("button", { name: "Generate post" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Key benefit"), { target: { value: "Brewed fresh every morning" } });
+  fireEvent.click(screen.getByRole("button", { name: "Events" }));
+  expect(screen.queryByLabelText("Product name")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Products" }));
+  expect(screen.getByLabelText("Product name")).toHaveValue("Cold brew");
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+  expect(generateCaption).toHaveBeenCalledWith(expect.objectContaining({ brief: expect.stringContaining("Product name: Cold brew") }));
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[0][1].image.prompt).toContain("Key benefit: Brewed fresh every morning");
+  expect(readAIReviewBatch("product-owner", "507f1f77bcf86cd799439011")?.setup).toMatchObject({ postType: "product", postContent: { product: { name: "Cold brew" } } });
+  cleanup(); openTypeFlow("product-owner");
+  await screen.findByDisplayValue("A useful caption");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Back to AI setup" })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: "Back to AI setup" }));
+  expect(screen.getByRole("button", { name: "Products" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByLabelText("Product name")).toHaveValue("Cold brew");
+});
+it("routes a supplied quote and author into exact image text without extra image fields", async () => {
+  mockSuccessfulImages(); openTypeFlow();
+  fireEvent.click(screen.getByRole("button", { name: "Quotes" }));
+  fireEvent.change(screen.getByLabelText("Quote", { exact: true }), { target: { value: "Small steps count." } });
+  fireEvent.click(screen.getByText("Optional content details"));
+  fireEvent.change(screen.getByLabelText("Quote author"), { target: { value: "Ana" } });
+  expect(screen.queryByLabelText("Exact text on image")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[0][1].image.postDesign).toMatchObject({ text: "Small steps count.", author: "Ana" });
+});
+it("asks for an original unattributed quote in topic mode without leaking an earlier quote", async () => {
+  mockSuccessfulImages(); openTypeFlow();
+  fireEvent.click(screen.getByRole("button", { name: "Quotes" }));
+  fireEvent.change(screen.getByLabelText("Quote", { exact: true }), { target: { value: "An earlier quote" } });
+  fireEvent.click(screen.getByRole("radio", { name: "Write a quote about a topic" }));
+  fireEvent.change(screen.getByLabelText("Quote topic"), { target: { value: "Confidence" } });
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+  const image = vi.mocked(generateWorkspaceImage).mock.calls[0][1].image;
+  expect(image.prompt).toContain("Leave it unattributed"); expect(image.prompt).not.toContain("An earlier quote");
+  expect(image.postDesign).toMatchObject({ text: "A useful caption", captionContext: "A useful caption", author: "" });
+  expect(generateCaption).toHaveBeenCalledWith(expect.objectContaining({ format: "quote" }));
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate shared image" }));
+  await waitFor(() => expect(generateWorkspaceImage).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[1][1].image.postDesign?.text).toBe("A useful caption");
+  expect(generateCaption).toHaveBeenCalledOnce();
+});
+it("honors a supplied promo CTA instead of suppressing it with the default refinement", async () => {
+  mockSuccessfulImages(); openTypeFlow();
+  fireEvent.click(screen.getByRole("button", { name: "Promos" }));
+  fireEvent.change(screen.getByLabelText("Offer", { exact: true }), { target: { value: "Buy one, get one free" } });
+  fireEvent.click(screen.getByText("Optional content details"));
+  fireEvent.change(screen.getByLabelText("Call to action", { exact: true }), { target: { value: "Visit us this weekend" } });
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+  expect(generateCaption).toHaveBeenCalledWith(expect.objectContaining({ callToAction: "Visit us this weekend" }));
+});
+it("uses an optional product photo as a subject reference for the generated design", async () => {
+  const assetId = "507f1f77bcf86cd799439071", referenceId = "507f1f77bcf86cd799439072";
+  vi.spyOn(apiModule, "apiFetch").mockResolvedValue({ assetId });
+  vi.spyOn(mediaModule, "getMediaLibraryItem").mockResolvedValue({ assetId, sourceWorkspaceId: "507f1f77bcf86cd799439011", sourceWorkspaceName: "Coffee", type: "image", mimeType: "image/png", width: 512, height: 512, createdAt: "", previewUrl: "https://images.example.com/product.png" });
+  vi.mocked(uploadWorkspaceImageReference).mockResolvedValue({ referenceId, width: 512, height: 512 });
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, blob: async () => new Blob(["photo"], { type: "image/png" }) })));
+  vi.stubGlobal("createImageBitmap", vi.fn(async () => ({ close: vi.fn() })));
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/jpeg;base64,AAAA");
+  try {
+    mockSuccessfulImages(); openTypeFlow("product-photo-owner");
+    fireEvent.click(screen.getByRole("button", { name: "Products" }));
+    fireEvent.change(screen.getByLabelText("Product name"), { target: { value: "Cold brew" } });
+    fireEvent.change(screen.getByLabelText("Key benefit"), { target: { value: "Brewed fresh daily" } });
+    fireEvent.click(screen.getByText("Optional content details"));
+    fireEvent.change(screen.getByLabelText("Upload reference images"), { target: { files: [new File(["photo"], "product.png", { type: "image/png" })] } });
+    await screen.findByText("product.png");
+    fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+    await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+    expect(vi.mocked(generateWorkspaceImage).mock.calls[0][1].image.reference).toEqual({ id: referenceId, usage: "design" });
+    expect(generateCaption).toHaveBeenCalledWith(expect.objectContaining({ referenceImages: ["data:image/jpeg;base64,AAAA"] }));
+    expect(readAIReviewBatch("product-photo-owner", "507f1f77bcf86cd799439011")?.setup.refs[0]).toMatchObject({ sourceType: "product", usage: "subject" });
+  } finally { vi.unstubAllGlobals(); }
 });

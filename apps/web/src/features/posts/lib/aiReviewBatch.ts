@@ -3,14 +3,17 @@ import type { Reference, ReviewPost } from "@/components/AIPostFlow";
 import type { CaptionTone } from "@/lib/aiContent";
 import type { PostPlatform } from "@/lib/posts";
 import { postGoals } from "@/lib/postGoals";
+import { aiPostTypeIds, type AIPostContent, type AIPostType } from "@/lib/aiPostTypes";
 
 export type AIReviewBatch = {
   version: 1;
   posts: ReviewPost[];
   setup: {
     targets: PostPlatform[]; bulk: boolean; brief: string; tone: CaptionTone;
+    postType?: AIPostType; postContent?: AIPostContent;
     goal: ReviewPost["goal"]; mix: boolean; cta: string; captions: boolean;
     images: boolean; count: number; style: string; refs: Reference[];
+    useBrandKit?: boolean; imageDetails?: string; imageText?: string; imageAuthor?: string;
     schedule: boolean; date: string; time: string; frequency: string;
   };
 };
@@ -33,8 +36,10 @@ const schema = z.object({
   })).max(20),
   setup: z.object({
     targets: z.array(platform), bulk: z.boolean(), brief: z.string(),
+    postType: z.enum(aiPostTypeIds).optional(), postContent: z.partialRecord(z.enum(aiPostTypeIds), z.record(z.string(), z.string().max(2800))).optional(),
     tone: z.enum(["professional", "friendly", "bold", "educational", "playful", "inspirational"]), goal: z.string(), mix: z.boolean(), cta: z.string(), captions: z.boolean(), images: z.boolean(), count: z.number().int().min(1).max(20), style: z.string(),
-    refs: z.array(z.object({ thumbnail: z.string(), id: z.string(), assetId: z.string(), name: z.string(), usage: z.enum(["include", "style"]), useIn: z.enum(["every", "choose"]) })).max(20),
+    useBrandKit: z.boolean().optional(), imageDetails: z.string().max(600).optional(), imageText: z.string().max(240).optional(), imageAuthor: z.string().max(60).optional(),
+    refs: z.array(z.object({ sourceType: z.enum(aiPostTypeIds).optional(), thumbnail: z.string(), id: z.string(), assetId: z.string(), name: z.string(), usage: z.enum(["include", "style", "subject"]), useIn: z.enum(["every", "choose"]) })).max(20),
     schedule: z.boolean(), date: z.string(), time: z.string(), frequency: z.string(),
   }),
 });

@@ -4,6 +4,9 @@ import {
 } from "./imageValidation.js";
 
 import type { WorkspaceLogoSettings } from "./workspaceLogoConfig.js";
+import { snapshotBrandKit } from "../../schemas/brandKitSchema.js";
+import { brandKitMargin } from "./brandKitImageStyle.js";
+import { applyPostImageText } from "./postImageText.js";
 
 import {
   resolveAdmittedImageBranding,
@@ -19,6 +22,8 @@ import { applyTextLabelOverlay } from "./textLabelOverlay.js";
 import type { ImageStorageBucket } from "./supabaseImageStorage.js";
 
 export type PrepareBrandedImageInput = {
+  postDesign?: unknown;
+  brandKitSnapshot?: unknown;
   workspaceId: string;
   bytes: Uint8Array;
 
@@ -48,7 +53,10 @@ export async function prepareBrandedGeneratedImage(
   bucket: ImageStorageBucket,
 ): Promise<ValidatedImage> {
   // Normalize the provider response first.
-  const original = await validateGeneratedImage(input.bytes);
+  const normalized = await validateGeneratedImage(input.bytes);
+  const brandKit = snapshotBrandKit(input.brandKitSnapshot);
+  const textBytes = await applyPostImageText(normalized.bytes, input.postDesign, brandKit);
+  const original = textBytes === normalized.bytes ? normalized : await validateGeneratedImage(textBytes);
 
   // Use exactly the same branding resolver
   // as the worker's preflight operation.
@@ -74,7 +82,7 @@ export async function prepareBrandedGeneratedImage(
    * come exclusively from the admitted asset.
    */
   if (branding.type === "text") {
-    const labeledBytes = await applyTextLabelOverlay(original.bytes, branding);
+    const labeledBytes = await applyTextLabelOverlay(original.bytes, branding, brandKit);
 
     return validateGeneratedImage(labeledBytes);
   }
@@ -101,6 +109,7 @@ export async function prepareBrandedGeneratedImage(
       position: branding.position,
       sizePercent: branding.sizePercent,
       opacity: branding.opacity,
+      ...(brandKit ? { marginPercent: brandKitMargin(brandKit) } : {}),
     },
   );
 

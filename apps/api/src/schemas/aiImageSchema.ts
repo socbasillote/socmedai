@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { postGoalCatalog, type PostGoal } from "../services/postGoalCatalog.js";
+import { postImageDesignSchema } from "./postImageDesignSchema.js";
 
 /**
  * User-facing aspect ratios.
@@ -73,6 +74,8 @@ export const imageBrandingSchema = z.discriminatedUnion("type", [
 
 export const generateImageSchema = z
   .object({
+    useBrandKit: z.boolean().optional(),
+    postDesign: postImageDesignSchema.optional(),
     goal: z.custom<PostGoal>((value) => typeof value === "string" && Object.prototype.hasOwnProperty.call(postGoalCatalog, value), "Choose a valid post goal.").optional(),
     prompt: z
       .string()

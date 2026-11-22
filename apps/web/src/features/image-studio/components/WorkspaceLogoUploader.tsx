@@ -6,12 +6,14 @@ import {
   getWorkspaceLogoPreview,
   uploadWorkspaceLogo,
   type WorkspaceLogoSettings,
+  type LogoVariant,
 } from "@/lib/workspaceLogo";
 
 type Props = {
   workspaceId: string | null;
   disabled?: boolean;
   onReady: () => void;
+  variant?: LogoVariant;
 };
 
 function errorMessage(error: unknown): string {
@@ -24,12 +26,13 @@ export function WorkspaceLogoUploader({
   workspaceId,
   disabled = false,
   onReady,
+  variant,
 }: Props) {
   const [settings, setSettings] = useState<WorkspaceLogoSettings | null>(null);
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(workspaceId));
   const [busy, setBusy] = useState(false);
 
   const [error, setError] = useState("");
@@ -44,29 +47,37 @@ export function WorkspaceLogoUploader({
 
   const previewRequestRef = useRef(0);
 
+  const requestScope = `${workspaceId}:${variant}:${refreshVersion}`;
+  const [renderedScope, setRenderedScope] = useState(requestScope);
+  if (renderedScope !== requestScope) {
+    setRenderedScope(requestScope);
+    setPreviewUrl(null);
+    setPreviewError("");
+    setLoading(Boolean(workspaceId));
+  }
+  const [renderedWorkspace, setRenderedWorkspace] = useState(workspaceId);
+  if (renderedWorkspace !== workspaceId) {
+    setRenderedWorkspace(workspaceId);
+    setSettings(null);
+    setNeedsEnable(false);
+    setError("");
+    setSuccess("");
+  }
+
   // Load the persisted logo when Image Studio opens.
   // Invalidate responses after a workspace change
   // or a newer refresh request.
   useEffect(() => {
     const previewRequestId = ++previewRequestRef.current;
-    if (!workspaceId) {
-      setSettings(null);
-      setPreviewUrl(null);
-      setLoading(false);
-      return;
-    }
+    if (!workspaceId) return;
 
     let active = true;
-
-    setLoading(true);
-    setPreviewError("");
-    setPreviewUrl(null);
 
     async function loadLogo() {
       if (!workspaceId) return;
 
       try {
-        const current = await getWorkspaceLogo(workspaceId);
+        const current = await (variant ? getWorkspaceLogo(workspaceId, variant) : getWorkspaceLogo(workspaceId));
 
         if (!active) return;
 
@@ -78,7 +89,7 @@ export function WorkspaceLogoUploader({
         }
 
         try {
-          const preview = await getWorkspaceLogoPreview(workspaceId);
+          const preview = await (variant ? getWorkspaceLogoPreview(workspaceId, variant) : getWorkspaceLogoPreview(workspaceId));
 
           if (!active || previewRequestId !== previewRequestRef.current) {
             return;
@@ -110,7 +121,7 @@ export function WorkspaceLogoUploader({
       active = false;
       previewRequestRef.current += 1;
     };
-  }, [workspaceId, refreshVersion]);
+  }, [workspaceId, variant, refreshVersion]);
 
   function refreshSavedLogo() {
     setRefreshVersion((version) => version + 1);
@@ -124,7 +135,7 @@ export function WorkspaceLogoUploader({
     setPreviewError("");
 
     try {
-      const result = await getWorkspaceLogoPreview(workspaceId);
+      const result = await (variant ? getWorkspaceLogoPreview(workspaceId, variant) : getWorkspaceLogoPreview(workspaceId));
 
       // Only the newest preview request may
       // update the displayed image.
@@ -163,7 +174,7 @@ export function WorkspaceLogoUploader({
     let uploadConfirmed = false;
 
     try {
-      const uploaded = await uploadWorkspaceLogo(workspaceId, file);
+      const uploaded = await (variant ? uploadWorkspaceLogo(workspaceId, file, variant) : uploadWorkspaceLogo(workspaceId, file));
 
       uploadConfirmed = true;
       setSettings(uploaded);
@@ -171,7 +182,7 @@ export function WorkspaceLogoUploader({
 
       const enabled = uploaded.enabled
         ? uploaded
-        : await enableWorkspaceLogo(workspaceId);
+        : await (variant ? enableWorkspaceLogo(workspaceId, variant) : enableWorkspaceLogo(workspaceId));
 
       setSettings(enabled);
       setNeedsEnable(false);
@@ -208,7 +219,7 @@ export function WorkspaceLogoUploader({
     setError("");
 
     try {
-      const enabled = await enableWorkspaceLogo(workspaceId);
+      const enabled = await (variant ? enableWorkspaceLogo(workspaceId, variant) : enableWorkspaceLogo(workspaceId));
 
       setSettings(enabled);
       setNeedsEnable(false);
@@ -223,10 +234,12 @@ export function WorkspaceLogoUploader({
     }
   }
 
+  const variantLabel = variant && variant !== "primary" ? `${variant} logo` : "workspace logo";
+  const inputId = `image-studio-logo-upload-${variant ?? "primary"}`;
   return (
     <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-slate-900">Workspace logo</h3>
+        <h3 className="text-sm font-semibold text-slate-900">{variantLabel.charAt(0).toUpperCase() + variantLabel.slice(1)}</h3>
 
         <span
           className={`rounded-full px-2 py-1 text-xs font-normal ${
@@ -301,16 +314,16 @@ export function WorkspaceLogoUploader({
 
       <div className="space-y-2">
         <label
-          htmlFor="image-studio-logo-upload"
+          htmlFor={inputId}
           className="block text-sm font-normal text-slate-700"
         >
           {hasLogo ? "Replace logo" : "Upload logo"}
         </label>
 
         <input
-          id="image-studio-logo-upload"
+          id={inputId}
           aria-label={
-            hasLogo ? "Replace workspace logo" : "Upload workspace logo"
+            hasLogo ? `Replace ${variantLabel}` : `Upload ${variantLabel}`
           }
           type="file"
           accept="image/png,image/jpeg,image/webp"

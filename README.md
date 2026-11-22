@@ -23,7 +23,10 @@ the local `.env` file is not a deployment configuration. Set `NODE_ENV=productio
 origin, and `SUPABASE_URL` / `SUPABASE_ANON_KEY` for authentication. Missing
 Supabase settings prevent startup. Leaving MongoDB or WEB_ORIGIN unset falls
 back to localhost, which is unsuitable for deployment. Configure MongoDB network
-access and use a replica set for transaction-backed operations. The serverless
+access and use a replica set for transaction-backed operations, including workspace
+archive/delete, scheduled post creation, immediate publishing claims, and image
+admission. These operations serialize on the workspace document so a lifecycle
+transition cannot commit alongside newly admitted work. The serverless
 app reuses its connection within each warm instance and retries failed connects.
 
 For storage, configure `SUPABASE_SERVICE_ROLE_KEY` and the private image bucket

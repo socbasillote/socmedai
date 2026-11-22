@@ -2,6 +2,8 @@ import sharp from "sharp";
 
 import type { ImageBranding } from "../../schemas/aiImageSchema.js";
 import { planTextLabelLayout } from "./textLabelLayout.js";
+import { snapshotBrandKit, type BrandKit } from "../../schemas/brandKitSchema.js";
+import { brandKitMargin } from "./brandKitImageStyle.js";
 
 type TextBranding = Extract<ImageBranding, { type: "text" }>;
 
@@ -22,10 +24,11 @@ function getOverlayPosition(
   imageHeight: number,
   overlayWidth: number,
   overlayHeight: number,
+  marginPercent = 0.025,
 ) {
   const margin = Math.max(
     4,
-    Math.round(Math.min(imageWidth, imageHeight) * 0.025),
+    Math.round(Math.min(imageWidth, imageHeight) * marginPercent),
   );
 
   const left = position.endsWith("right")
@@ -52,7 +55,9 @@ function getOverlayPosition(
 export async function applyTextLabelOverlay(
   imageBytes: Uint8Array,
   branding: TextBranding,
+  brandKit?: BrandKit | null,
 ): Promise<Uint8Array> {
+  const kit = snapshotBrandKit(brandKit);
   const text = branding.text.trim();
 
   if (
@@ -121,6 +126,7 @@ export async function applyTextLabelOverlay(
     imageHeight,
     overlayWidth,
     overlayHeight,
+    kit ? brandKitMargin(kit) : undefined,
   );
 
   /**
@@ -134,6 +140,10 @@ export async function applyTextLabelOverlay(
   const totalTextHeight = lines.length * lineHeight;
 
   const firstBaseline = (overlayHeight - totalTextHeight) / 2 + lineHeight / 2;
+  const alignment = kit?.layout.textAlignment ?? "center";
+  const inset = Math.max(2, Math.round(overlayWidth * 0.025));
+  const textX = alignment === "left" ? inset : alignment === "right" ? overlayWidth - inset : overlayWidth / 2;
+  const anchor = { left: "start", center: "middle", right: "end" }[alignment];
 
   const textElements = lines
     .map((line, index) => {
@@ -143,15 +153,15 @@ export async function applyTextLabelOverlay(
 
       return `
         <text
-          x="${overlayWidth / 2}"
+          x="${textX}"
           y="${y}"
-          text-anchor="middle"
+          text-anchor="${anchor}"
           dominant-baseline="middle"
-          font-family="sans-serif"
+          font-family="${escapeSvgText(kit?.typography.headingFont ?? "sans-serif")}"
           font-weight="700"
           font-size="${fontSize}"
-          fill="#ffffff"
-          stroke="#000000"
+          fill="${kit?.colors.text ?? "#ffffff"}"
+          stroke="${kit ? kit.colors.background : "#000000"}"
           stroke-opacity="0.65"
           stroke-width="${Math.max(0.5, fontSize * 0.07)}"
           stroke-linejoin="round"
@@ -169,6 +179,7 @@ export async function applyTextLabelOverlay(
       viewBox="0 0 ${overlayWidth} ${overlayHeight}"
     >
       <g opacity="${branding.opacity}">
+        ${kit ? `<rect width="${overlayWidth}" height="${overlayHeight}" rx="3" fill="${kit.colors.background}" stroke="${kit.colors.primary}"/><rect width="${overlayWidth}" height="2" fill="${kit.colors.accent}"/>` : ""}
         ${textElements}
       </g>
     </svg>

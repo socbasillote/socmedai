@@ -25,6 +25,22 @@ function makeCommand(): GenerateImageCommand {
 }
 
 describe("Image generation command snapshots", () => {
+  it("freezes the style and exact image wording for uncertain retries", () => {
+    const original = makeCommand();
+    original.image.postDesign = { style: "editorial", details: "Daylight", captionContext: "Coffee", text: "Hello", author: "Ana" };
+    const snapshot = snapshotImageGenerationCommand(original);
+    original.image.postDesign.style = "cinematic";
+    original.image.postDesign.text = "Edited";
+    expect(snapshot.image.postDesign).toMatchObject({ style: "editorial", text: "Hello" });
+    expect(Object.isFrozen(snapshot.image.postDesign)).toBe(true);
+  });
+  it("preserves the explicit brand-kit opt-out across retries", () => {
+    const original = makeCommand();
+    original.image.useBrandKit = false;
+    const snapshot = snapshotImageGenerationCommand(original);
+    original.image.useBrandKit = true;
+    expect(snapshot.image.useBrandKit).toBe(false);
+  });
   it("preserves the original text branding", () => {
     const command = snapshotImageGenerationCommand(makeCommand());
 

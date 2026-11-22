@@ -1,3 +1,4 @@
+import { brandKitSchema } from "../../../schemas/brandKitSchema.js";
 import sharp from "sharp";
 
 import { describe, expect, it, vi } from "vitest";
@@ -60,6 +61,33 @@ function request(aspectRatio: "square" | "portrait" | "landscape" = "square") {
 }
 
 describe("OpenAIImageProvider", () => {
+  it("builds the social-post prompt at the provider boundary rather than exposing preset instructions to the editor", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, _options: RequestInit) => imageResponse());
+    await makeProvider(fetchMock as typeof fetch).generate({ ...request(), postDesign: { style: "cinematic", details: "Bright daylight", captionContext: "Meet our new menu", text: "Hello", author: "Ana" } });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.prompt).toContain("Cinematic photography");
+    expect(body.prompt).toContain("Bright daylight");
+    expect(body.prompt).toContain("app will add");
+    expect(body.prompt).toContain("USER DESCRIPTION");
+    expect(body).not.toHaveProperty("postDesign");
+  });
+  it("adds brand direction to the outbound prompt using the admitted snapshot", async () => {
+    const brandKit = brandKitSchema.parse({
+    enabled: true,
+    colors: { primary: "#7C3AED", accent: "#F59E0B", background: "#FFFFFF", text: "#0F172A" },
+    typography: { headingFont: "Georgia", bodyFont: "Arial" },
+    imageStyle: "Warm natural light, muted earth tones, and soft paper texture.",
+    layout: { textAlignment: "center", logoPosition: "top-left", spacing: "spacious", logoVariant: "light" },
+  });
+    const fetchMock = vi.fn(async (_url: unknown, _options: RequestInit) => imageResponse());
+    await makeProvider(fetchMock as typeof fetch).generate({ ...request(), brandKit });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.prompt).toContain(PROMPT);
+    expect(body.prompt).toContain(brandKit.imageStyle);
+    expect(body.prompt).toContain("primary #7C3AED");
+    expect(body).not.toHaveProperty("brandKit");
+  });
+
   it.each(["moderation_blocked", "content_policy_violation"])("treats explicit %s HTTP 400 responses as definitive rejections", async code => {
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {

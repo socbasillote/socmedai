@@ -5,14 +5,20 @@ type State = { workspaceId: string; connections: InstagramConnectionInfo[]; load
 export function useInstagramConnections(workspaceId: string, enabled: boolean) {
   const [state, setState] = useState<State>({ workspaceId: "", connections: [], loading: false, error: "" });
   const generation = useRef(0);
+  const requestScope = `${workspaceId}:${enabled}`;
+  const [renderedScope, setRenderedScope] = useState("");
+  if (renderedScope !== requestScope) {
+    setRenderedScope(requestScope);
+    setState({ workspaceId, connections: [], loading: Boolean(workspaceId && enabled), error: "" });
+  }
+  function invalidateRequests() { generation.current++; }
   useEffect(() => {
     const revision = ++generation.current;
     if (!workspaceId || !enabled) return;
-    setState({ workspaceId, connections: [], loading: true, error: "" });
     void apiFetch<{ connections: InstagramConnectionInfo[] }>(`/api/instagram/connections?${new URLSearchParams({ workspaceId })}`, { method: "GET", cache: "no-store" })
       .then(({ connections }) => { if (revision === generation.current) setState({ workspaceId, connections, loading: false, error: "" }); })
       .catch(() => { if (revision === generation.current) setState({ workspaceId, connections: [], loading: false, error: "Unable to load Instagram accounts." }); });
-    return () => { generation.current++; };
+    return invalidateRequests;
   }, [workspaceId, enabled]);
   async function connect(facebookConnectionId: string) {
     const revision = ++generation.current;

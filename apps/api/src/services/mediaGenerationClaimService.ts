@@ -64,6 +64,7 @@ type MediaGenerationExecution = {
 };
 
 type ClaimedMediaAsset = HydratedDocument<{
+  brandKitSnapshot?: unknown;
   _id: mongoose.Types.ObjectId;
   workspaceId: mongoose.Types.ObjectId;
   createdByUserId: mongoose.Types.ObjectId;
@@ -133,6 +134,26 @@ export function fingerprintImageGeneration(
   generation: GenerationConfiguration,
 ): string {
   const validated = generateImageSchema.parse(input);
+
+  if (validated.postDesign) {
+    return createHash("sha256").update(JSON.stringify([
+      "storm-post-image-v1", validated.prompt, validated.aspectRatio,
+      generation.provider, generation.model, validated.branding,
+      validated.reference ?? null, validated.useBrandKit !== false,
+      validated.postDesign.style, validated.postDesign.details,
+      validated.postDesign.captionContext, validated.postDesign.text, validated.postDesign.author,
+    ])).digest("hex");
+  }
+
+  // Keep historical fingerprints for existing callers, while ensuring an
+  // explicit opt-out cannot reuse a key admitted with workspace branding.
+  if (validated.useBrandKit === false) {
+    return createHash("sha256").update(JSON.stringify([
+      "storm-image-generation-v4", validated.prompt, validated.aspectRatio,
+      generation.provider, generation.model, validated.branding,
+      validated.reference ?? null, false,
+    ])).digest("hex");
+  }
 
   if (validated.reference) {
     return createHash("sha256").update(JSON.stringify([
@@ -275,6 +296,7 @@ export async function reserveImageGeneration(input: ReservationInput) {
         provider,
         model,
         prompt: parsed.data.prompt,
+        ...(parsed.data.postDesign ? { postDesign: parsed.data.postDesign } : {}),
         aspectRatio: parsed.data.aspectRatio,
       },
 

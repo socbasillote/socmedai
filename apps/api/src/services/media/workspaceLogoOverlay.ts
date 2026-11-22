@@ -7,6 +7,7 @@ export type LogoPosition =
   | "bottom-right";
 
 export type LogoOverlayOptions = {
+  marginPercent?: number;
   position: LogoPosition;
   sizePercent: number;
   opacity: number;
@@ -53,7 +54,8 @@ export async function applyWorkspaceLogoOverlay(
     options.sizePercent > 30 ||
     !Number.isFinite(options.opacity) ||
     options.opacity < 0.1 ||
-    options.opacity > 1
+    options.opacity > 1 ||
+    (options.marginPercent !== undefined && (!Number.isFinite(options.marginPercent) || options.marginPercent < 0.01 || options.marginPercent > 0.1))
   ) {
     throw new LogoOverlayError("Invalid logo settings.");
   }
@@ -95,7 +97,7 @@ export async function applyWorkspaceLogoOverlay(
 
   const margin = Math.max(
     4,
-    Math.round(Math.min(base.width, base.height) * 0.04),
+    Math.round(Math.min(base.width, base.height) * (options.marginPercent ?? 0.04)),
   );
 
   const maxWidth = Math.max(

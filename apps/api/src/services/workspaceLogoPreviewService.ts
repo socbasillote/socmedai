@@ -1,3 +1,4 @@
+import type { LogoVariant } from "../schemas/brandKitSchema.js";
 import { createClient } from "@supabase/supabase-js";
 
 import { env } from "../config/env.js";
@@ -49,13 +50,16 @@ export async function createWorkspaceLogoPreview(
   authUser: AuthenticatedUser,
   workspaceId: string,
   signer?: WorkspaceLogoPreviewSigner,
+  variant: LogoVariant = "primary",
 ): Promise<{
   url: string;
   expiresIn: number;
 }> {
   // Authorization and ownership are enforced
   // before any signed URL is created.
-  const settings = await getWorkspaceLogoSettings(authUser, workspaceId);
+  const settings = await (variant === "primary"
+    ? getWorkspaceLogoSettings(authUser, workspaceId)
+    : getWorkspaceLogoSettings(authUser, workspaceId, variant));
 
   if (!settings.logo) {
     throw new WorkspaceLogoServiceError(

@@ -489,7 +489,9 @@ export async function executeReservedImageJob(
     generated = await withGenerationLeaseHeartbeat(owned, () =>
       provider.generate({
         prompt: asset.generation.prompt,
+        ...(asset.generation.postDesign ? { postDesign: asset.generation.postDesign } : {}),
         aspectRatio: asset.generation.aspectRatio,
+        ...(asset.brandKitSnapshot ? { brandKit: asset.brandKitSnapshot } : {}),
         ...(referenceImage ? { referenceImage } : {}),
       }),
     );

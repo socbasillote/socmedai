@@ -1,4 +1,5 @@
 import Post from "../../models/Post.js";
+import { withActiveWorkspaceMutation, WorkspaceInactiveError } from "../workspaceMutationService.js";
 import { getPublishingCapabilities } from "./publishingCapabilities.js";
 
 import type { AuthenticatedUser } from "../userProfileService.js";
@@ -52,96 +53,105 @@ export async function claimImmediatePost({
 
   // An atomic claim ensures that the same draft cannot be
   // claimed twice for immediate publishing.
-  const post = await Post.findOneAndUpdate(
-    {
-      _id: postId,
-      workspaceId,
-      status: "draft",
-      // Check availability in the atomic claim, before consuming an attempt.
-      ...(!getPublishingCapabilities().facebook.publishNow ? { $nor: [{ platforms: ["facebook"] }] } : {}),
-      scheduledClaimId: null,
-      // Validate the same persisted caption atomically with the claim so an
-      // overlapping draft edit cannot consume an attempt with invalid content.
-      $expr: {
-        $and: [
-          { $gt: [{ $strLenCP: { $trim: { input: "$caption" } } }, 0] },
-          { $lte: [{ $add: [
-            { $strLenCP: "$caption" },
-            // JavaScript length counts astral characters as two UTF-16 units.
-            { $size: { $regexFindAll: { input: "$caption", regex: "[\\x{10000}-\\x{10FFFF}]" } } },
-          ] }, { $cond: [{ $in: ["instagram", "$platforms"] }, 2200, { $cond: [{ $in: ["linkedin", "$platforms"] }, 3000, 5000] }] }] },
-        ],
-      },
-
-      // Exactly one supported platform must be selected.
-      $or: [
+  let post;
+  try {
+    post = await withActiveWorkspaceMutation(workspaceId, async (session) =>
+      Post.findOneAndUpdate(
         {
-          platforms: ["instagram"],
-          "platformConnections.instagram": { $exists: true, $ne: null },
-          mediaIds: { $size: 1 },
-          $or: [{ platformResults: { $size: 0 } }, { platformResults: { $elemMatch: { platform: "instagram", status: "pending" } } }],
-        },
-        {
-          platforms: ["linkedin"],
-          "platformConnections.linkedin": {
-            $exists: true,
-            $ne: null,
+          _id: postId,
+          workspaceId,
+          status: "draft",
+          // Check availability in the atomic claim, before consuming an attempt.
+          ...(!getPublishingCapabilities().facebook.publishNow ? { $nor: [{ platforms: ["facebook"] }] } : {}),
+          scheduledClaimId: null,
+          // Validate the same persisted caption atomically with the claim so an
+          // overlapping draft edit cannot consume an attempt with invalid content.
+          $expr: {
+            $and: [
+              { $gt: [{ $strLenCP: { $trim: { input: "$caption" } } }, 0] },
+              { $lte: [{ $add: [
+                { $strLenCP: "$caption" },
+                // JavaScript length counts astral characters as two UTF-16 units.
+                { $size: { $regexFindAll: { input: "$caption", regex: "[\\x{10000}-\\x{10FFFF}]" } } },
+              ] }, { $cond: [{ $in: ["instagram", "$platforms"] }, 2200, { $cond: [{ $in: ["linkedin", "$platforms"] }, 3000, 5000] }] }] },
+            ],
           },
+
+          // Exactly one supported platform must be selected.
           $or: [
-            { platformResults: { $size: 0 } },
             {
-              platformResults: {
-                $elemMatch: {
-                  platform: "linkedin",
-                  status: "pending",
-                },
+              platforms: ["instagram"],
+              "platformConnections.instagram": { $exists: true, $ne: null },
+              mediaIds: { $size: 1 },
+              $or: [{ platformResults: { $size: 0 } }, { platformResults: { $elemMatch: { platform: "instagram", status: "pending" } } }],
+            },
+            {
+              platforms: ["linkedin"],
+              "platformConnections.linkedin": {
+                $exists: true,
+                $ne: null,
               },
+              $or: [
+                { platformResults: { $size: 0 } },
+                {
+                  platformResults: {
+                    $elemMatch: {
+                      platform: "linkedin",
+                      status: "pending",
+                    },
+                  },
+                },
+              ],
+            },
+            {
+              platforms: ["facebook"],
+              "platformConnections.facebook": {
+                $exists: true,
+                $ne: null,
+              },
+              $or: [
+                { platformResults: { $size: 0 } },
+                {
+                  platformResults: {
+                    $elemMatch: {
+                      platform: "facebook",
+                      status: "pending",
+                    },
+                  },
+                },
+              ],
             },
           ],
+
+          // At most one persisted image can be published.
+          "mediaIds.1": { $exists: false },
         },
         {
-          platforms: ["facebook"],
-          "platformConnections.facebook": {
-            $exists: true,
-            $ne: null,
+          $set: {
+            status: "publishing",
+            claimedAt: now,
           },
-          $or: [
-            { platformResults: { $size: 0 } },
-            {
-              platformResults: {
-                $elemMatch: {
-                  platform: "facebook",
-                  status: "pending",
-                },
-              },
-            },
-          ],
+          // Publish Now discards a tentative time retained by composer autosave.
+          $unset: { scheduledAt: "" },
+          $inc: {
+            attemptCount: 1,
+          },
         },
-      ],
-
-      // At most one persisted image can be published.
-      "mediaIds.1": { $exists: false },
-    },
-    {
-      $set: {
-        status: "publishing",
-        claimedAt: now,
-      },
-      // Publish Now discards a tentative time retained by composer autosave.
-      $unset: { scheduledAt: "" },
-      $inc: {
-        attemptCount: 1,
-      },
-    },
-    {
-      returnDocument: "after",
-      runValidators: true,
-    },
-  )
-    .select(
-      "_id workspaceId createdByUserId title caption mediaIds platforms platformConnections status scheduledAt publishedAt claimedAt attemptCount lastError platformResults createdAt updatedAt",
-    )
-    .lean();
+        {
+          returnDocument: "after",
+          runValidators: true,
+          session,
+        },
+      )
+        .select(
+          "_id workspaceId createdByUserId title caption mediaIds platforms platformConnections status scheduledAt publishedAt claimedAt attemptCount lastError platformResults createdAt updatedAt",
+        )
+        .lean(),
+    );
+  } catch (error) {
+    if (error instanceof WorkspaceInactiveError) throw new ImmediatePublishingError(error.message, error.statusCode);
+    throw error;
+  }
 
   if (!post) {
     throw new ImmediatePublishingError(

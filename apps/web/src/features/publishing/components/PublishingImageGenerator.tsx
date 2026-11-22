@@ -31,13 +31,15 @@ import { snapshotImageGenerationCommand } from "@/lib/imageGenerationCommandSnap
 import { getWorkspaceImageUrl } from "@/lib/imageGeneration";
 
 import {
-  DEFAULT_PUBLISHING_BRANDING,
   PublishingImageBrandingFields,
+  type PublishingLogoAvailability,
+} from "./PublishingImageBrandingFields";
+import {
+  DEFAULT_PUBLISHING_BRANDING,
   createPublishingImageBranding,
   validatePublishingBrandingSettings,
   type PublishingBrandingSettings,
-  type PublishingLogoAvailability,
-} from "./PublishingImageBrandingFields";
+} from "../publishingImageBranding";
 
 type Props = {
   workspaceId: string | null;
@@ -85,12 +87,30 @@ function getErrorMessage(error: unknown): string {
     : "Unable to load image generation credits.";
 }
 
-export function PublishingImageGenerator({
+export function PublishingImageGenerator(props: Props) {
+  return <PublishingImageGeneratorSession key={`${props.ownerUserId}:${props.workspaceId}`} {...props} />;
+}
+
+function PublishingImageGeneratorSession({
   workspaceId,
   ownerUserId,
   onUseImage,
   disabled = false,
 }: Props) {
+  const [recovery] = useState(() => {
+    if (!ownerUserId || !workspaceId) return { status: "blocked" as const, record: null, error: "Sign in and select a workspace before generating images." };
+    const storage = getRecoveryStorage();
+    if (!storage) return { status: "blocked" as const, record: null, error: "Browser session storage is unavailable. Image generation is disabled to protect recovery." };
+    const result = readPublishingRecovery(storage, { ownerUserId, workspaceId });
+    return {
+      ...result,
+      error: result.status === "invalid"
+        ? "An existing generation recovery record could not be verified. Do not start another generation until this operation is reviewed."
+        : result.status === "unavailable" ? "Generation recovery storage could not be read." : "",
+    };
+  });
+  const acceptedRecovery = recovery.record?.state === "accepted" ? recovery.record : null;
+  const uncertainRecovery = recovery.record?.state === "uncertain" ? recovery.record : null;
   const [prompt, setPrompt] = useState("");
 
   const [aspectRatio, setAspectRatio] = useState<ImageAspectRatio>("square");
@@ -107,8 +127,14 @@ export function PublishingImageGenerator({
   const [logoAvailability, setLogoAvailability] =
     useState<ScopedPublishingLogoAvailability | null>(null);
 
+  const brandingEditedRef = useRef(false);
+  const brandDefaultsAppliedRef = useRef(false);
   const handleLogoAvailabilityChange = useCallback(
     (next: PublishingLogoAvailability) => {
+      if (next.defaultLogoPosition && !brandDefaultsAppliedRef.current) {
+        brandDefaultsAppliedRef.current = true;
+        if (!brandingEditedRef.current) setBrandingSettings((current) => ({ ...current, position: next.defaultLogoPosition! }));
+      }
       const scopedNext: ScopedPublishingLogoAvailability = {
         ...next,
         ownerUserId,
@@ -119,7 +145,8 @@ export function PublishingImageGenerator({
           current?.ownerUserId === scopedNext.ownerUserId &&
           current.workspaceId === scopedNext.workspaceId &&
           current.status === scopedNext.status &&
-          current.available === scopedNext.available
+          current.available === scopedNext.available &&
+          current.defaultLogoPosition === scopedNext.defaultLogoPosition
         ) {
           return current;
         }
@@ -146,7 +173,7 @@ export function PublishingImageGenerator({
   const [creditsSnapshot, setCreditsSnapshot] =
     useState<CreditsSnapshot | null>(null);
 
-  const [loadingCredits, setLoadingCredits] = useState(false);
+  const [loadingCredits, setLoadingCredits] = useState(Boolean(workspaceId));
 
   const [creditsError, setCreditsError] = useState("");
 
@@ -156,26 +183,26 @@ export function PublishingImageGenerator({
   type SubmissionStatus = "idle" | "submitting" | "accepted" | "uncertain";
 
   const [submissionStatus, setSubmissionStatus] =
-    useState<SubmissionStatus>("idle");
+    useState<SubmissionStatus>(acceptedRecovery ? "accepted" : uncertainRecovery ? "uncertain" : "idle");
 
-  const [submissionError, setSubmissionError] = useState("");
+  const [submissionError, setSubmissionError] = useState(uncertainRecovery ? "Storm found an unfinished generation request. Verify the original request using the button below. Do not start a new generation." : "");
 
-  const [submittedAssetId, setSubmittedAssetId] = useState<string | null>(null);
+  const [submittedAssetId, setSubmittedAssetId] = useState<string | null>(acceptedRecovery?.assetId ?? null);
 
   const [pendingRetry, setPendingRetry] = useState<GenerateImageCommand | null>(
-    null,
+    uncertainRecovery?.command ?? null,
   );
 
   const [submittedWorkspaceId, setSubmittedWorkspaceId] = useState<
     string | null
-  >(null);
+  >(acceptedRecovery?.workspaceId ?? null);
 
   type RecoveryLoadStatus = "checking" | "empty" | "found" | "blocked";
 
   const [recoveryLoadStatus, setRecoveryLoadStatus] =
-    useState<RecoveryLoadStatus>("checking");
+    useState<RecoveryLoadStatus>(recovery.status === "empty" || recovery.status === "found" ? recovery.status : "blocked");
 
-  const [recoveryError, setRecoveryError] = useState("");
+  const [recoveryError, setRecoveryError] = useState(recovery.error);
 
   const [generationDetails, setGenerationDetails] =
     useState<ImageGenerationDetails | null>(null);
@@ -215,107 +242,15 @@ export function PublishingImageGenerator({
   const requestVersionRef = useRef(0);
 
   useEffect(() => {
-    // A new workspace starts a new composer generation session.
-    setSubmissionStatus("idle");
-    setSubmissionError("");
-    setSubmittedAssetId(null);
-    setSubmittedWorkspaceId(null);
-    setPendingRetry(null);
-    setGenerationDetails(null);
-    setGenerationStatusError("");
+    return () => { requestVersionRef.current += 1; };
+  }, []);
 
-    setPrivatePreview(null);
-    setPreviewLoading(false);
-    setPreviewError("");
-    setPreviewRefreshVersion(0);
-
-    setBrandingSettings({
-      ...DEFAULT_PUBLISHING_BRANDING,
-    });
-
-    setRecoveryLoadStatus("checking");
-    setRecoveryError("");
-
-    submissionLockRef.current = false;
-
-    // Invalidate previous-workspace asynchronous responses.
-    return () => {
-      requestVersionRef.current += 1;
-    };
-  }, [workspaceId, ownerUserId]);
-
-  useEffect(() => {
-    const scope = getCurrentRecoveryScope();
-    const storage = getRecoveryStorage();
-
-    if (!scope) {
-      setRecoveryLoadStatus("blocked");
-      setRecoveryError(
-        "Sign in and select a workspace before generating images.",
-      );
-      return;
-    }
-
-    if (!storage) {
-      setRecoveryLoadStatus("blocked");
-      setRecoveryError(
-        "Browser session storage is unavailable. " +
-          "Image generation is disabled to protect recovery.",
-      );
-      return;
-    }
-
-    const result = readPublishingRecovery(storage, scope);
-
-    if (result.status === "empty") {
-      setRecoveryLoadStatus("empty");
-      setRecoveryError("");
-      return;
-    }
-
-    if (result.status !== "found") {
-      setRecoveryLoadStatus("blocked");
-      setRecoveryError(
-        result.status === "invalid"
-          ? "An existing generation recovery record " +
-              "could not be verified. Do not start another " +
-              "generation until this operation is reviewed."
-          : "Generation recovery storage could not be read.",
-      );
-      return;
-    }
-
-    const record = result.record;
-
-    setRecoveryLoadStatus("found");
-    setRecoveryError("");
-
-    if (record.state === "accepted") {
-      setSubmittedWorkspaceId(record.workspaceId);
-      setSubmittedAssetId(record.assetId);
-      setPendingRetry(null);
-      setSubmissionError("");
-      setGenerationDetails(null);
-      setSubmissionStatus("accepted");
-
-      // The existing status effect resumes GET polling.
-      // No generation POST is submitted here.
-      return;
-    }
-
-    setSubmittedWorkspaceId(null);
-    setSubmittedAssetId(null);
-    setGenerationDetails(null);
-
-    setPendingRetry(record.command);
-    setSubmissionStatus("uncertain");
-
-    setSubmissionError(
-      "Storm found an unfinished generation request. " +
-        "Verify the original request using the button below. " +
-        "Do not start a new generation.",
-    );
-  }, [ownerUserId, workspaceId]);
+  const [creditRequestVersion, setCreditRequestVersion] = useState(refreshVersion);
+  if (creditRequestVersion !== refreshVersion) {
+    setCreditRequestVersion(refreshVersion);
+    setLoadingCredits(Boolean(workspaceId));
+    setCreditsError("");
+  }
 
   useEffect(() => {
     let active = true;
@@ -325,11 +260,6 @@ export function PublishingImageGenerator({
         active = false;
       };
     }
-
-    // Invalidate the previous workspace's balance
-    // while the new request is in flight.
-    setLoadingCredits(true);
-    setCreditsError("");
 
     void getImageGenerationCredits(workspaceId)
       .then((value) => {
@@ -492,6 +422,19 @@ export function PublishingImageGenerator({
     generationDetails?.state,
   ]);
 
+  const previewScope = JSON.stringify([workspaceId, submittedWorkspaceId, submittedAssetId,
+    submissionStatus, generationDetails?.assetId, generationDetails?.state,
+    generationDetails?.status, previewRefreshVersion]);
+  const [renderedPreviewScope, setRenderedPreviewScope] = useState(previewScope);
+  if (renderedPreviewScope !== previewScope) {
+    setRenderedPreviewScope(previewScope);
+    setPrivatePreview(null);
+    setPreviewError("");
+    setPreviewLoading(Boolean(workspaceId && submittedAssetId && submittedWorkspaceId === workspaceId &&
+      submissionStatus === "accepted" && generationDetails?.assetId === submittedAssetId &&
+      generationDetails?.state === "ready" && generationDetails.status === "ready"));
+  }
+
   // Load a private preview ONLY after the backend
   // confirms the generated image is ready.
   //
@@ -517,13 +460,6 @@ export function PublishingImageGenerator({
 
     const requestWorkspaceId = workspaceId;
     const requestAssetId = submittedAssetId;
-
-    setPreviewLoading(true);
-    setPreviewError("");
-
-    // Keep the previously loaded preview hidden
-    // while obtaining an updated signed URL.
-    setPrivatePreview(null);
 
     async function loadPrivatePreview() {
       try {
@@ -1170,7 +1106,7 @@ export function PublishingImageGenerator({
         aspectRatio={aspectRatio}
         value={brandingSettings}
         onLogoAvailabilityChange={handleLogoAvailabilityChange}
-        onChange={setBrandingSettings}
+        onChange={(next) => { brandingEditedRef.current = true; setBrandingSettings(next); }}
         disabled={
           disabled ||
           submissionStatus !== "idle" ||

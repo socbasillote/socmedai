@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterAll, beforeAll, beforeEach, test } from "vitest";
 
 import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { MongoMemoryReplSet } from "mongodb-memory-server";
 
 import Post from "../models/Post.js";
 import UserProfile from "../models/UserProfile.js";
@@ -18,7 +18,7 @@ import { createPostSchema } from "../schemas/postSchema.js";
 
 import LinkedInConnection from "../models/LinkedInConnection.js";
 
-let mongo: MongoMemoryServer;
+let mongo: MongoMemoryReplSet;
 
 const authUser = {
   id: "scheduled-creation-test-user",
@@ -73,7 +73,7 @@ async function expectServiceError(
 }
 
 beforeAll(async () => {
-  mongo = await MongoMemoryServer.create();
+  mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
   await mongoose.connect(mongo.getUri());
 });
 

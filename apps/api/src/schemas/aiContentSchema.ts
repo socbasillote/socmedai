@@ -3,6 +3,7 @@ import { postGoalCatalog, type PostGoal } from "../services/postGoalCatalog.js";
 
 export const generateCaptionSchema = z
   .object({
+    format: z.enum(["caption", "quote"]).optional(),
     sourceCaption: z.string().trim().min(1).max(5000).optional(),
     referenceImages: z.array(z.string().max(20000).regex(/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/)).max(20).optional(),
     brief: z

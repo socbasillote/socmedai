@@ -1,3 +1,4 @@
+import { brandKitSchema } from "./brandKit";
 import type { Workspace } from "./workspaces";
 
 const SHA256_PATTERN = /^[a-fA-F0-9]{64}$/;
@@ -27,7 +28,10 @@ export function hasWorkspaceLogo(workspace: Workspace): boolean {
   }
 
   const settings = asRecord(workspace.settings);
-  const overlay = asRecord(settings?.logoOverlay);
+  const kit = brandKitSchema.safeParse(settings?.brandKit);
+  const variant = kit.success && kit.data.enabled ? kit.data.layout.logoVariant : "primary";
+  const preferred = variant !== "primary" ? asRecord(asRecord(settings?.brandKitLogoVariants)?.[variant]) : null;
+  const overlay = preferred?.enabled === true && asRecord(preferred.logo) ? preferred : asRecord(settings?.logoOverlay);
   const logo = asRecord(overlay?.logo);
 
   if (!overlay || overlay.enabled !== true || !logo) {

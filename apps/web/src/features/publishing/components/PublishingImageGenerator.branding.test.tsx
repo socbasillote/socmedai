@@ -1,3 +1,4 @@
+import { defaultBrandKit, type BrandKit } from "@/lib/brandKit";
 /**
  * @vitest-environment jsdom
  */
@@ -38,6 +39,7 @@ const scope = {
 };
 
 const mockLogo = vi.hoisted(() => ({
+  brandKit: undefined as BrandKit | undefined,
   status: "available",
   available: true,
 
@@ -59,6 +61,7 @@ vi.mock("@/features/image-studio/hooks/useWorkspaceLogoAvailability", () => ({
         : mockLogo.available,
 
       refresh: vi.fn(),
+      brandKit: mockLogo.brandKit,
     };
   },
 }));
@@ -125,6 +128,7 @@ beforeEach(() => {
   mockLogo.otherWorkspaceStatus = "loading";
   mockLogo.otherWorkspaceAvailable = false;
 
+  mockLogo.brandKit = undefined;
   mockLogo.status = "available";
   mockLogo.available = true;
 
@@ -517,4 +521,23 @@ describe("Publishing branded generation", () => {
 
     expect(generateWorkspaceImage).not.toHaveBeenCalled();
   });
+});
+
+it("starts with the brand-kit logo position and preserves per-image changes", async () => {
+  mockLogo.brandKit = { ...structuredClone(defaultBrandKit), layout: { ...defaultBrandKit.layout, logoPosition: "top-left" } };
+  const view = renderGenerator();
+  fireEvent.click(screen.getByRole("radio", { name: "Workspace logo" }));
+  expect(screen.getByLabelText("Branding position")).toHaveValue("top-left");
+  fireEvent.change(screen.getByLabelText("Branding position"), { target: { value: "bottom-left" } });
+  mockLogo.brandKit.layout.logoPosition = "top-right";
+  view.rerender(<PublishingImageGenerator ownerUserId={USER_ID} workspaceId={WORKSPACE_ID} />);
+  expect(screen.getByLabelText("Branding position")).toHaveValue("bottom-left");
+});
+it("does not replace a position chosen before the brand kit finishes loading", () => {
+  const view = renderGenerator();
+  fireEvent.click(screen.getByRole("radio", { name: "Workspace logo" }));
+  fireEvent.change(screen.getByLabelText("Branding position"), { target: { value: "bottom-left" } });
+  mockLogo.brandKit = { ...structuredClone(defaultBrandKit), layout: { ...defaultBrandKit.layout, logoPosition: "top-left" } };
+  view.rerender(<PublishingImageGenerator ownerUserId={USER_ID} workspaceId={WORKSPACE_ID} />);
+  expect(screen.getByLabelText("Branding position")).toHaveValue("bottom-left");
 });

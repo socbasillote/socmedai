@@ -1,3 +1,4 @@
+import { defaultBrandKit } from "@/lib/brandKit";
 import { cleanup, fireEvent, render, screen, waitFor, act, within } from "@testing-library/react";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { WorkspaceSettingsView } from "./WorkspaceSettingsView";
@@ -9,6 +10,7 @@ vi.mock("@/lib/workspaceSettings", async (load) => ({ ...await load<object>(), s
 vi.mock("@/hooks/useFacebookConnections", () => ({ useFacebookConnections: () => ({ connections: [{ id: "facebook", pageName: "Coffee Page", status: "connected", canPublish: true }, { id: "expired", pageName: "Expired Page", status: "expired", canPublish: false }], loading: false, error: "", refreshConnections: hooks.refreshFacebook }) }));
 vi.mock("@/hooks/useFacebookConnection", () => ({ useFacebookConnection: () => ({ connect: hooks.connectFacebook, connecting: false, connectError: "" }) }));
 vi.mock("@/hooks/useLinkedInConnection", () => ({ useLinkedInConnection: () => ({ connectionId: "linkedin", displayName: "Coffee Owner", status: "connected", connect: hooks.connectLinkedin, disconnect: hooks.disconnect, refreshStatus: hooks.refreshLinkedin }) }));
+vi.mock("@/features/workspaces/components/BrandKitFields", () => ({ BrandKitFields: ({ value, onChange }: { value: import("@/lib/brandKit").BrandKit; onChange: (kit: import("@/lib/brandKit").BrandKit) => void }) => <label>Brand image style<textarea value={value.imageStyle} onChange={(event) => onChange({ ...value, imageStyle: event.target.value })} /></label> }));
 const workspace: Workspace = { _id: "507f1f77bcf86cd799439011", name: "Coffee", settings: { timezone: "Asia/Manila" }, ownerUserId: "owner", createdAt: "", updatedAt: "" };
 const onUpdated = vi.fn(), onDeleted = vi.fn();
 function mount(value = workspace) { return render(<WorkspaceSettingsView key={value._id} workspace={value} onUpdated={onUpdated} onDeleted={onDeleted} />); }
@@ -147,4 +149,16 @@ it("keeps lifecycle failures recoverable without closing the confirmation dialog
   expect(onUpdated).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+it("saves brand-kit settings separately and restores them after switching tabs", async () => {
+  const brandKit = { ...structuredClone(defaultBrandKit), imageStyle: "Warm natural light" };
+  mount({ ...workspace, settings: { ...workspace.settings, brandKit } });
+  tab("Brand kit");
+  expect(screen.getByLabelText("Brand image style")).toHaveValue("Warm natural light");
+  fireEvent.change(screen.getByLabelText("Brand image style"), { target: { value: "Muted earth tones and paper texture" } });
+  tab("General Settings"); tab("Brand kit");
+  expect(screen.getByLabelText("Brand image style")).toHaveValue("Muted earth tones and paper texture");
+  fireEvent.click(screen.getByRole("button", { name: "Save brand kit" }));
+  await waitFor(() => expect(saveWorkspacePreferences).toHaveBeenCalledWith(workspace._id, { brandKit: { ...brandKit, imageStyle: "Muted earth tones and paper texture" } }));
 });

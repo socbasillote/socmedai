@@ -30,33 +30,32 @@ export function MediaLibraryPicker({
 
   const [images, setImages] = useState<LibraryImage[]>([]);
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(Boolean(workspaceId));
   const [error, setError] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
 
-  useEffect(() => {
-    // A new active workspace should always
-    // start with the Current Workspace filter.
+  const [scopeWorkspaceId, setScopeWorkspaceId] = useState(workspaceId);
+  if (scopeWorkspaceId !== workspaceId) {
+    setScopeWorkspaceId(workspaceId);
     setScope("current");
+  }
+  const requestScope = JSON.stringify([workspaceId, scope, refreshVersion]);
+  const [renderedScope, setRenderedScope] = useState(requestScope);
+  if (renderedScope !== requestScope) {
+    setRenderedScope(requestScope);
     setImages([]);
     setError("");
-  }, [workspaceId]);
+    setLoading(Boolean(workspaceId));
+  }
 
   useEffect(() => {
     let active = true;
 
-    setImages([]);
-    setError("");
-
     if (!workspaceId) {
-      setLoading(false);
-
       return () => {
         active = false;
       };
     }
-
-    setLoading(true);
 
     async function loadImages() {
       if (!workspaceId) return;

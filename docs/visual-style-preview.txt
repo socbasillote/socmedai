@@ -1,0 +1,30 @@
+Visual style picker preview asset
+
+Asset: apps/web/public/images/visual-styles/coffee-style-sheet.webp
+Created with the built-in image generation tool, then encoded as WebP.
+The single sheet has three columns and two rows, read left to right:
+Cinematic, Editorial, Product Studio, Lifestyle, Minimal, Illustration.
+The Auto card displays the full sheet. No reference photo is sent to the
+generation backend; the sheet demonstrates aesthetics only.
+
+Generation prompt:
+Create a single landscape contact-sheet asset for a social media app's
+visual-style picker: a precise 3-column by 2-row grid of six equally sized
+square pictures with NO borders, gutters, labels, lettering, logos,
+watermarks, or typography anywhere. The same simple subject appears in all
+six panels: one unbranded ceramic coffee cup on a surface, with steam.
+Row 1 left: CINEMATIC photorealistic cup, dark atmospheric cafe, dramatic
+amber rim light and teal shadows, shallow depth. Row 1 center: EDITORIAL
+photorealistic cup in refined magazine still-life with tactile stone
+surface, nuanced window light, desaturated elegant tones. Row 1 right:
+PRODUCT STUDIO photorealistic cup isolated on a pale lavender studio
+seamless backdrop, soft controlled shadow, crisp accurate ceramic.
+Row 2 left: LIFESTYLE photorealistic cup on a sunlit cozy kitchen table with
+soft everyday surroundings and candid warmth. Row 2 center: MINIMAL
+photographic cup very small and centered on a clean warm white backdrop
+with generous negative space and a single soft shadow. Row 2 right:
+ILLUSTRATION of the same cup with hand-painted expressive shapes, paper
+texture, warm coral and violet colors. Each panel must independently read
+beautifully as a square thumbnail. Keep the coffee cup centered within
+each cell. This is one unified six-panel contact sheet, layout exactly
+3 columns and 2 rows.

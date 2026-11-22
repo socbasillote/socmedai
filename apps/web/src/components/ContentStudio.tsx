@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { Sparkles, WandSparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -193,7 +193,9 @@ export function ContentStudio({
   // asynchronous save is still running.
   const activeWorkspaceIdRef = useRef(selectedWorkspaceId);
 
-  activeWorkspaceIdRef.current = selectedWorkspaceId;
+  useLayoutEffect(() => {
+    activeWorkspaceIdRef.current = selectedWorkspaceId;
+  }, [selectedWorkspaceId]);
 
   async function handleGenerate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

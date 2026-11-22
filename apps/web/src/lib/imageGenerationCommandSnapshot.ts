@@ -47,6 +47,8 @@ export function snapshotImageGenerationCommand(
   const branding = snapshotBranding(command.image.branding);
 
   const image = Object.freeze({
+    ...(command.image.postDesign ? { postDesign: Object.freeze({ ...command.image.postDesign }) } : {}),
+    ...(command.image.useBrandKit !== undefined ? { useBrandKit: command.image.useBrandKit } : {}),
     prompt: command.image.prompt,
     aspectRatio: command.image.aspectRatio,
     ...(branding ? { branding } : {}),

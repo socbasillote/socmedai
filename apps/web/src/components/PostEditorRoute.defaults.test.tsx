@@ -22,7 +22,7 @@ vi.mock("@/lib/facebookConnections", () => ({ getFacebookPageConnections: (...ar
 vi.mock("@/lib/posts", () => ({ createPost: (...args: unknown[]) => state.create(...args), getPostById: (...args: unknown[]) => state.getPost(...args), publishPostNow: vi.fn(), updateDraftPost: vi.fn() }));
 vi.mock("@/features/posts/hooks/useComposerAutosave", () => ({ useComposerAutosave: () => ({ clientDraftId: "draft", complete: vi.fn() }) }));
 vi.mock("@/components/PostEditorPage", () => ({ PostEditorPage: ({ children, sidebar, headerActions }: { children: ReactNode; sidebar: ReactNode; headerActions: ReactNode }) => <>{headerActions}{sidebar}{children}</> }));
-vi.mock("./AIPostFlow", () => ({ AIPostFlow: (props: ComponentProps<typeof AIPostFlow>) => <output data-testid="ai-publishing-rules">{JSON.stringify(props.publishingRules) ?? "none"}</output> }));
+vi.mock("./AIPostFlow", () => ({ AIPostFlow: (props: ComponentProps<typeof AIPostFlow>) => <>{props.headerActions}<output data-testid="ai-publishing-rules">{JSON.stringify(props.publishingRules) ?? "none"}</output><output data-testid="ai-language">{props.defaultLanguage}</output></> }));
 vi.mock("@/components/PostPreview", () => ({ PostPreview: () => null }));
 vi.mock("@/features/publishing/components/PublishingChecklistPanel", () => ({ PublishingChecklistPanel: () => null }));
 vi.mock("@/features/publishing/components/PublishingControls", () => ({ PublishingControls: (props: ComponentProps<typeof PublishingControls>) => <><output data-testid="mode">{props.postMode}</output><output data-testid="zone">{props.timezone}</output><input aria-label="Schedule" value={props.scheduledAt} onChange={(e) => props.onScheduledAtChange(e.target.value)} /><button onClick={() => props.onPostModeChange("draft")}>Explicit draft</button></> }));
@@ -46,6 +46,7 @@ it("passes saved publishing preferences to AI composition", async () => {
   render(<PostEditorRoute mode="create" />);
   fireEvent.click(screen.getByRole("button", { name: "AI" }));
   expect(JSON.parse(screen.getByTestId("ai-publishing-rules").textContent!)).toEqual(workspace().settings.publishing);
+  expect(screen.getByTestId("ai-language")).toHaveTextContent("fil");
   await act(async () => {});
 });
 
@@ -53,6 +54,7 @@ it("initializes new posts with saved defaults and preserves explicit choices acr
   let done!: (value: unknown[]) => void;
   state.facebook.mockReturnValue(new Promise((resolve) => { done = resolve; }));
   const view = render(<PostEditorRoute mode="create" />);
+  fireEvent.click(screen.getByRole("button", { name: "Manual" }));
   expect(screen.getByTestId("mode")).toHaveTextContent("scheduled");
   expect(screen.getByTestId("zone")).toHaveTextContent("Asia/Manila");
   expect(screen.getByTestId("language")).toHaveTextContent("fil");
@@ -73,6 +75,7 @@ it("keeps an explicit calendar date ahead of the workspace's preferred time and 
   state.search = "?date=2027-01-06";
   state.workspaces[0].settings.publishing = { defaultPostMode: "immediate", preferredTimes: ["17:00"] };
   render(<PostEditorRoute mode="create" />);
+  fireEvent.click(screen.getByRole("button", { name: "Manual" }));
   expect(screen.getByTestId("mode")).toHaveTextContent("scheduled");
   expect((screen.getByLabelText("Schedule") as HTMLInputElement).value).toContain("2027-01-06");
   await waitFor(() => expect(screen.getByTestId("facebook")).toHaveTextContent(pageId));
@@ -89,6 +92,7 @@ it("never replaces a saved draft's destinations or mode with workspace defaults"
 
 it("resets defaults for a newly selected workspace without carrying a prior explicit destination", async () => {
   const view = render(<PostEditorRoute mode="create" />);
+  fireEvent.click(screen.getByRole("button", { name: "Manual" }));
   fireEvent.click(screen.getByText("Explicit LinkedIn"));
   state.selected = "507f1f77bcf86cd799439022";
   state.workspaces = [workspace()];
@@ -100,6 +104,7 @@ it("resets defaults for a newly selected workspace without carrying a prior expl
 it("submits an explicitly selected wall time as UTC in the workspace timezone", async () => {
   state.create.mockResolvedValue({ _id: "saved" });
   render(<PostEditorRoute mode="create" />);
+  fireEvent.click(screen.getByRole("button", { name: "Manual" }));
   await waitFor(() => expect(screen.getByTestId("facebook")).toHaveTextContent(pageId));
   fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "Our next coffee story" } });
   fireEvent.change(screen.getByLabelText("Schedule"), { target: { value: "2027-01-06T14:15" } });
@@ -110,6 +115,7 @@ it("submits an explicitly selected wall time as UTC in the workspace timezone", 
 it("uses the Now default only as a mode and never publishes automatically", async () => {
   state.workspaces[0].settings.publishing = { defaultPostMode: "immediate" };
   render(<PostEditorRoute mode="create" />);
+  fireEvent.click(screen.getByRole("button", { name: "Manual" }));
   await waitFor(() => expect(screen.getByTestId("facebook")).toHaveTextContent(pageId));
   expect(screen.getByTestId("mode")).toHaveTextContent("immediate");
   expect(state.create).not.toHaveBeenCalled();

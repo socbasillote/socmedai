@@ -39,6 +39,7 @@ function open() {
 }
 async function generate() {
   open();
+  fireEvent.click(screen.getByRole("button", { name: "Custom" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Post brief" }), { target: { value: "A new coffee menu" } });
   fireEvent.click(screen.getByRole("button", { name: "instagram" }));
   fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
@@ -100,6 +101,7 @@ it("automatically creates a centered crop per platform from one AI image", async
 it("retries an automatic crop failure without another AI generation", async () => {
   vi.mocked(createAutomaticCrop).mockRejectedValueOnce(new Error("Storage unavailable"));
   open();
+  fireEvent.click(screen.getByRole("button", { name: "Custom" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Post brief" }), { target: { value: "A coffee menu" } });
   fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
   await screen.findByText("Automatic crop: Storage unavailable");

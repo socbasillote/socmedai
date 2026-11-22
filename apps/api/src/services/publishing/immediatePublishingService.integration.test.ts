@@ -12,6 +12,7 @@ import {
 } from "vitest";
 
 import { env } from "../../config/env.js";
+import Workspace from "../../models/Workspace.js";
 import Post from "../../models/Post.js";
 
 // Authorization has its own tests.
@@ -76,13 +77,14 @@ describe.skipIf(!integrationEnabled)(
       }
     });
 
-    beforeEach(() => {
+    beforeEach(async () => {
       vi.clearAllMocks();
 
       workspaceId = new mongoose.Types.ObjectId();
       createdByUserId = new mongoose.Types.ObjectId();
       linkedinConnectionId = new mongoose.Types.ObjectId();
       facebookConnectionId = new mongoose.Types.ObjectId();
+      await Workspace.collection.insertOne({ _id: workspaceId, ownerUserId: createdByUserId, name: "Claims" });
 
       mocks.authorizePublishing.mockResolvedValue(undefined);
     });
@@ -92,6 +94,7 @@ describe.skipIf(!integrationEnabled)(
         // Remove only records belonging to this test's
         // newly generated workspace.
         await Post.deleteMany({ workspaceId });
+        await Workspace.deleteOne({ _id: workspaceId });
       }
     });
 

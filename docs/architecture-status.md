@@ -30,3 +30,23 @@ that last unsent version. Clearing browser storage removes unsynced device copie
 
 Image progress and restart recovery require deploying the API and frontend and
 restarting the image worker with the rebuilt code.
+
+## Workspace brand kit
+
+Workspace settings include a separately saved Brand kit: role-based hex colors,
+heading/body system fonts, a short image-style description, alignment, spacing,
+logo placement, and a preferred logo variant. Primary logos use the existing
+private upload and preview pipeline; optional light/dark variants use the same
+validated immutable PNG storage and ownership checks.
+
+New image admissions snapshot an enabled kit. The worker uses that snapshot for
+AI prompt direction, text-label fonts/colors/alignment, and overlay spacing;
+per-image logo placement overrides the kit default. Logo branding stays an
+explicit per-image choice. Missing variants fall back to the primary logo.
+Changing or disabling the kit does not alter queued or completed images.
+
+The settings preview renders quote, announcement, and sale samples with exact
+color roles and browser font/layout styling. AI-generated typography and color
+placement are guidance rather than guaranteed template rendering. Font fallback
+on a host depends on installed system fonts. The application still has no full
+post-template editor.

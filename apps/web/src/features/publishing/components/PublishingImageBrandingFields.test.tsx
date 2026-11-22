@@ -9,12 +9,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import {
-  DEFAULT_PUBLISHING_BRANDING,
   PublishingImageBrandingFields,
+} from "./PublishingImageBrandingFields";
+import {
+  DEFAULT_PUBLISHING_BRANDING,
   createPublishingImageBranding,
   validatePublishingBrandingSettings,
   type PublishingBrandingSettings,
-} from "./PublishingImageBrandingFields";
+} from "../publishingImageBranding";
 
 const WORKSPACE_ID = "507f1f77bcf86cd799439011";
 

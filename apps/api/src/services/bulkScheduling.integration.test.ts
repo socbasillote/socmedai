@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import Post from "../models/Post.js";
 import UserProfile from "../models/UserProfile.js";
 import Workspace from "../models/Workspace.js";
 import LinkedInConnection from "../models/LinkedInConnection.js";
-import { createWorkspacePost, validateWorkspacePostBatch, PostServiceError } from "./postService.js";
+import { autosaveWorkspaceDraft, createWorkspacePost, validateWorkspacePostBatch, PostServiceError } from "./postService.js";
 import { createPostSchema, createPostRequestSchema } from "../schemas/postSchema.js";
-let mongo: MongoMemoryServer;
+let mongo: MongoMemoryReplSet;
 const ownerId = new mongoose.Types.ObjectId();
 const workspaceId = new mongoose.Types.ObjectId();
 const connectionId = new mongoose.Types.ObjectId();
@@ -20,7 +20,7 @@ function input() {
     scheduledAt: new Date(Date.now() + 86400000).toISOString() };
 }
 beforeAll(async () => {
-  mongo = await MongoMemoryServer.create();
+  mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
   await mongoose.connect(mongo.getUri());
   await Post.createIndexes();
 });
@@ -102,4 +102,16 @@ it("does not recover another user's committed request", async () => {
 it("still rejects a new schedule in the past even with a new retry key", async () => {
   await assert.rejects(createWorkspacePost(auth, { ...input(), scheduledAt: "2020-01-01T00:00:00Z" }), error => error instanceof PostServiceError && error.statusCode === 400);
   expect(await Post.countDocuments()).toBe(0);
+});
+
+it("finalizes a schedule when its first autosave races admission", async () => {
+  const request = input();
+  const [, finalized] = await Promise.all([
+    autosaveWorkspaceDraft(auth, { workspaceId: request.workspaceId, clientDraftId, revision: 1,
+      title: "Working draft", caption: "Working caption", platforms: ["linkedin"], mediaIds: [] }),
+    createWorkspacePost(auth, request),
+  ]);
+  const stored = await Post.findById(finalized._id);
+  expect(await Post.countDocuments()).toBe(1);
+  expect(stored).toMatchObject({ status: "scheduled", caption: request.caption, autosaveClosed: true });
 });

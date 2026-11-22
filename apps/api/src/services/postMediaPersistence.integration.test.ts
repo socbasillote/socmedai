@@ -8,7 +8,7 @@ import { ScheduledLeaseSignal } from "./publishing/scheduledPublishingHeartbeat.
 import { FacebookPublishingAdapter } from "./publishing/facebookPublishingAdapter.js";
 import { LinkedInPublishingAdapter } from "./publishing/linkedinPublishingAdapter.js";
 import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { MongoMemoryReplSet } from "mongodb-memory-server";
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -39,7 +39,7 @@ const authUser = {
   email: "media-owner@example.test",
 };
 
-let mongo: MongoMemoryServer;
+let mongo: MongoMemoryReplSet;
 
 const oid = (id: mongoose.Types.ObjectId) => String(id);
 
@@ -132,7 +132,7 @@ describe("Post media persistence integration", () => {
   beforeAll(async () => {
     // An isolated MongoDB process is created
     // specifically for this test suite.
-    mongo = await MongoMemoryServer.create();
+    mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
 
     await mongoose.connect(mongo.getUri(), {
       dbName: "storm_post_media_integration",
@@ -144,7 +144,7 @@ describe("Post media persistence integration", () => {
   beforeEach(async () => {
     vi.stubEnv("FACEBOOK_PUBLISHING_ENABLED", "true");
     vi.stubEnv("SCHEDULED_PUBLISHING_ENABLED", "true");
-    // These deletes affect only MongoMemoryServer.
+    // These deletes affect only MongoMemoryReplSet.
     await Promise.all([
       Post.deleteMany({}),
       FacebookConnection.deleteMany({}),

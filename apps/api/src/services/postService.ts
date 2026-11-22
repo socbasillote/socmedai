@@ -5,6 +5,7 @@ import LinkedInConnection from "../models/LinkedInConnection.js";
 import mongoose from "mongoose";
 import { publishingUnavailableReason } from "./publishing/publishingCapabilities.js";
 import { schedulingRuleError } from "../schemas/workspaceSettingsSchema.js";
+import { withActiveWorkspaceMutation, WorkspaceInactiveError } from "./workspaceMutationService.js";
 
 import Post from "../models/Post.js";
 import FacebookConnection from "../models/FacebookConnection.js";
@@ -372,9 +373,43 @@ export async function createWorkspacePost(authUser: AuthenticatedUser, input: Cr
     return result;
   }
   const { authorization, postData } = prepared;
-  const post = input.clientDraftId
-    ? await writeComposerDraft(authorization.workspace._id, authorization.profile._id, input.clientDraftId, postData!, true)
-    : await Post.create(postData!);
+  const persist = async (session?: mongoose.ClientSession) => {
+    if (session && input.clientDraftId) {
+      const existing = await Post.findOne({ workspaceId: authorization.workspace._id,
+        createdByUserId: authorization.profile._id, clientDraftId: input.clientDraftId,
+        autosaveClosed: true }).select("+creationRequestHash").session(session);
+      if (existing) {
+        if (existing.creationRequestHash !== postData!.creationRequestHash) throw new PostServiceError("This save request already belongs to a different post revision. Open it from Posts.", 409);
+        return existing;
+      }
+    }
+    return input.clientDraftId
+      ? writeComposerDraft(authorization.workspace._id, authorization.profile._id, input.clientDraftId, postData!, true, 0, session)
+      : session ? (await Post.create([postData!], { session }))[0] : Post.create(postData!);
+  };
+  // Drafts cannot start external work; scheduled admission must serialize with
+  // archive/delete before committing its new scheduled record.
+  let post;
+  try {
+    if (!input.scheduledAt) {
+      post = await persist();
+    } else {
+      // A first autosave can win the unique composer ID while this transaction
+      // still sees its earlier snapshot. Retry only this database write with a
+      // fresh transaction; no provider operation is part of admission.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          post = await withActiveWorkspaceMutation(authorization.workspace._id, persist);
+          break;
+        } catch (error) {
+          if (!input.clientDraftId || attempt >= 2 || !(error instanceof Error && "code" in error && error.code === 11000)) throw error;
+        }
+      }
+    }
+  } catch (error) {
+    if (error instanceof WorkspaceInactiveError) throw new PostServiceError(error.message, error.statusCode);
+    throw error;
+  }
   const result = post.toObject();
   delete result.creationRequestHash;
   return result;
@@ -926,7 +961,7 @@ export async function reconcileWorkspacePublication(authUser: AuthenticatedUser,
 
 /** Reject late revisions and prevent background saves from changing finalized drafts. */
 async function writeComposerDraft(workspaceId: unknown, userId: unknown, clientDraftId: string,
-  data: Record<string, unknown>, finalize = false, revision = 0) {
+  data: Record<string, unknown>, finalize = false, revision = 0, session?: mongoose.ClientSession) {
   const identity = { workspaceId, createdByUserId: userId, clientDraftId };
   const filter = { ...identity, status: "draft", autosaveClosed: { $ne: true },
     ...(!finalize ? { autosaveRevision: { $lte: revision } } : {}),
@@ -937,9 +972,11 @@ async function writeComposerDraft(workspaceId: unknown, userId: unknown, clientD
       // Concurrent manual edits must detect an intervening autosave.
       $inc: { __v: 1 },
       ...(!data.scheduledAt ? { $unset: { scheduledAt: "" } } : {}),
-    }, { upsert: true, returnDocument: "after", runValidators: true });
+    }, { upsert: true, returnDocument: "after", runValidators: true, ...(session ? { session } : {}) });
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === 11000)) throw error;
+    // Duplicate-key aborts a transaction: never try to read through its session.
+    if (session) throw error;
     const existing = await Post.findOne(identity).select("+creationRequestHash");
     if (!existing) throw error;
     if (finalize && existing.autosaveClosed && data.creationRequestHash && existing.creationRequestHash === data.creationRequestHash) return existing;

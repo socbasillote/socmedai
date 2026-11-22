@@ -1,4 +1,5 @@
 import ImageReference from "../models/ImageReference.js";
+import { snapshotBrandKit } from "../schemas/brandKitSchema.js";
 import { referenceStorageKey } from "./media/imageReferenceService.js";
 import mongoose from "mongoose";
 
@@ -246,10 +247,10 @@ export async function admitImageGeneration(input: AdmissionInput) {
           throw new ImageAdmissionError("Workspace not found.", 404);
         }
 
-        const workspace = await Workspace.findOne({
+        const workspace = await Workspace.findOneAndUpdate({
           _id: lookup.workspaceId,
           ownerUserId: profile._id,
-        })
+        }, { $inc: { mutationVersion: 1 } }, { session, returnDocument: "after", timestamps: false })
           .select("_id settings")
           .session(session);
 
@@ -273,6 +274,12 @@ export async function admitImageGeneration(input: AdmissionInput) {
             ? (workspace.settings as Record<string, unknown>)
             : {};
 
+        const brandKitSnapshot = parsed.data.useBrandKit === false
+          ? null
+          : snapshotBrandKit(workspaceSettings.brandKit);
+        if (parsed.data.useBrandKit === true && !brandKitSnapshot) {
+          throw new ImageAdmissionError("An enabled workspace brand kit is required.", 409);
+        }
         let logoOverlaySnapshot;
 
         let brandingSnapshot:
@@ -306,7 +313,13 @@ export async function admitImageGeneration(input: AdmissionInput) {
             };
 
         try {
-          const branding = parsed.data.branding;
+          const branding = structuredClone(parsed.data.branding);
+          if (branding.type === "logo" && brandKitSnapshot) {
+            const requested = input.image.branding;
+            if (requested?.type === "logo" && requested.position === undefined) branding.position = brandKitSnapshot.layout.logoPosition;
+            // The image's explicit placement also guides its generated composition.
+            brandKitSnapshot.layout.logoPosition = branding.position;
+          }
           const workspaceId = String(workspace._id);
 
           if (branding.type === "none") {
@@ -321,10 +334,12 @@ export async function admitImageGeneration(input: AdmissionInput) {
               type: "none",
             };
           } else if (branding.type === "logo") {
-            const availableLogo = snapshotWorkspaceLogoSettings(
-              workspaceSettings.logoOverlay,
-              workspaceId,
-            );
+            const variant = brandKitSnapshot?.layout.logoVariant;
+            const variants = workspaceSettings.brandKitLogoVariants as Record<string, unknown> | undefined;
+            const preferred = variant && variant !== "primary" ? variants?.[variant] : undefined;
+            const preferredLogo = preferred ? snapshotWorkspaceLogoSettings(preferred, workspaceId) : null;
+            const availableLogo = preferredLogo?.enabled && preferredLogo.logo ? preferredLogo
+              : snapshotWorkspaceLogoSettings(workspaceSettings.logoOverlay, workspaceId);
 
             if (!availableLogo.enabled || !availableLogo.logo) {
               throw new ImageAdmissionError(
@@ -540,6 +555,7 @@ export async function admitImageGeneration(input: AdmissionInput) {
                 provider,
                 model,
                 prompt: parsed.data.prompt,
+                ...(parsed.data.postDesign ? { postDesign: parsed.data.postDesign } : {}),
                 aspectRatio: parsed.data.aspectRatio,
               },
               idempotencyKey: input.idempotencyKey,
@@ -550,6 +566,7 @@ export async function admitImageGeneration(input: AdmissionInput) {
               },
               logoOverlaySnapshot,
               brandingSnapshot,
+              ...(brandKitSnapshot ? { brandKitSnapshot } : {}),
               ...(referenceImage ? { referenceImage } : {}),
             },
           ],

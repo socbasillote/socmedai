@@ -1,3 +1,4 @@
+import { brandKitSchema } from "../schemas/brandKitSchema.js";
 import mongoose from "mongoose";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 
@@ -193,6 +194,78 @@ afterAll(async () => {
 });
 
 describe("Credit-aware generation admission", () => {
+  it("does not spend a credit when an explicitly requested brand kit is unavailable", async () => {
+    const base = request("missing-brand-kit-0001");
+    await expect(admitImageGeneration({ ...base, image: { ...base.image, useBrandKit: true } })).rejects.toMatchObject({ statusCode: 409 });
+    expect(await balance()).toBe(5);
+    expect(await MediaAsset.countDocuments({})).toBe(0);
+  });
+  it("freezes visual style and exact text for worker recovery and detects changed design retries", async () => {
+    const base = request("style-snapshot-request-001");
+    const postDesign = { style: "cinematic" as const, details: "Bright daylight", captionContext: "Coffee", text: "Make it count.", author: "Ana" };
+    const command = { ...base, image: { ...base.image, useBrandKit: false, postDesign } };
+    const admitted = await admitImageGeneration(command);
+    expect((await MediaAsset.findById(admitted.asset._id))?.generation.postDesign).toEqual(postDesign);
+    expect((await admitImageGeneration(command)).created).toBe(false);
+    await expect(admitImageGeneration({ ...command, image: { ...command.image, postDesign: { ...postDesign, style: "editorial" } } })).rejects.toMatchObject({ statusCode: 409 });
+    expect(await balance()).toBe(4);
+  });
+  it("honors a per-image opt-out without mutating the workspace brand kit", async () => {
+    const brandKit = brandKitSchema.parse({
+      enabled: true,
+      colors: { primary: "#7C3AED", accent: "#F59E0B", background: "#FFFFFF", text: "#0F172A" },
+      typography: { headingFont: "Georgia", bodyFont: "Arial" }, imageStyle: "Warm studio lighting",
+      layout: { textAlignment: "center", logoPosition: "top-left", spacing: "spacious", logoVariant: "primary" },
+    });
+    await Workspace.updateOne({ _id: workspaceId }, { $set: { "settings.brandKit": brandKit } });
+    const base = request("brand-kit-declined-0001");
+    const command = { ...base, image: { ...base.image, useBrandKit: false } };
+    const admitted = await admitImageGeneration(command);
+    expect((await MediaAsset.findById(admitted.asset._id))?.brandKitSnapshot).toBeUndefined();
+    expect((await Workspace.findById(workspaceId))?.settings?.brandKit).toEqual(brandKit);
+    expect((await admitImageGeneration(command)).created).toBe(false);
+    await expect(admitImageGeneration({ ...command, image: { ...command.image, useBrandKit: true } })).rejects.toMatchObject({ statusCode: 409 });
+    expect(await balance()).toBe(4);
+  });
+  it("freezes brand-kit defaults and the selected logo variant for retries and worker completion", async () => {
+    const brandKit = brandKitSchema.parse({
+    enabled: true,
+    colors: { primary: "#7C3AED", accent: "#F59E0B", background: "#FFFFFF", text: "#0F172A" },
+    typography: { headingFont: "Georgia", bodyFont: "Arial" },
+    imageStyle: "Warm natural light, muted earth tones, and soft paper texture.",
+    layout: { textAlignment: "center", logoPosition: "top-left", spacing: "spacious", logoVariant: "light" },
+  });
+    const primary = createLogoSettings();
+    const light = createLogoSettings(SECOND_LOGO_ID);
+    await Workspace.updateOne({ _id: workspaceId }, { $set: { "settings.brandKit": brandKit, "settings.logoOverlay": primary, "settings.brandKitLogoVariants.light": light } });
+    const command = logoRequest("brand-kit-snapshot-0001");
+    const first = await admitImageGeneration(command);
+    const asset = await MediaAsset.findById(first.asset._id);
+    expect(asset?.brandKitSnapshot).toEqual(brandKit);
+    expect(asset?.brandingSnapshot.logo.storageKey).toBe(light.logo.storageKey);
+    expect(asset?.brandingSnapshot.position).toBe("top-left");
+    await Workspace.updateOne({ _id: workspaceId }, { $set: { "settings.brandKit.imageStyle": "New style", "settings.brandKit.colors.primary": "#FF0000" } });
+    const retry = await admitImageGeneration(command);
+    expect(retry.created).toBe(false);
+    expect((await MediaAsset.findById(retry.asset._id))?.brandKitSnapshot).toEqual(brandKit);
+    expect(await balance()).toBe(4);
+  });
+  it("falls back from a missing logo variant and honors an explicit per-image placement", async () => {
+    const brandKit = brandKitSchema.parse({
+    enabled: true,
+    colors: { primary: "#7C3AED", accent: "#F59E0B", background: "#FFFFFF", text: "#0F172A" },
+    typography: { headingFont: "Georgia", bodyFont: "Arial" },
+    imageStyle: "Warm natural light, muted earth tones, and soft paper texture.",
+    layout: { textAlignment: "center", logoPosition: "top-left", spacing: "spacious", logoVariant: "light" },
+  });
+    await Workspace.updateOne({ _id: workspaceId }, { $set: { "settings.brandKit": brandKit, "settings.logoOverlay": createLogoSettings() } });
+    const base = request("brand-kit-override-0001");
+    const admitted = await admitImageGeneration({ ...base, image: { ...base.image, branding: { type: "logo", position: "bottom-right" } } });
+    expect(admitted.asset.brandingSnapshot.logo.storageKey).toContain(LOGO_ID);
+    expect(admitted.asset.brandingSnapshot.position).toBe("bottom-right");
+    expect(admitted.asset.brandKitSnapshot.layout.logoPosition).toBe("bottom-right");
+  });
+
   it("debits one credit for a new generation", async () => {
     const result = await admitImageGeneration(request());
 
@@ -546,6 +619,7 @@ describe("Credit-aware generation admission", () => {
     await setWorkspaceLogoSettings(original);
 
     let updateCompleted = false;
+    let replacementUpdate: Promise<void> | undefined;
 
     const admitted = await admitImageGeneration({
       ...request("snapshot-enabled-0001"),
@@ -563,15 +637,16 @@ describe("Credit-aware generation admission", () => {
           // workspace settings and created the
           // image asset inside its transaction.
           //
-          // Update workspace settings through a
-          // separate MongoDB operation.
-          await setWorkspaceLogoSettings(replacement);
-
-          updateCompleted = true;
+          // Start a competing write. Admission now holds the shared workspace
+          // guard, so this update must complete after admission commits.
+          replacementUpdate = setWorkspaceLogoSettings(replacement).then(() => {
+            updateCompleted = true;
+          });
         },
       },
     });
 
+    await replacementUpdate;
     expect(updateCompleted).toBe(true);
 
     const savedSnapshot = await getSavedSnapshot(String(admitted.asset._id));

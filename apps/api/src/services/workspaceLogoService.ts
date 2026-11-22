@@ -1,3 +1,4 @@
+import { logoVariantSchema, type LogoVariant } from "../schemas/brandKitSchema.js";
 import {
   getUserWorkspaceById,
   isValidWorkspaceId,
@@ -31,9 +32,20 @@ export class WorkspaceLogoServiceError extends Error {
   }
 }
 
+function logoPath(variant: LogoVariant): string {
+  const selected = logoVariantSchema.parse(variant);
+  return selected === "primary" ? "settings.logoOverlay" : `settings.brandKitLogoVariants.${selected}`;
+}
+
+function logoValue(settings: Record<string, unknown>, variant: LogoVariant): unknown {
+  if (variant === "primary") return settings.logoOverlay;
+  return (settings.brandKitLogoVariants as Record<string, unknown> | undefined)?.[variant];
+}
+
 export async function getWorkspaceLogoSettings(
   authUser: AuthenticatedUser,
   workspaceId: string,
+  variant: LogoVariant = "primary",
 ): Promise<WorkspaceLogoSettings> {
   if (!isValidWorkspaceId(workspaceId)) {
     throw new WorkspaceLogoServiceError("Workspace not found.", 404);
@@ -54,7 +66,8 @@ export async function getWorkspaceLogoSettings(
       ? (workspace.settings as Record<string, unknown>)
       : {};
 
-  return parseWorkspaceLogoSettings(settings.logoOverlay, workspaceId);
+  logoPath(variant);
+  return parseWorkspaceLogoSettings(logoValue(settings, variant), workspaceId);
 }
 
 export async function uploadUserWorkspaceLogo(
@@ -62,6 +75,7 @@ export async function uploadUserWorkspaceLogo(
   workspaceId: string,
   bytes: Uint8Array,
   bucket: ImageStorageBucket = getPrivateImageBucket(),
+  variant: LogoVariant = "primary",
 ): Promise<WorkspaceLogoSettings> {
   if (!isValidWorkspaceId(workspaceId)) {
     throw new WorkspaceLogoServiceError("Workspace not found.", 404);
@@ -91,7 +105,7 @@ export async function uploadUserWorkspaceLogo(
       : {};
 
   const currentLogo = parseWorkspaceLogoSettings(
-    existingSettings.logoOverlay,
+    logoValue(existingSettings, variant),
     workspaceId,
   );
 
@@ -120,12 +134,13 @@ export async function uploadUserWorkspaceLogo(
   // Recheck the original authorized owner.
   // Only change logoOverlay, not unrelated
   // workspace settings.
-  const originalOverlay = existingSettings.logoOverlay;
+  const path = logoPath(variant);
+  const originalOverlay = logoValue(existingSettings, variant);
 
   const guard =
     originalOverlay === undefined
-      ? { "settings.logoOverlay": { $exists: false } }
-      : { "settings.logoOverlay": originalOverlay };
+      ? { [path]: { $exists: false } }
+      : { [path]: originalOverlay };
 
   const updated = await Workspace.findOneAndUpdate(
     {
@@ -135,7 +150,7 @@ export async function uploadUserWorkspaceLogo(
     },
     {
       $set: {
-        "settings.logoOverlay": updatedSettings,
+        [path]: updatedSettings,
       },
     },
     {
@@ -162,6 +177,7 @@ export async function updateUserWorkspaceLogoSettings(
   authUser: AuthenticatedUser,
   workspaceId: string,
   input: UpdateWorkspaceLogoInput,
+  variant: LogoVariant = "primary",
 ): Promise<WorkspaceLogoSettings> {
   if (!isValidWorkspaceId(workspaceId)) {
     throw new WorkspaceLogoServiceError("Workspace not found.", 404);
@@ -181,7 +197,7 @@ export async function updateUserWorkspaceLogoSettings(
       : {};
 
   const previous = parseWorkspaceLogoSettings(
-    settings.logoOverlay,
+    logoValue(settings, variant),
     workspaceId,
   );
 
@@ -193,12 +209,13 @@ export async function updateUserWorkspaceLogoSettings(
   // Optimistic concurrency guard.
   // The original configuration must still match
   // what we read before updating it.
-  const originalOverlay = settings.logoOverlay;
+  const path = logoPath(variant);
+  const originalOverlay = logoValue(settings, variant);
 
   const guard =
     originalOverlay === undefined
-      ? { "settings.logoOverlay": { $exists: false } }
-      : { "settings.logoOverlay": originalOverlay };
+      ? { [path]: { $exists: false } }
+      : { [path]: originalOverlay };
 
   const updated = await Workspace.findOneAndUpdate(
     {
@@ -208,7 +225,7 @@ export async function updateUserWorkspaceLogoSettings(
     },
     {
       $set: {
-        "settings.logoOverlay": nextSettings,
+        [path]: nextSettings,
       },
     },
     {

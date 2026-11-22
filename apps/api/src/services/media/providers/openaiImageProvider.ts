@@ -1,4 +1,6 @@
 import { generateImageSchema } from "../../../schemas/aiImageSchema.js";
+import { brandKitImagePrompt } from "../brandKitImageStyle.js";
+import { postImagePrompt } from "../postImagePrompt.js";
 
 import {
   MAX_IMAGE_BYTES,
@@ -176,7 +178,7 @@ export class OpenAIImageProvider implements ImageProvider {
   }
 
   async generate(request: ImageProviderRequest): Promise<ImageProviderResult> {
-    const { referenceImage, ...parameters } = request;
+    const { referenceImage, brandKit, ...parameters } = request;
     const parsed = generateImageSchema.safeParse(parameters);
 
     if (!parsed.success) {
@@ -184,6 +186,7 @@ export class OpenAIImageProvider implements ImageProvider {
     }
 
     const expectedSize = IMAGE_SIZES[parsed.data.aspectRatio];
+    const prompt = brandKitImagePrompt(postImagePrompt(parsed.data.prompt, parsed.data.aspectRatio, parsed.data.postDesign), brandKit, parsed.data.postDesign?.style);
 
     let body: BodyInit;
     let endpoint = IMAGE_ENDPOINT;
@@ -200,7 +203,7 @@ export class OpenAIImageProvider implements ImageProvider {
       };
       const form = new FormData();
       form.set("model", this.model);
-      form.set("prompt", `${instructions[referenceImage.usage]}\n\nUser instructions: ${parsed.data.prompt}`);
+      form.set("prompt", `${instructions[referenceImage.usage]}\n\nUser instructions: ${prompt}`);
       form.set("size", expectedSize);
       form.set("quality", "low");
       form.set("n", "1");
@@ -210,7 +213,7 @@ export class OpenAIImageProvider implements ImageProvider {
       endpoint = EDIT_ENDPOINT;
     } else {
       headers["Content-Type"] = "application/json";
-      body = JSON.stringify({ model: this.model, prompt: parsed.data.prompt, size: expectedSize, quality: "low", n: 1, output_format: "png" });
+      body = JSON.stringify({ model: this.model, prompt, size: expectedSize, quality: "low", n: 1, output_format: "png" });
     }
 
     let response: Response;

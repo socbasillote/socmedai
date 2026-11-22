@@ -1,3 +1,4 @@
+import { brandKitSchema } from "../schemas/brandKitSchema.js";
 import mongoose from "mongoose";
 import { startImageGenerationWorker, watchImageGenerationJobs } from "../workers/imageGenerationWorkerRunner.js";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
@@ -456,6 +457,42 @@ describe("Background image generation worker", () => {
     const after = await discoverReservedImageJobs();
 
     expect(after).toHaveLength(0);
+  });
+
+  it("uses the admitted brand kit even when the workspace changes before execution", async () => {
+    const brandKit = brandKitSchema.parse({ enabled: true,
+      colors: { primary: "#7C3AED", accent: "#F59E0B", background: "#FFFFFF", text: "#0F172A" },
+      typography: { headingFont: "Georgia", bodyFont: "Arial" },
+      imageStyle: "Warm natural light and soft paper texture.",
+      layout: { textAlignment: "left", logoPosition: "top-left", spacing: "spacious", logoVariant: "primary" },
+    });
+    await Workspace.updateOne({ _id: workspaceId }, { $set: { "settings.brandKit": brandKit } });
+    const queued = await enqueueText("worker-brandkit-0001");
+    await Workspace.updateOne({ _id: workspaceId }, { $set: { "settings.brandKit.enabled": false, "settings.brandKit.imageStyle": "A changed style" } });
+    const p = fakeProvider(), storage = fakeStorage();
+    expect(await runImageGenerationWorkerOnce({ provider: p.provider, bucket: storage.bucket })).toContainEqual({ outcome: "completed", assetId: queued.assetId });
+    expect(p.generate).toHaveBeenCalledWith(expect.objectContaining({ brandKit }));
+    const asset = await MediaAsset.findById(queued.assetId);
+    expect(asset?.brandKitSnapshot).toEqual(brandKit);
+    expect(asset?.status).toBe("ready");
+    expect(await balance()).toBe(4);
+  });
+
+  it("passes the admitted style to the worker and renders exact text before saving", async () => {
+    const base = command("worker-post-design-0001");
+    const postDesign = { style: "editorial" as const, details: "Daylight", captionContext: "Coffee", text: "Make it count.", author: "Ana" };
+    const queued = await enqueueImageGeneration({ authUser, config, command: { ...base, image: { ...base.image, useBrandKit: false, postDesign } } });
+    const p = fakeProvider(), storage = fakeStorage();
+    expect(await runImageGenerationWorkerOnce({ provider: p.provider, bucket: storage.bucket })).toContainEqual({ outcome: "completed", assetId: queued.assetId });
+    expect(p.generate).toHaveBeenCalledWith(expect.objectContaining({ postDesign }));
+    const raw = await realProvider.generate({ ...base.image, postDesign });
+    const saved = storage.objects.get(getImageStorageKey(workspaceId, queued.assetId));
+    expect(saved).toBeDefined();
+    const rawPixels = await sharp(raw.bytes).raw().toBuffer();
+    const savedPixels = await sharp(saved!).removeAlpha().raw().toBuffer();
+    expect(savedPixels.equals(rawPixels)).toBe(false);
+    expect((await MediaAsset.findById(queued.assetId))?.generation.postDesign).toEqual(postDesign);
+    expect(await balance()).toBe(4);
   });
 
   it("generates a queued image and releases capacity", async () => {

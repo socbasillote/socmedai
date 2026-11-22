@@ -206,6 +206,7 @@ function makePost(
 }
 
 function prepareNewPost() {
+  fireEvent.click(screen.getByRole("button", { name: "Manual" }));
   fireEvent.click(
     screen.getByRole("button", {
       name: "Set caption",
@@ -467,6 +468,7 @@ it("publishes an Instagram image to the explicitly selected account after confir
  vi.mocked(createPost).mockResolvedValue(makePost(POST_A, WORKSPACE_A));
  vi.mocked(publishPostNow).mockResolvedValue({ message: "Published", post: { ...makePost(POST_A, WORKSPACE_A), status: "published" }, result: { postId: POST_A, results: [{ postId: POST_A, platform: "instagram", outcome: "published" }] } });
  render(<PostEditorRoute mode="create" />);
+ fireEvent.click(screen.getByRole("button", { name: "Manual" }));
  fireEvent.click(screen.getByRole("button", { name: "Set caption" }));
  fireEvent.click(screen.getByRole("button", { name: "Use Instagram" }));
  fireEvent.click(screen.getByRole("button", { name: "Attach image" }));
