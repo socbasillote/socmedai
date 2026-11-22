@@ -200,6 +200,48 @@ describe("Image generation HTTP routes", () => {
     expect(enqueueImageGeneration).not.toHaveBeenCalled();
   });
 
+  describe("production image admission", () => {
+    beforeEach(() => {
+      for (const [key, value] of Object.entries({
+        NODE_ENV: "production",
+        IMAGE_GENERATION_HTTP_ENABLED: "true",
+        IMAGE_GENERATION_PROVIDER: "openai",
+        IMAGE_GENERATION_LIVE_ENABLED: "true",
+        IMAGE_GENERATION_LIVE_WORKER_ENABLED: "true",
+        IMAGE_GENERATION_LIVE_ROLLOUT: "internal",
+        IMAGE_GENERATION_MODEL: "gpt-image-2",
+        IMAGE_GENERATION_LIVE_CREDIT_COST: "1",
+        OPENAI_API_KEY: "fake-test-key",
+      })) vi.stubEnv(key, value);
+    });
+
+    it("enqueues live generation when explicitly enabled", async () => {
+      const response = await authorizedPost().send(validBody);
+
+      expect(response.status).toBe(202);
+      expect(enqueueImageGeneration).toHaveBeenCalledOnce();
+    });
+
+    it.each([undefined, "false"])("rejects HTTP admission when the flag is %s", async (flag) => {
+      vi.stubEnv("IMAGE_GENERATION_HTTP_ENABLED", flag);
+
+      const response = await authorizedPost().send(validBody);
+
+      expect(response.status).toBe(503);
+      expect(response.body.error).toBe("Image generation is unavailable.");
+      expect(enqueueImageGeneration).not.toHaveBeenCalled();
+    });
+
+    it("retains the live worker gate", async () => {
+      vi.stubEnv("IMAGE_GENERATION_LIVE_WORKER_ENABLED", "false");
+
+      const response = await authorizedPost().send(validBody);
+
+      expect(response.status).toBe(503);
+      expect(enqueueImageGeneration).not.toHaveBeenCalled();
+    });
+  });
+
   it("accepts live generation in a workspace outside the obsolete allowlist", async () => {
     const otherWorkspaceId = "507f1f77bcf86cd799439099";
     for (const [key, value] of Object.entries({

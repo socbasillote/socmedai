@@ -68,7 +68,7 @@ function respondError(
 }
 
 /**
- * HTTP generation remains development-only.
+ * HTTP admission requires explicit enablement in every environment.
  *
  * Mock generation follows the existing route.
  * OpenAI generation requires the live admission
@@ -79,10 +79,7 @@ function assertImageGenerationHttpEnabled(
   provider: "mock" | "openai",
   workspaceId: string,
 ): void {
-  if (
-    process.env.NODE_ENV === "production" ||
-    process.env.IMAGE_GENERATION_HTTP_ENABLED !== "true"
-  ) {
+  if (process.env.IMAGE_GENERATION_HTTP_ENABLED !== "true") {
     const error = new Error("Image generation HTTP is disabled.") as Error & {
       statusCode: number;
     };
