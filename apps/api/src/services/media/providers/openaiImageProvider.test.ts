@@ -60,6 +60,34 @@ function request(aspectRatio: "square" | "portrait" | "landscape" = "square") {
 }
 
 describe("OpenAIImageProvider", () => {
+  it("logs recognized rejection metadata without provider messages or secrets", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const fetchMock = vi.fn(async () => new Response(JSON.stringify({ error: {
+        type: "invalid_request_error", code: "unsupported_value", param: "quality",
+        message: `${PROMPT} ${API_KEY}`,
+      } }), { status: 400, headers: { "x-request-id": "req_test123" } }));
+      await expect(makeProvider(fetchMock as typeof fetch).generate(request())).rejects.toMatchObject({ outcome: "uncertain" });
+      expect(log).toHaveBeenCalledWith("[OpenAI Image Provider]", {
+        stage: "http_response", httpStatus: 400, providerType: "invalid_request_error",
+        providerCode: "unsupported_value", parameter: "quality", requestId: "req_test123",
+      });
+      expect(JSON.stringify(log.mock.calls)).not.toContain(PROMPT);
+      expect(JSON.stringify(log.mock.calls)).not.toContain(API_KEY);
+    } finally { log.mockRestore(); }
+  });
+
+  it("omits unrecognized upstream diagnostic values", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const fetchMock = vi.fn(async () => jsonResponse({ error: {
+        type: API_KEY, code: PROMPT, param: API_KEY,
+      } }, 400));
+      await expect(makeProvider(fetchMock as typeof fetch).generate(request())).rejects.toMatchObject({ outcome: "uncertain" });
+      expect(log).toHaveBeenCalledWith("[OpenAI Image Provider]", { stage: "http_response", httpStatus: 400 });
+    } finally { log.mockRestore(); }
+  });
+
   it("maps square generation to the Images API", async () => {
     const fetchMock = vi.fn(async () => imageResponse());
 

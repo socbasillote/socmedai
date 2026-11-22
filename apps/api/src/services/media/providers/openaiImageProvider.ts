@@ -60,6 +60,10 @@ function logProviderFailure(
   details: {
     httpStatus?: number;
     errorType?: string;
+    providerCode?: string;
+    providerType?: string;
+    parameter?: string;
+    requestId?: string;
   } = {},
 ): void {
   console.error("[OpenAI Image Provider]", {
@@ -75,7 +79,7 @@ function logProviderFailure(
  * malformed upstream response from consuming
  * unlimited API-server memory.
  */
-async function readBoundedResponse(response: Response): Promise<string> {
+async function readBoundedResponse(response: Response, maxBytes = MAX_RESPONSE_BYTES): Promise<string> {
   if (!response.body) {
     return "";
   }
@@ -94,7 +98,8 @@ async function readBoundedResponse(response: Response): Promise<string> {
 
       total += value.byteLength;
 
-      if (total > MAX_RESPONSE_BYTES) {
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
         throw providerError(
           "Image provider response exceeded the allowed size.",
           "uncertain",
@@ -232,8 +237,33 @@ export class OpenAIImageProvider implements ImageProvider {
     }
 
     if (!response.ok) {
+      // Provider messages can echo prompts or credentials. Only log recognized
+      // metadata, never the raw body or arbitrary upstream strings.
+      const diagnostics: {
+        providerCode?: string; providerType?: string; parameter?: string; requestId?: string;
+      } = {};
+      const requestId = response.headers.get("x-request-id");
+      if (requestId && /^req_[A-Za-z0-9_-]{1,120}$/.test(requestId)) diagnostics.requestId = requestId;
+      try {
+        const payload: unknown = JSON.parse(await readBoundedResponse(response, 16 * 1024));
+        if (payload && typeof payload === "object" && "error" in payload && payload.error && typeof payload.error === "object") {
+          const error = payload.error as Record<string, unknown>;
+          if (typeof error.code === "string" && [
+            "invalid_api_key", "invalid_request", "invalid_value", "unsupported_value",
+            "unsupported_parameter", "unknown_parameter", "missing_required_parameter",
+            "model_not_found", "content_policy_violation", "moderation_blocked",
+            "billing_hard_limit_reached", "billing_not_active", "insufficient_quota",
+            "organization_verification_required", "rate_limit_exceeded",
+          ].includes(error.code)) diagnostics.providerCode = error.code;
+          if (typeof error.type === "string" && ["invalid_request_error", "authentication_error", "permission_error", "rate_limit_error", "server_error", "image_generation_user_error"].includes(error.type)) diagnostics.providerType = error.type;
+          if (typeof error.param === "string" && ["model", "prompt", "size", "quality", "n", "output_format", "image", "image[]", "response_format", "moderation", "background"].includes(error.param)) diagnostics.parameter = error.param;
+        }
+      } catch {
+        // Missing, malformed or oversized diagnostics must not alter job handling.
+      }
       logProviderFailure("http_response", {
         httpStatus: response.status,
+        ...diagnostics,
       });
 
       await response.body?.cancel().catch(() => undefined);
