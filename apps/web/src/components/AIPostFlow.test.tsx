@@ -138,6 +138,21 @@ function mockSuccessfulImages() {
     assetId, url: `https://images.example.com/${assetId}.png`, expiresIn: 3600,
   }));
 }
+it("flags an image after a caption edit and updates it only on an explicit action", async () => {
+  mockSuccessfulImages(); setup({ ownerId: "image-sync-owner" });
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+  expect(screen.queryByRole("button", { name: "Update image to match" })).toBeNull();
+  fireEvent.change(screen.getByRole("textbox", { name: "facebook caption" }), { target: { value: "Pouring cold brew over ice." } });
+  expect(screen.getByText(/The caption changed after this image was created/)).toBeTruthy();
+  expect(generateWorkspaceImage).toHaveBeenCalledOnce();
+  expect(readAIReviewBatch("image-sync-owner", "507f1f77bcf86cd799439011")?.posts[0].variants[0].imageCaption).toBe("A useful caption");
+  fireEvent.click(screen.getByRole("button", { name: "Update image to match" }));
+  await waitFor(() => expect(generateWorkspaceImage).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Update image to match" })).toBeNull());
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[1][1].image.postDesign?.captionContext).toBe("Pouring cold brew over ice.");
+  expect(generateCaption).toHaveBeenCalledOnce();
+});
 it("bulk creates three separate image assets from one entered brief", async () => {
   mockSuccessfulImages();
   setup();
@@ -550,6 +565,15 @@ it("allows clearing a selected goal before generating", async () => {
 function openTypeFlow(ownerId?: string) {
   render(<AIPostFlow ownerId={ownerId} workspaceId="507f1f77bcf86cd799439011" timezone="Asia/Manila" onBack={vi.fn()} connections={{ facebook: "page" }} destinations={null} />);
 }
+it("lets colors and fonts be excluded independently while retaining brand identity", async () => {
+  mockSuccessfulImages(); setup({ brandKit: defaultBrandKit, logoAvailable: true });
+  fireEvent.click(screen.getByRole("radio", { name: "Yes, apply my brand kit" }));
+  expect(screen.getByRole("checkbox", { name: "Include workspace logo" })).not.toBeChecked();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Use brand primary and accent colors" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate post" }));
+  await waitFor(() => expect(screen.getByText("1 of 1 selected")).toBeTruthy());
+  expect(vi.mocked(generateWorkspaceImage).mock.calls[0][1].image.postDesign?.brandOptions).toEqual({ colors: false, fonts: true });
+});
 it("provides eight ordered sections with a navigable progress bar", () => {
   openTypeFlow();
   expect(screen.getAllByRole("heading", { level: 2 }).slice(0, 8).map(item => item.textContent)).toEqual([

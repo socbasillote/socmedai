@@ -186,7 +186,7 @@ export class OpenAIImageProvider implements ImageProvider {
     }
 
     const expectedSize = IMAGE_SIZES[parsed.data.aspectRatio];
-    const prompt = brandKitImagePrompt(postImagePrompt(parsed.data.prompt, parsed.data.aspectRatio, parsed.data.postDesign), brandKit, parsed.data.postDesign?.style);
+    const prompt = brandKitImagePrompt(postImagePrompt(parsed.data.prompt, parsed.data.aspectRatio, parsed.data.postDesign), brandKit, parsed.data.postDesign?.style, parsed.data.postDesign?.brandOptions);
 
     let body: BodyInit;
     let endpoint = IMAGE_ENDPOINT;

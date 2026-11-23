@@ -7,6 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
+    "prestart:image-worker": "npm run build",
     "start:image-worker": "node dist/workers/imageGenerationWorkerMain.js",
     "start:scheduled-worker": "node dist/workers/scheduledPostWorkerMain.js",
     "dev:scheduled-worker": "tsx watch src/workers/scheduledPostWorkerMain.ts",

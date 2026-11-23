@@ -61,6 +61,15 @@ function request(aspectRatio: "square" | "portrait" | "landscape" = "square") {
 }
 
 describe("OpenAIImageProvider", () => {
+  it("accepts optional brand controls on a styled job before making the image request", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, _options: RequestInit) => imageResponse());
+    const brandKit = brandKitSchema.parse({ enabled: true, colors: { primary: "#7C3AED", accent: "#F59E0B", background: "#EEEEEE", text: "#112233" }, typography: { headingFont: "Georgia", bodyFont: "Arial" }, imageStyle: "", layout: { textAlignment: "center", logoPosition: "bottom-right", spacing: "comfortable", logoVariant: "primary" } });
+    await makeProvider(fetchMock as typeof fetch).generate({ ...request(), brandKit, postDesign: { style: "editorial", brandOptions: { colors: true, fonts: true }, details: "", captionContext: "A useful caption", text: "Make it count", author: "" } });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.prompt).toContain("#7C3AED"); expect(body.prompt).toContain("Georgia");
+    expect(body.prompt).not.toContain("#EEEEEE"); expect(body.prompt).not.toContain("#112233");
+  });
   it("builds the social-post prompt at the provider boundary rather than exposing preset instructions to the editor", async () => {
     const fetchMock = vi.fn(async (_url: unknown, _options: RequestInit) => imageResponse());
     await makeProvider(fetchMock as typeof fetch).generate({ ...request(), postDesign: { style: "cinematic", details: "Bright daylight", captionContext: "Meet our new menu", text: "Hello", author: "Ana" } });

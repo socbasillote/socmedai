@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { brandFontFamily, readBrandKit, type BrandKit } from "@/lib/brandKit";
+import { brandFontFamily, readBrandKit, readableTextColor, type BrandKit } from "@/lib/brandKit";
 import { getWorkspaceLogoPreview } from "@/lib/workspaceLogo";
 import { ApiError } from "@/lib/api";
 
@@ -43,12 +43,12 @@ export function BrandKitTemplatePreview({ workspaceId, name, kit: draft, logoVer
       </select>
     </div>
     <div aria-label="Brand kit template preview" data-testid="brand-kit-preview" className="relative mx-auto flex aspect-square w-full max-w-md flex-col justify-center overflow-hidden rounded-xl border shadow-sm" style={{
-      backgroundColor: kit.colors.background, color: kit.colors.text, fontFamily: brandFontFamily(kit.typography.bodyFont),
+      backgroundColor: kit.colors.background, color: readableTextColor(kit.colors.background), fontFamily: brandFontFamily(kit.typography.bodyFont),
       textAlign: kit.layout.textAlignment, padding, paddingTop: topLogo ? padding + 64 : padding,
       paddingBottom: topLogo ? padding : padding + 64, borderColor: kit.colors.primary,
     }}>
       {template === "quote" && <span aria-hidden="true" className="text-4xl font-bold leading-none sm:text-6xl" style={{ color: kit.colors.accent, fontFamily: brandFontFamily(kit.typography.headingFont) }}>&ldquo;</span>}
-      {template === "sale" && <span className="mb-4 self-start rounded-full px-3 py-1 text-sm font-bold" style={{ backgroundColor: kit.colors.accent, color: kit.colors.text, alignSelf: kit.layout.textAlignment === "center" ? "center" : kit.layout.textAlignment === "right" ? "flex-end" : "flex-start" }}>JUST FOR YOU</span>}
+      {template === "sale" && <span className="mb-4 self-start rounded-full px-3 py-1 text-sm font-bold" style={{ backgroundColor: kit.colors.accent, color: readableTextColor(kit.colors.accent), alignSelf: kit.layout.textAlignment === "center" ? "center" : kit.layout.textAlignment === "right" ? "flex-end" : "flex-start" }}>JUST FOR YOU</span>}
       <h4 className="text-xl font-bold leading-tight sm:text-3xl" style={{ color: kit.colors.primary, fontFamily: brandFontFamily(kit.typography.headingFont) }}>
         {template === "quote" ? "Small moments. Lasting impressions." : template === "sale" ? "A little more of what you love." : "Something good is coming."}
       </h4>

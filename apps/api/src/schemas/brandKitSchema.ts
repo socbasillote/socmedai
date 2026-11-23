@@ -6,7 +6,7 @@ const color = z.string().regex(/^#[a-f\d]{6}$/i, "Use a six-digit hex color, suc
 
 export const brandKitSchema = z.object({
   enabled: z.boolean(),
-  colors: z.object({ primary: color, accent: color, background: color, text: color }).strict(),
+  colors: z.object({ primary: color, accent: color, background: color, text: color.optional().default("#111827") }).strict(),
   typography: z.object({ headingFont: brandFontSchema, bodyFont: brandFontSchema }).strict(),
   imageStyle: z.string().trim().max(600),
   layout: z.object({

@@ -1,4 +1,4 @@
-import { brandFontFamily, type BrandKit } from "@/lib/brandKit";
+import { brandFontFamily, readableTextColor, type BrandKit } from "@/lib/brandKit";
 import type { TemplateDraft } from "./templates";
 
 export const templateSizes = { square: [1080, 1080], portrait: [1080, 1350], landscape: [1200, 630] } as const;
@@ -44,7 +44,7 @@ export async function renderTemplate(draft: TemplateDraft, kit?: BrandKit, image
   const [w, h] = templateSizes[draft.format]; canvas.width = w; canvas.height = h;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Your browser could not render this design.");
-  const colors = kit?.colors ?? (draft.templateId === "sale"
+  const colors = (kit ? { ...kit.colors, text: readableTextColor(kit.colors.background) } : undefined) ?? (draft.templateId === "sale"
     ? { primary: "#FBBF24", accent: "#FBBF24", background: "#2E1065", text: "#FFFFFF" }
     : { primary: "#5B21B6", accent: "#FBBF24", background: "#FFFFFF", text: "#111827" });
   const heading = kit ? brandFontFamily(kit.typography.headingFont) : "Georgia, serif";

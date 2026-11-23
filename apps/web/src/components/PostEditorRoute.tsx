@@ -1,3 +1,4 @@
+import { hasWorkspaceLogo } from "@/lib/workspaceLogoAvailability";
 import { AIPostFlow } from "./AIPostFlow";
 import { PostTemplateFlow } from "@/features/post-templates/PostTemplateFlow";
 import { brandKitSchema } from "@/lib/brandKit";
@@ -1380,6 +1381,7 @@ export function PostEditorRoute({ mode, postId }: PostEditorRouteProps) {
           selectedWorkspaceId ? (
             <AIPostFlow
               brandKit={workspaceBrandKit}
+              logoAvailable={selectedWorkspace ? hasWorkspaceLogo(selectedWorkspace) : false}
               ownerId={recoveryOwnerUserId ?? undefined}
               key={contentScope}
               workspaceId={selectedWorkspaceId}

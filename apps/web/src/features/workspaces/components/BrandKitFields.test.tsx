@@ -32,6 +32,16 @@ it("applies each color role, typography, and layout to the live template preview
   fireEvent.change(screen.getByLabelText("Preview template"), { target: { value: "sale" } });
   expect(screen.getByText("JUST FOR YOU")).toHaveStyle({ backgroundColor: "#F59E0B" });
 });
+it("excludes text color controls and chooses readable preview text automatically", async () => {
+  render(<Harness />);
+  await screen.findByAltText("Coffee brand logo");
+  expect(screen.queryByLabelText("Text color")).toBeNull();
+  expect(screen.queryByLabelText("Choose text color")).toBeNull();
+  fireEvent.change(screen.getByLabelText("Background color"), { target: { value: "#000000" } });
+  expect(screen.getByTestId("brand-kit-preview")).toHaveStyle({ color: "#FFFFFF" });
+  fireEvent.change(screen.getByLabelText("Background color"), { target: { value: "#FFFFFF" } });
+  expect(screen.getByTestId("brand-kit-preview")).toHaveStyle({ color: "#111827" });
+});
 it("reuses all three logo upload slots and falls back from an unavailable variant", async () => {
   render(<Harness />);
   expect(screen.getByLabelText("primary logo uploader")).toBeInTheDocument();

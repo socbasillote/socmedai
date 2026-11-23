@@ -1,3 +1,4 @@
+import { addPostLogo } from "@/features/publishing/postLogo";
 import { createAutomaticCrop } from "@/features/publishing/automaticImageCrop";
 import { VisualStylePicker } from "@/features/publishing/components/VisualStylePicker";
 import { AIPostContentFields } from "@/features/publishing/components/AIPostContentFields";
@@ -67,6 +68,7 @@ export type Reference = {
   useIn: "every" | "choose";
 };
 type Variant = {
+  imageCaption?: string;
   autoCropPending?: boolean;
   cropError?: string;
   originalAssetId?: string;
@@ -97,6 +99,7 @@ export type ReviewPost = {
 };
 type Props = {
   brandKit?: BrandKit;
+  logoAvailable?: boolean;
   ownerId?: string;
   workspaceId: string;
   timezone: string;
@@ -168,6 +171,7 @@ function Step({
 }
 export function AIPostFlow({
   brandKit,
+  logoAvailable = false,
   ownerId,
   workspaceId,
   timezone,
@@ -208,6 +212,9 @@ export function AIPostFlow({
   const [style, setStyle] = useState<VisualStyle>(() =>
     normalizeVisualStyle(setup?.style),
   );
+  const [brandColors, setBrandColors] = useState(setup?.brandColors ?? true);
+  const [brandFonts, setBrandFonts] = useState(setup?.brandFonts ?? true);
+  const [brandLogo, setBrandLogo] = useState(setup?.brandLogo ?? false);
   const [useBrandKit, setUseBrandKit] = useState(setup?.useBrandKit ?? false);
   const [imageDetails, setImageDetails] = useState(setup?.imageDetails ?? "");
   const [imageText, setImageText] = useState(setup?.imageText ?? "");
@@ -225,6 +232,7 @@ export function AIPostFlow({
         : (content.author ?? "")
       : imageAuthor;
   const availableBrandKit = brandKit?.enabled ? brandKit : undefined;
+  const postLogo = useBrandKit && brandLogo && logoAvailable && availableBrandKit ? { position: availableBrandKit.layout.logoPosition, variant: availableBrandKit.layout.logoVariant } : undefined;
   const [refs, setRefs] = useState<Reference[]>(setup?.refs ?? []);
   const activeRefs = refs.filter(
     (ref) => !ref.sourceType || ref.sourceType === postType,
@@ -286,6 +294,7 @@ export function AIPostFlow({
       images,
       count,
       style,
+      brandColors, brandFonts, brandLogo,
       useBrandKit,
       imageDetails,
       imageText,
@@ -340,7 +349,8 @@ export function AIPostFlow({
         images,
         count,
         style,
-        useBrandKit,
+        brandColors, brandFonts, brandLogo,
+      useBrandKit,
         imageDetails,
         imageText,
         imageAuthor,
@@ -367,6 +377,7 @@ export function AIPostFlow({
     images,
     count,
     style,
+    brandColors, brandFonts, brandLogo,
     useBrandKit,
     imageDetails,
     imageText,
@@ -688,8 +699,10 @@ export function AIPostFlow({
     postId?: string,
     quoteText?: string,
   ) {
-    if (reference?.usage === "include")
+    if (reference?.usage === "include") {
+      if (postId) imagePatch(postId, platform, { imageCaption: caption.trim() });
       return { assetId: reference.assetId, url: reference.url };
+    }
     if (!images) return {};
     if (useBrandKit && !availableBrandKit)
       throw new Error(
@@ -707,6 +720,7 @@ export function AIPostFlow({
         useBrandKit,
         postDesign: {
           style,
+          brandOptions: { colors: useBrandKit && brandColors, fonts: useBrandKit && brandFonts },
           details: imageDetails.trim(),
           captionContext: caption.trim().slice(0, 5000),
           text: quoteText ?? effectiveImageText.trim(),
@@ -728,6 +742,7 @@ export function AIPostFlow({
     };
     if (postId)
       imagePatch(postId, platform, {
+        imageCaption: caption.trim(),
         pendingImage: command,
         imagePending: true,
         autoCropPending: true,
@@ -1251,6 +1266,7 @@ export function AIPostFlow({
           workspaceId,
           originalAssetId,
           variant.platform,
+          postLogo,
         );
         // Keep a completed upload even if navigation interrupted the remaining batch.
         variantPatch(postId, variant.platform, {
@@ -1310,7 +1326,7 @@ export function AIPostFlow({
       throw new Error("The post image changed. Open the crop preview again.");
     setBusy(true);
     try {
-      const { assetId } = await upload(file);
+      const { assetId } = await upload(await addPostLogo(file, workspaceId, postLogo));
       const { url } = await getWorkspaceImageUrl(workspaceId, assetId);
       variantPatch(postId, platform, {
         assetId,
@@ -1810,6 +1826,7 @@ export function AIPostFlow({
                           onChange={(e) =>
                             variantPatch(p.id, v.platform, {
                               caption: e.target.value,
+                              ...(v.assetId ? { imageCaption: v.imageCaption ?? v.caption.trim() } : {}),
                               captionError: undefined,
                               error:
                                 v.captionError === v.error
@@ -1818,6 +1835,11 @@ export function AIPostFlow({
                             })
                           }
                         />
+                        {v.assetId && v.imageCaption !== undefined && v.caption.trim() !== v.imageCaption.trim() && <div role="status" className="space-y-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
+                          <p>The caption changed after this image was created. The image may need updating.</p>
+                          <button type="button" className={button} disabled={busy || disabled || v.saved || Boolean(v.pendingInput) || Boolean(v.imagePending)} onClick={() => void regenerate(p, posts.indexOf(p), true, v.platform)}>Update image to match</button>
+                          <p className="text-xs">Creates a new image using your edited caption and the normal image credit cost.</p>
+                        </div>}
                         {v.cropError && (
                           <div
                             role="alert"
@@ -2278,34 +2300,15 @@ export function AIPostFlow({
                       : "No is the default. You can use a brand identity after adding and enabling it in Workspace Settings."}
                   </p>
                 )}
-                {useBrandKit && availableBrandKit && (
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap gap-2">
-                      {Object.entries(availableBrandKit.colors).map(
-                        ([role, color]) => (
-                          <span
-                            key={role}
-                            className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
-                            style={{ borderLeft: `12px solid ${color}` }}
-                          >
-                            {role}: {color}
-                          </span>
-                        ),
-                      )}
-                    </div>
-                    <p
-                      className="text-sm"
-                      style={{
-                        fontFamily: brandFontFamily(
-                          availableBrandKit.typography.headingFont,
-                        ),
-                      }}
-                    >
-                      {availableBrandKit.typography.headingFont} headings ·{" "}
-                      {availableBrandKit.typography.bodyFont} supporting text
-                    </p>
-                  </div>
-                )}
+                {useBrandKit && availableBrandKit && <div className="space-y-3">
+                  <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={brandColors} onChange={e => setBrandColors(e.target.checked)} />Use brand primary and accent colors</label>
+                  <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={brandFonts} onChange={e => setBrandFonts(e.target.checked)} />Use brand fonts</label>
+                  <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={brandLogo} disabled={!logoAvailable} onChange={e => setBrandLogo(e.target.checked)} />Include workspace logo</label>
+                  {!logoAvailable && <p className="text-xs text-slate-500">Enable a workspace logo to include it.</p>}
+                  {brandColors && <div className="flex flex-wrap gap-2">{["primary", "accent"].map(role => <span key={role} className="rounded border px-2 py-1 text-xs" style={{ borderLeft: `12px solid ${availableBrandKit.colors[role as "primary" | "accent"]}` }}>{role}: {availableBrandKit.colors[role as "primary" | "accent"]}</span>)}</div>}
+                  {brandFonts && <p className="text-sm" style={{fontFamily: brandFontFamily(availableBrandKit.typography.headingFont)}}>{availableBrandKit.typography.headingFont} headings ? {availableBrandKit.typography.bodyFont} body</p>}
+                  <p className="text-sm text-slate-500">Using: {[brandColors && "primary + accent", brandFonts && "brand fonts", brandLogo && logoAvailable && "logo"].filter(Boolean).join(", ") || "visual style only"}. Background and text colors adapt for readability.</p>
+                </div>}
               </fieldset>
             </Step>
             <Step n={6} title="Choose visual style">

@@ -56,7 +56,7 @@ export function backgroundPrompt(draft: TemplateDraft, kit?: BrandKit): string {
     draft.templateId === "custom"
       ? "Do not include text, letters, numbers, or logos. Any headline and uploaded photo will be added separately."
       : "Do not include text, letters, numbers, logos, people, or products. Text and uploaded photos are added separately.",
-    kit ? `Use ${kit.colors.background}, ${kit.colors.primary}, and ${kit.colors.accent}. Visual style: ${kit.imageStyle || "clean and refined"}.` : "Use a neutral, subtle palette.",
+    kit ? `Use primary ${kit.colors.primary} and accent ${kit.colors.accent} where appropriate. Choose the background freely to suit the subject. Visual style: ${kit.imageStyle || "clean and refined"}.` : "Use a neutral, subtle palette.",
   ].join("\n");
 }
 export function templateCaption(draft: TemplateDraft): string {

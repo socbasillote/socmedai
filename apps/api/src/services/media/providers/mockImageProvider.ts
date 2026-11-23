@@ -43,7 +43,7 @@ export class MockImageProvider implements ImageProvider {
     const { width, height } = DIMENSIONS[input.aspectRatio];
 
     const hash = createHash("sha256")
-      .update(JSON.stringify([brandKitImagePrompt(postImagePrompt(input.prompt, input.aspectRatio, input.postDesign), brandKit, input.postDesign?.style), input.aspectRatio, ...(referenceImage ? [referenceImage.usage, createHash("sha256").update(referenceImage.bytes).digest("hex")] : [])]))
+      .update(JSON.stringify([brandKitImagePrompt(postImagePrompt(input.prompt, input.aspectRatio, input.postDesign), brandKit, input.postDesign?.style, input.postDesign?.brandOptions), input.aspectRatio, ...(referenceImage ? [referenceImage.usage, createHash("sha256").update(referenceImage.bytes).digest("hex")] : [])]))
       .digest("hex");
 
     const background = `#${hash.slice(0, 6)}`;

@@ -13,6 +13,7 @@ export type AIReviewBatch = {
     postType?: AIPostType; postContent?: AIPostContent;
     goal: ReviewPost["goal"]; mix: boolean; cta: string; captions: boolean;
     images: boolean; count: number; style: string; refs: Reference[];
+    brandColors?: boolean; brandFonts?: boolean; brandLogo?: boolean;
     useBrandKit?: boolean; imageDetails?: string; imageText?: string; imageAuthor?: string;
     schedule: boolean; date: string; time: string; frequency: string;
   };
@@ -27,6 +28,7 @@ const schema = z.object({
     id: z.string(), goal: z.string(), selected: z.boolean(), busy: z.boolean(), scheduledAt: z.string().optional(), scheduleError: z.string().optional(),
     variants: z.array(z.object({
       platform, caption: z.string(), clientDraftId: z.string(), assetId: z.string().optional(),
+      imageCaption: z.string().max(5000).optional(),
       originalAssetId: z.string().optional(),
       autoCropPending: z.boolean().optional(), cropError: z.string().optional(),
       crop: z.object({ format: z.enum(["square", "portrait", "landscape"]), x: z.number().min(0).max(100), y: z.number().min(0).max(100), zoom: z.number().min(1).max(3) }).optional(),
@@ -38,6 +40,7 @@ const schema = z.object({
     targets: z.array(platform), bulk: z.boolean(), brief: z.string(),
     postType: z.enum(aiPostTypeIds).optional(), postContent: z.partialRecord(z.enum(aiPostTypeIds), z.record(z.string(), z.string().max(2800))).optional(),
     tone: z.enum(["professional", "friendly", "bold", "educational", "playful", "inspirational"]), goal: z.string(), mix: z.boolean(), cta: z.string(), captions: z.boolean(), images: z.boolean(), count: z.number().int().min(1).max(20), style: z.string(),
+    brandColors: z.boolean().optional(), brandFonts: z.boolean().optional(), brandLogo: z.boolean().optional(),
     useBrandKit: z.boolean().optional(), imageDetails: z.string().max(600).optional(), imageText: z.string().max(240).optional(), imageAuthor: z.string().max(60).optional(),
     refs: z.array(z.object({ sourceType: z.enum(aiPostTypeIds).optional(), thumbnail: z.string(), id: z.string(), assetId: z.string(), name: z.string(), usage: z.enum(["include", "style", "subject"]), useIn: z.enum(["every", "choose"]) })).max(20),
     schedule: z.boolean(), date: z.string(), time: z.string(), frequency: z.string(),

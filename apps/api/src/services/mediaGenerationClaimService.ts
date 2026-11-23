@@ -142,6 +142,7 @@ export function fingerprintImageGeneration(
       validated.reference ?? null, validated.useBrandKit !== false,
       validated.postDesign.style, validated.postDesign.details,
       validated.postDesign.captionContext, validated.postDesign.text, validated.postDesign.author,
+      ...(validated.postDesign.brandOptions ? [validated.postDesign.brandOptions.colors, validated.postDesign.brandOptions.fonts] : []),
     ])).digest("hex");
   }
 

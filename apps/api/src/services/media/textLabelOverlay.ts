@@ -160,8 +160,8 @@ export async function applyTextLabelOverlay(
           font-family="${escapeSvgText(kit?.typography.headingFont ?? "sans-serif")}"
           font-weight="700"
           font-size="${fontSize}"
-          fill="${kit?.colors.text ?? "#ffffff"}"
-          stroke="${kit ? kit.colors.background : "#000000"}"
+          fill="#ffffff"
+          stroke="#000000"
           stroke-opacity="0.65"
           stroke-width="${Math.max(0.5, fontSize * 0.07)}"
           stroke-linejoin="round"
@@ -179,7 +179,7 @@ export async function applyTextLabelOverlay(
       viewBox="0 0 ${overlayWidth} ${overlayHeight}"
     >
       <g opacity="${branding.opacity}">
-        ${kit ? `<rect width="${overlayWidth}" height="${overlayHeight}" rx="3" fill="${kit.colors.background}" stroke="${kit.colors.primary}"/><rect width="${overlayWidth}" height="2" fill="${kit.colors.accent}"/>` : ""}
+        ${kit ? `<rect width="${overlayWidth}" height="2" fill="${kit.colors.accent}"/>` : ""}
         ${textElements}
       </g>
     </svg>

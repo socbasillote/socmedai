@@ -9,7 +9,7 @@ export const visualStyles = [
   { id: "custom", name: "Custom style", description: "Describe your own visual direction.", position: "50% 100%" },
 ] as const;
 export type VisualStyle = typeof visualStyles[number]["id"];
-export type PostImageDesign = { style: VisualStyle; details: string; captionContext: string; text: string; author: string };
+export type PostImageDesign = { style: VisualStyle; details: string; captionContext: string; text: string; author: string; brandOptions?: { colors: boolean; fonts: boolean } };
 export function normalizeVisualStyle(value?: string): VisualStyle {
   if (value === "Illustration") return "illustration";
   if (value === "Minimal") return "minimal";

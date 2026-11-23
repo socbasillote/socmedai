@@ -5,7 +5,7 @@ import { BrandKitTemplatePreview } from "./BrandKitTemplatePreview";
 
 type Props = { workspaceId: string; name: string; value: BrandKit; onChange: (kit: BrandKit) => void; disabled: boolean; archived: boolean };
 const field = "mt-2 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100 disabled:bg-slate-50";
-const colorRoles = { primary: "Headlines and main design elements.", accent: "Quote marks, highlights, and sale badges.", background: "The canvas behind your content.", text: "Supporting text and body copy." };
+const colorRoles = { primary: "Headlines and main design elements.", accent: "Quote marks, highlights, and sale badges.", background: "The canvas behind your content." };
 
 export function BrandKitFields({ workspaceId, name, value, onChange, disabled, archived }: Props) {
   const [logoVersion, setLogoVersion] = useState(0);
@@ -24,7 +24,7 @@ export function BrandKitFields({ workspaceId, name, value, onChange, disabled, a
               <input id={`brand-color-${role}`} value={value.colors[role]} maxLength={7} pattern="#[A-Fa-f0-9]{6}" title="Use a six-digit hex color, such as #7C3AED" required className="min-h-11 w-full min-w-0 bg-transparent px-1 text-sm uppercase outline-none" onChange={(event) => onChange({ ...value, colors: { ...value.colors, [role]: event.target.value.toUpperCase() } })} />
             </div><p className="mt-1 text-xs leading-5 text-slate-500">{colorRoles[role]}</p>
           </div>)}
-        </div></section>
+        </div><p className="mt-3 text-sm text-slate-500">Text color is chosen automatically for readable contrast.</p></section>
         <section aria-labelledby="brand-typography"><h3 id="brand-typography" className="font-semibold">Typography</h3><div className="mt-4 grid gap-4 sm:grid-cols-2">
           {([ ["headingFont", "Heading font"], ["bodyFont", "Body font"] ] as const).map(([key, label]) => <label key={key} className="text-sm font-semibold">{label}<select className={field} value={value.typography[key]} style={{ fontFamily: brandFontFamily(value.typography[key]) }} onChange={(event) => onChange({ ...value, typography: { ...value.typography, [key]: event.target.value as BrandKit["typography"][typeof key] } })}>{brandFonts.map((font) => <option key={font}>{font}</option>)}</select></label>)}
         </div><p className="mt-2 text-xs leading-5 text-slate-500">Used for headlines and supporting text in supported layouts. System font availability can vary; a matching fallback is used when needed.</p></section>
